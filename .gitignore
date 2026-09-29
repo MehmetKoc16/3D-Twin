@@ -1,0 +1,75 @@
+# ---- Node ----
+node_modules/
+.npm/
+.pnpm-store/
+
+# ---- Build outputs ----
+dist/
+build/
+.vite/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# ---- Env files ----
+.env
+.env.*
+!.env.example
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---- OS files ----
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- IDE ----
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ---- Blender backups ----
+*.blend1
+*.blend@
+
+# ---- Asset pipeline cache (downloaded raw MakeHuman/Anny data) ----
+tools/asset-pipeline/.cache/
+
+# ---- PERSONAL DATA (never commit) ----
+user-data/
+uploads/
+**/selfies/
+*.selfie.*
+
+# ---- Model weights ----
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.task
+
+# ---- Third-party raw downloads (Mixamo etc.) ----
+third-party-raw/
+
+# ---- Playwright ----
+test-results/
+playwright-report/
+blob-report/
+
+# ---- Local agent state ----
+.claude/settings.local.json
+.codex/

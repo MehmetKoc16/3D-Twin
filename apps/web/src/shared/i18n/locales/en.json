@@ -1,0 +1,5 @@
+{
+  "app": { "title": "Digital Twin" },
+  "panel": { "measurements": "Measurements" },
+  "lang": { "toggle": "TR" }
+}
