@@ -1,0 +1,44 @@
+[
+  {
+    "id": "t-pose",
+    "label": {
+      "tr": "T-Poz",
+      "en": "T-Pose"
+    }
+  },
+  {
+    "id": "a-pose",
+    "label": {
+      "tr": "A-Poz",
+      "en": "A-Pose"
+    }
+  },
+  {
+    "id": "relaxed",
+    "label": {
+      "tr": "Rahat",
+      "en": "Relaxed"
+    }
+  },
+  {
+    "id": "hands-on-hips",
+    "label": {
+      "tr": "Eller belde",
+      "en": "Hands on hips"
+    }
+  },
+  {
+    "id": "walk",
+    "label": {
+      "tr": "Yürüyüş",
+      "en": "Walking step"
+    }
+  },
+  {
+    "id": "side",
+    "label": {
+      "tr": "Yan profil",
+      "en": "Side profile"
+    }
+  }
+]
