@@ -4,7 +4,7 @@
 
 ```
  tools/asset-pipeline (Python)
-   raw MakeHuman / Anny data (.cache, gitignored)
+   raw MakeHuman + MPFB2 CC0 data (.cache, gitignored)
         |  python tools/asset-pipeline/build.py
         v
  apps/web/public/assets/body/   (Git LFS)
@@ -132,27 +132,75 @@ strictly ascending vertex index, deltas with all components below 1e-5 m are dro
 986,852 entries, 15.8 MB raw (`base.glb` 0.98 MB, total 16.9 MB). If the size budget tightens, int16 quantisation per
 target (scale in the manifest) would halve `morphs.bin` (not implemented).
 
-## Planned avatar-core public API (implemented in Wave 1; signatures only)
+## avatar-core public API
+
+Exported from `packages/avatar-core/src/index.ts` (pure TypeScript; types live in `contracts.ts` and `types.ts`).
 
 ```ts
+// morph model
+validateManifest(m: BodyManifest): void;
+buildBasePositions(gltfPositions: Float32Array, manifest: BodyManifest): Float32Array; // render ++ joint points
+parseMorphs(buffer: ArrayBufferLike, manifest: BodyManifest): MorphSet;
+getMorphSet(morphs: ArrayBufferLike | MorphSet, manifest: BodyManifest): MorphSet;    // cached
 macroWeights(manifest: BodyManifest, vars: Partial<Record<MacroVar, number>>): Map<string, number>;
-applyMorphs(base: Float32Array, morphs: ArrayBuffer, manifest: BodyManifest,
-            weights: Map<string, number>, out: Float32Array): void;
-measure(def: MeasureDef, positions: Float32Array): number; // meters
-solveBody(data: { manifest: BodyManifest; base: Float32Array; morphs: ArrayBuffer; measures: MeasuresDef },
-          params: BodyParams, opts?: { maxIterations?: number }): {
-  weights: Map<string, number>;
-  positions: Float32Array;
-  achievedCm: Partial<Record<MeasureId, number>>;
-  estimatedMassKg: number;
-};
+modifierWeights / mergeWeights / combineWeights;                                      // modifier values -> target weights
+applyMorphs(base: Float32Array, morphs: ArrayBufferLike | MorphSet, manifest: BodyManifest,
+            weights: ReadonlyMap<string, number>, out: Float32Array): void;
+// measures and mass
+measure(def: MeasureDef, positions: ArrayLike<number>, renderVertexCount?: number): number; // meters
+estimateMassKg(positions, indices, densityKgPerL?, vertexLimit?): number;
+meshVolumeM3(positions, indices, vertexLimit?): number;
+// solver
+interface SolverData { manifest: BodyManifest; base: Float32Array; morphs: ArrayBufferLike | MorphSet;
+                       measures: MeasuresDef; indices?: ArrayLike<number> }
+solveBody(data: SolverData, params: BodyParams, opts?: SolveOptions): SolveResult;
+createBodySolver(data: SolverData): BodySolver;   // prepared + cached; solver.solve(params, opts) is cheap to repeat
+bmiToWeightValue(bmi: number, knots?): number;
+interface SolveResult { weights; modifierValues; macroVars; positions /* base + morphs, vertexCount * 3 */;
+                        achievedCm; residualsCm; unreachable: MeasureId[]; estimatedMassKg; iterations }
+// skeleton
 computeJoints(rig: RigDef, positions: Float32Array): Map<string, { head: Vec3; tail: Vec3 }>;
+validateRig(rig: RigDef, vertexCount?: number): void;  boneOrder(rig: RigDef): string[];
+// shoes (approximate table, linear interpolation)
 footLengthCmFromShoe(shoe: { system: ShoeSystem; size: number }): number;
-shoeFromFootLengthCm(cm: number, system: ShoeSystem): number; // EU ~ 1.5 * foot_cm + 2, approximate
+shoeFromFootLengthCm(cm: number, system: ShoeSystem): number;
+convertShoeSize(shoe: { system: ShoeSystem; size: number }, to: ShoeSystem): number;
+roundShoeSize(size: number): number;                    // nearest half size
 ```
 
-`solveBody`: bounded Gauss-Newton on a finite-difference Jacobian. Macros first (height/weight/BMI), then local
-measure modifiers. Mass estimate = mesh volume x ~1.01 kg/L; measurements take priority on conflict.
+`solveBody`: (1) height by a 1-D root find on the macro `height` variable, (2) weight: macro `weight` seeded from BMI and
+refined so the mesh mass matches `weightKg`, (3) provided local measures by bounded Levenberg-Marquardt on their driver
+modifiers, nested inside a height root find so the total height stays exact although the leg-height modifiers move it.
+Targets that cannot be met (modifier range exhausted, e.g. a waist far from what the weight implies) are reported in
+`unreachable` with the closest achievable value in `achievedCm`; they are never thrown. Mass = mesh volume x 1.01 kg/L;
+measurements take priority over weight on conflict. A solve takes about 5-15 ms on the real body.
+
+## Runtime flow
+
+```text
+main thread                                   avatar worker (workers/avatar.worker.ts, comlink)
+-----------                                   --------------------------------------------------
+Avatar mounts
+  GLTFLoader: base.glb (skinned mesh, raw)
+  weld map (UV-seam duplicates) built once
+  client.init(raw positions, indices) ------> fetch manifest / measures / rig / morphs.bin (progress -> overlay)
+                                               createBodySolver({ manifest, base, morphs, measures, indices })
+bodyStore.params changes (slider drag)
+  client.solve(params)  [latest wins] ------> solver.solve(params)         (~10 ms)
+                                               re-ground: subtract min y over render vertices
+                                               computeJoints(rig) -> 53 x (head, tail), grounded
+  <------ transferable Float32Arrays: positions, joints; achievedCm, residualsCm, unreachable, mass
+applySolveResult:
+  write positions into the BufferGeometry, welded normals, bounds
+  rebuild rest skeleton: save bone quaternions -> identity -> local = head - parentHead (root = head)
+    -> skeleton.calculateInverses() + bindMatrix -> restore quaternions
+  avatarRuntimeStore.setSkeleton / bumpRestVersion();  solveStore <- achieved values (body panel)
+PoseDriver (features/poses) re-applies the pose on restVersion; focus targets read the posed bones.
+```
+
+Requests are coalesced on the main thread (`LatestWinsRunner`): at most one solve is in flight and one waits, so
+dragging a slider never queues work and the UI thread only does the geometry upload (a few ms). The leg-height morphs push
+the feet below y = 0, so grounding is always applied after solving; joints are shifted by the same offset.
 
 ## File ownership by wave
 

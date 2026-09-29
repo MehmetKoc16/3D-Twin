@@ -1,7 +1,7 @@
-﻿import { Quaternion, Vector3 } from 'three';
-import type { BodyParams } from '@dt/avatar-core';
+import { Quaternion, Vector3 } from 'three';
 import { useViewerStore } from '../../store/viewerStore';
-import { footLengthCmFromShoe } from '../body-panel/shoeSize';
+import { footLengthCmFromShoe } from '@dt/avatar-core';
+import type { BodyParams } from '@dt/avatar-core';
 
 function Limb({ from, to, radius, color }: { from: [number, number, number]; to: [number, number, number]; radius: number; color: string }) {
   const start = new Vector3(...from);
@@ -30,7 +30,7 @@ export function PlaceholderAvatar({ params, poseId }: { params: BodyParams; pose
   const upperRadius = Math.max(0.12, chest / (2 * Math.PI)) * mass * (0.92 + 0.08 * params.gender);
   const waistRadius = Math.max(0.11, waist / (2 * Math.PI)) * mass;
   const hipRadius = Math.max(0.12, hip / (2 * Math.PI)) * mass * (1.08 - 0.08 * params.gender);
-  const footLength = footLengthCmFromShoe(params.shoe.system, params.shoe.size) / 100;
+  const footLength = footLengthCmFromShoe(params.shoe) / 100;
   const armAngle = poseId === 't-pose' ? 0 : poseId === 'a-pose' ? 0.55 : poseId === 'relaxed' ? 1.25 : poseId === 'hands-on-hips' ? 0.95 : 1.4;
   const armReach = h * 0.34;
   const shoulderY = h * 0.79;

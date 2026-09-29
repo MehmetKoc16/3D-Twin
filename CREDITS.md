@@ -4,7 +4,11 @@
 
 - **MakeHuman assets** (base mesh, targets, rig, clothes) - [makehumancommunity](https://github.com/makehumancommunity),
   licensed **CC0 1.0** (Public Domain Dedication). The MakeHuman application code is GPL-3.0; this project uses
-  only the CC0 asset data, not the code.
+  only the CC0 asset data, not the code. Pinned commit: `a8bc2d54ff0ac92e78ff71431b1023eda42bf482`
+  (base mesh, targets).
+- **MPFB2** (MakeHuman Plugin for Blender) - `game_engine` rig and skin weights - [makehumancommunity/mpfb2](https://github.com/makehumancommunity/mpfb2),
+  data licensed **CC0 1.0** (the plugin code is GPL-3.0 and is not used). Pinned commit:
+  `3edf9df0551765be43563d047888cf7877eb89b4`.
 
 ## Libraries
 

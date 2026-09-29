@@ -3,18 +3,22 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { CameraControls, ContactShadows } from '@react-three/drei';
 import { useTranslation } from 'react-i18next';
 import { AvatarSlot } from './AvatarSlot';
-import { defaultFocusTargetProvider } from './focusTargets';
+import { boneFocusTargetProvider } from './boneFocusTargets';
 import type { FocusPreset, FocusTargetProvider } from './focusTargets';
+import { useAvatarLoadStore } from '../../store/avatarLoadStore';
+import { useAvatarRuntimeStore } from '../../store/avatarRuntimeStore';
 import { useBodyStore } from '../../store/bodyStore';
 import { usePoseStore } from '../../store/poseStore';
 import { useViewerStore } from '../../store/viewerStore';
 import { PoseBar } from '../poses/PoseBar';
+import { PoseDriver } from '../poses/PoseDriver';
 
 const presets: FocusPreset[] = ['full', 'face', 'upper', 'lower', 'feet'];
 
 function CameraRig({ heightM, provider }: { heightM: number; provider: FocusTargetProvider }) {
   const controls = useRef<React.ComponentRef<typeof CameraControls>>(null);
   const { focusPreset, focusRequest, focusPoint, autoRotate } = useViewerStore();
+  const restVersion = useAvatarRuntimeStore((state) => state.restVersion);
 
   useEffect(() => {
     const destination = focusPoint
@@ -23,7 +27,7 @@ function CameraRig({ heightM, provider }: { heightM: number; provider: FocusTarg
     const [x, y, z] = destination.target;
     void controls.current?.setLookAt(x + destination.distance * 0.32, y + destination.distance * 0.12,
       z + destination.distance * 0.95, x, y, z, true);
-  }, [heightM, provider, focusPreset, focusRequest, focusPoint]);
+  }, [heightM, restVersion, provider, focusPreset, focusRequest, focusPoint]);
 
   useFrame((_, delta) => {
     if (autoRotate) controls.current?.rotate(0.35 * delta, 0, true);
@@ -37,23 +41,49 @@ function Scene({ provider }: { provider: FocusTargetProvider }) {
   return <>
     <color attach="background" args={['#1b2529']} />
     <hemisphereLight args={['#d5e8ef', '#38434a', 2.2]} />
-    <directionalLight position={[2.5, 5, 4]} intensity={2.6} />
+    <directionalLight position={[2.5, 5, 4]} intensity={2.6} castShadow shadow-mapSize={[2048, 2048]}
+      shadow-bias={-0.0004} shadow-normalBias={0.02}
+      shadow-camera-left={-1.6} shadow-camera-right={1.6} shadow-camera-top={2.4} shadow-camera-bottom={-0.5}
+      shadow-camera-near={1} shadow-camera-far={12} />
     <directionalLight position={[-3, 3, -2]} intensity={1.8} color="#8bc9cf" />
     <mesh position={[0, -0.11, 0]} receiveShadow>
       <cylinderGeometry args={[1.08, 1.13, 0.2, 64]} />
       <meshStandardMaterial color="#2c383c" metalness={0.35} roughness={0.6} />
     </mesh>
-    <mesh position={[0, 0, 0]} receiveShadow>
+    <mesh position={[0, -0.0075, 0]} receiveShadow>
       <cylinderGeometry args={[1.06, 1.06, 0.015, 64]} />
       <meshStandardMaterial color="#3e5052" metalness={0.2} roughness={0.85} />
     </mesh>
     <ContactShadows position={[0, -0.2, 0]} opacity={0.25} scale={1.4} blur={4} far={2} />
     <AvatarSlot params={params} poseId={poseId} />
+    <PoseDriver />
     <CameraRig heightM={params.heightCm / 100} provider={provider} />
   </>;
 }
 
-export function Viewer({ focusTargetProvider = defaultFocusTargetProvider }: { focusTargetProvider?: FocusTargetProvider }) {
+function AvatarStatus() {
+  const { t } = useTranslation();
+  const { status, progress, error } = useAvatarLoadStore();
+  if (status === 'ready') return <div data-testid="avatar-ready" className="sr-only" />;
+  if (status === 'error') {
+    return <div role="alert" data-testid="avatar-error" className="absolute inset-x-4 top-16 mx-auto max-w-md rounded-xl border border-amber-400/40 bg-slate-950/85 p-3 text-sm text-amber-200 shadow-xl backdrop-blur">
+      <strong className="block">{t('viewer.loadError')}</strong>
+      <span className="mt-1 block text-xs text-amber-100/80">{error}</span>
+    </div>;
+  }
+  const percent = Math.round(progress * 100);
+  return <div role="status" data-testid="avatar-loading" className="pointer-events-none absolute inset-0 grid place-items-center bg-[#171d21]/70">
+    <div className="w-64 rounded-xl border border-white/10 bg-slate-950/80 p-4 text-center shadow-xl backdrop-blur">
+      <p className="text-sm font-medium text-slate-100">{t('viewer.loading')}</p>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+        <div className="h-full rounded-full bg-teal-400 transition-[width]" style={{ width: `${percent}%` }} />
+      </div>
+      <p className="mt-2 text-xs text-slate-400">{percent}%</p>
+    </div>
+  </div>;
+}
+
+export function Viewer({ focusTargetProvider = boneFocusTargetProvider }: { focusTargetProvider?: FocusTargetProvider }) {
   const { t } = useTranslation();
   const { focusPreset, autoRotate, requestFocus, toggleAutoRotate } = useViewerStore();
   useEffect(() => {
@@ -89,6 +119,7 @@ export function Viewer({ focusTargetProvider = defaultFocusTargetProvider }: { f
         {t('viewer.reset')}
       </button>
     </div>
+    <AvatarStatus />
     <PoseBar />
   </div>;
 }

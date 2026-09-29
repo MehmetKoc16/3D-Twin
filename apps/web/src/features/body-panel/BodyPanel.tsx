@@ -1,9 +1,11 @@
-﻿import { useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BodyParams, ShoeSystem } from '@dt/avatar-core';
+import { convertShoeSize, footLengthCmFromShoe, roundShoeSize } from '@dt/avatar-core';
+import type { BodyParams, MeasureId, ShoeSystem } from '@dt/avatar-core';
+import { skinTones, useAppearanceStore } from '../../store/appearanceStore';
 import { useBodyStore, isBodyParams } from '../../store/bodyStore';
-import { convertShoeSize, footLengthCmFromShoe, shoeSizes } from './shoeSize';
+import { useSolveStore } from '../../store/solveStore';
 
 type NumericField = Exclude<keyof BodyParams, 'shoe'>;
 interface FieldDef { key: NumericField; min: number; max: number; step?: number; unit: string; optional?: boolean }
@@ -27,7 +29,42 @@ const advanced: FieldDef[] = [
   { key: 'armLengthCm', min: 45, max: 85, unit: 'cm', optional: true },
   { key: 'inseamCm', min: 55, max: 105, unit: 'cm', optional: true },
 ];
+/** Panel field -> solver measure id (gender and weight have no measure; weight shows the estimated mass). */
+const measureOf: Partial<Record<NumericField, MeasureId>> = {
+  heightCm: 'height', shoulderCm: 'shoulder', neckCm: 'neck', chestCm: 'chest', waistCm: 'waist', hipCm: 'hip',
+  thighCm: 'thigh', upperArmCm: 'upperArm', armLengthCm: 'armLength', inseamCm: 'inseam',
+};
+const systems: ShoeSystem[] = ['EU', 'US_M', 'US_W', 'UK'];
 const buttonClass = 'rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400';
+
+function WarningIcon() {
+  return <svg viewBox="0 0 20 20" className="size-4 fill-amber-400" aria-hidden="true">
+    <path d="M10 2 1 18h18L10 2Zm-1 6h2v5H9V8Zm0 6h2v2H9v-2Z" />
+  </svg>;
+}
+
+/** "≈ 99.8 cm" as reported by the solver, plus a warning when the target could not be reached. */
+function Achieved({ field }: { field: FieldDef }) {
+  const { t } = useTranslation();
+  const id = measureOf[field.key];
+  const achieved = useSolveStore((state) => (id ? state.achievedCm[id] : undefined));
+  const unreachable = useSolveStore((state) => (id ? state.unreachable.includes(id) : false));
+  const mass = useSolveStore((state) => state.estimatedMassKg);
+  const isWeight = field.key === 'weightKg';
+  const value = isWeight ? mass : achieved;
+  if (value === null || value === undefined) return null;
+  const text = `≈ ${value.toFixed(1)} ${isWeight ? 'kg' : 'cm'}`;
+  return <div className="mt-1 flex items-center justify-end gap-1.5 text-xs text-slate-400" data-testid={`achieved-${field.key}`}>
+    <span className={unreachable ? 'text-amber-300' : ''}>{isWeight ? `${t('measure.estimatedMass')} ${text}` : `${t('measure.achieved')} ${text}`}</span>
+    {unreachable && <span className="group relative inline-flex">
+      <button type="button" aria-label={t('measure.unreachable.label')} aria-describedby={`warn-${field.key}`}
+        className="grid size-5 place-items-center rounded-full focus-visible:outline-2 focus-visible:outline-teal-400"><WarningIcon /></button>
+      <span id={`warn-${field.key}`} role="tooltip" className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 hidden w-56 rounded-lg border border-amber-400/40 bg-slate-800 p-2 text-left text-xs leading-relaxed text-slate-100 shadow-xl group-hover:block group-focus-within:block">
+        {t('measure.unreachable.tip', { value: value.toFixed(1) })}
+      </span>
+    </span>}
+  </div>;
+}
 
 function MeasurementField({ field }: { field: FieldDef }) {
   const { t } = useTranslation();
@@ -66,12 +103,38 @@ function MeasurementField({ field }: { field: FieldDef }) {
         <span className="w-5 text-xs text-slate-400">{field.unit}</span>
       </div>
     </div>
+    <Achieved field={field} />
   </div>;
 }
 
 function Section({ title, fields }: { title: string; fields: FieldDef[] }) {
   return <section className="mt-5"><h3 className="text-xs font-bold uppercase tracking-[0.16em] text-teal-300">{title}</h3>
     <div className="mt-1">{fields.map((field) => <MeasurementField key={field.key} field={field} />)}</div>
+  </section>;
+}
+
+/** Selectable sizes of the current system: EU 35..48 converted through avatar-core, plus the current value. */
+function shoeSizeOptions(shoe: BodyParams['shoe']): number[] {
+  const sizes = new Set<number>([shoe.size]);
+  for (let eu = 35; eu <= 48; eu++) sizes.add(roundShoeSize(convertShoeSize({ system: 'EU', size: eu }, shoe.system)));
+  return [...sizes].sort((a, b) => a - b);
+}
+
+function AppearanceSection() {
+  const { t } = useTranslation();
+  const { mode, toneIndex, setMode, setTone } = useAppearanceStore();
+  const chip = 'rounded-lg border px-3 py-2 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400';
+  return <section className="mt-5"><h3 className="text-xs font-bold uppercase tracking-[0.16em] text-teal-300">{t('panel.appearance')}</h3>
+    <div className="mt-3 flex gap-2" role="group" aria-label={t('panel.appearance')}>
+      {(['skin', 'mannequin'] as const).map((value) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)}
+        className={`${chip} ${mode === value ? 'border-teal-300 bg-teal-400 text-slate-950' : 'border-white/15 bg-white/5 hover:bg-white/10'}`}>{t(`appearance.${value}`)}</button>)}
+    </div>
+    <div className="mt-3 flex gap-2" role="group" aria-label={t('appearance.tone.label')}>
+      {skinTones.map((tone, index) => <button key={tone.id} type="button" onClick={() => setTone(index)}
+        aria-label={t(`appearance.tone.${tone.id}`)} aria-pressed={mode === 'skin' && toneIndex === index} title={t(`appearance.tone.${tone.id}`)}
+        style={{ backgroundColor: tone.color }}
+        className={`size-8 rounded-full border-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400 ${mode === 'skin' && toneIndex === index ? 'border-white' : 'border-transparent'}`} />)}
+    </div>
   </section>;
 }
 
@@ -98,7 +161,7 @@ export function BodyPanel() {
     anchor.href = url; anchor.download = 'digital-twin-profile.json'; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const systems: ShoeSystem[] = ['EU', 'US_M', 'US_W', 'UK'];
+  const shoeOptions = shoeSizeOptions(params.shoe);
   return <div className="px-5 pb-10 pt-6">
     <div className="mb-5"><p className="text-[11px] font-bold uppercase tracking-[0.2em] text-teal-300">{t('panel.subtitle')}</p>
       <h2 className="mt-1 text-2xl font-semibold tracking-tight">{t('panel.title')}</h2>
@@ -120,17 +183,18 @@ export function BodyPanel() {
         <label className="flex-1 text-xs text-slate-400">{t('measure.shoeSize.label')}
           <select value={params.shoe.size} onChange={(event) => setShoe({ ...params.shoe, size: Number(event.target.value) })}
             className="mt-1 block w-full rounded-lg border border-white/15 bg-slate-900 p-2 text-sm text-white focus-visible:outline-2 focus-visible:outline-teal-400">
-            {shoeSizes.map((row) => <option key={row.EU} value={row[params.shoe.system]}>{row[params.shoe.system]}</option>)}
+            {shoeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
           </select></label>
         <label className="flex-1 text-xs text-slate-400">{t('measure.shoeSystem.label')}
-          <select value={params.shoe.system} onChange={(event) => { const system = event.target.value as ShoeSystem; setShoe({ system, size: convertShoeSize(params.shoe.size, params.shoe.system, system) }); }}
+          <select value={params.shoe.system} onChange={(event) => { const system = event.target.value as ShoeSystem; setShoe({ system, size: roundShoeSize(convertShoeSize(params.shoe, system)) }); }}
             className="mt-1 block w-full rounded-lg border border-white/15 bg-slate-900 p-2 text-sm text-white focus-visible:outline-2 focus-visible:outline-teal-400">
             {systems.map((system) => <option key={system} value={system}>{t(`measure.system.${system}`)}</option>)}
           </select></label>
       </div>
-      <p className="mt-3 text-sm text-slate-300">{t('measure.footLength')}: <strong className="text-white">{footLengthCmFromShoe(params.shoe.system, params.shoe.size).toFixed(1)} cm</strong></p>
+      <p className="mt-3 text-sm text-slate-300">{t('measure.footLength')}: <strong className="text-white">{footLengthCmFromShoe(params.shoe).toFixed(1)} cm</strong></p>
       <p className="mt-1 text-xs text-slate-500">{t('measure.shoeSize.help')}</p>
     </section>
+    <AppearanceSection />
     <section className="mt-7 border-t border-white/10 pt-5"><h3 className="text-xs font-bold uppercase tracking-[0.16em] text-teal-300">{t('panel.profile')}</h3>
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" className={`${buttonClass} border-teal-400/50 text-teal-200`} onClick={() => void save().then((ok) => setStatus(t(ok ? 'panel.saved' : 'panel.saveError')))}>{t('panel.save')}</button>

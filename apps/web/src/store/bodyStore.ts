@@ -5,7 +5,7 @@ import type { BodyParams } from '@dt/avatar-core';
 const storageKey = 'digital-twin-body-v1';
 export const defaultBodyParams: BodyParams = {
   gender: 1, heightCm: 175, weightKg: 75,
-  shoulderCm: 46, neckCm: 39, chestCm: 100, waistCm: 86, hipCm: 100,
+  shoulderCm: 44, neckCm: 39, chestCm: 100, waistCm: 86, hipCm: 100,
   shoe: { system: 'EU', size: 42 },
 };
 
