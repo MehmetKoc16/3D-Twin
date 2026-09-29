@@ -1,0 +1,41 @@
+{
+  "title": "Face",
+  "description": "Upload a selfie and your face is transferred onto your avatar's texture.",
+  "privacy": "Your photo never leaves this device: everything runs in your browser and nothing is sent to any server.",
+  "drop": "Drag a photo here or choose one",
+  "formats": "JPG, PNG or WebP · up to 15 MB · a sharp, front-facing photo works best",
+  "choose": "Choose photo",
+  "camera": "Use camera",
+  "capture": "Take photo",
+  "cameraCancel": "Close camera",
+  "cameraError": "Could not access the camera. Check permissions or choose a file.",
+  "apply": "Apply to avatar",
+  "remove": "Remove photo",
+  "previewAlt": "Uploaded photo with detected face landmarks",
+  "landmarks": "{{count}} face landmarks found",
+  "skinTone": "Estimated skin tone",
+  "status": {
+    "idle": "Waiting for a photo",
+    "loading-model": "Loading face model…",
+    "detecting": "Detecting face…",
+    "ready-to-bake": "Face detected, ready to apply",
+    "baking": "Building face texture…",
+    "baked": "Face applied to the avatar",
+    "error": "Something went wrong"
+  },
+  "hints": {
+    "noFace": "No face found in the photo.",
+    "multipleFaces": "More than one face found; the largest one will be used.",
+    "tooSmall": "The face is too small in the photo; take it from closer.",
+    "notFrontal": "The face is not frontal; look straight at the camera.",
+    "tooDark": "The photo is too dark; try a brighter place."
+  },
+  "errors": {
+    "invalidType": "Only JPG, PNG or WebP files are supported.",
+    "tooLarge": "The file exceeds the 15 MB limit.",
+    "noFace": "No face found in the photo. Try a different one.",
+    "detectFailed": "Face detection could not start. Reload the page and try again.",
+    "faceMapMissing": "The face mapping data is not available yet, so it cannot be applied right now.",
+    "bakeFailed": "Could not build the face texture."
+  }
+}

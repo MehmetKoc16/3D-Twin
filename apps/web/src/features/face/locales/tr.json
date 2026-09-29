@@ -1,0 +1,41 @@
+{
+  "title": "Yüz",
+  "description": "Bir selfie yükleyin; yüzünüz avatarınızın dokusuna aktarılır.",
+  "privacy": "Fotoğrafınız bu cihazdan çıkmaz: tüm işlem tarayıcınızda yapılır ve hiçbir sunucuya gönderilmez.",
+  "drop": "Fotoğrafı buraya sürükleyin veya seçin",
+  "formats": "JPG, PNG veya WebP · en fazla 15 MB · yüzü net ve karşıdan çekilmiş fotoğraf",
+  "choose": "Fotoğraf seç",
+  "camera": "Kamerayı kullan",
+  "capture": "Fotoğraf çek",
+  "cameraCancel": "Kamerayı kapat",
+  "cameraError": "Kameraya erişilemedi. İzinleri kontrol edin veya bir dosya seçin.",
+  "apply": "Avatara uygula",
+  "remove": "Fotoğrafı kaldır",
+  "previewAlt": "Yüklenen fotoğraf ve tespit edilen yüz noktaları",
+  "landmarks": "{{count}} yüz noktası bulundu",
+  "skinTone": "Tahmini ten rengi",
+  "status": {
+    "idle": "Fotoğraf bekleniyor",
+    "loading-model": "Yüz modeli yükleniyor…",
+    "detecting": "Yüz algılanıyor…",
+    "ready-to-bake": "Yüz algılandı, uygulamaya hazır",
+    "baking": "Yüz dokusu hazırlanıyor…",
+    "baked": "Yüz avatara uygulandı",
+    "error": "Bir sorun oluştu"
+  },
+  "hints": {
+    "noFace": "Fotoğrafta yüz bulunamadı.",
+    "multipleFaces": "Birden fazla yüz var; en büyük yüz kullanılacak.",
+    "tooSmall": "Yüz fotoğrafta çok küçük; daha yakından çekin.",
+    "notFrontal": "Yüz karşıdan görünmüyor; kameraya dik bakın.",
+    "tooDark": "Fotoğraf çok karanlık; daha aydınlık bir ortam deneyin."
+  },
+  "errors": {
+    "invalidType": "Yalnızca JPG, PNG veya WebP dosyaları desteklenir.",
+    "tooLarge": "Dosya 15 MB sınırını aşıyor.",
+    "noFace": "Fotoğrafta yüz bulunamadı. Farklı bir fotoğraf deneyin.",
+    "detectFailed": "Yüz algılama başlatılamadı. Sayfayı yenileyip tekrar deneyin.",
+    "faceMapMissing": "Yüz eşleme verisi henüz mevcut değil; uygulama şu an yapılamıyor.",
+    "bakeFailed": "Yüz dokusu oluşturulamadı."
+  }
+}
