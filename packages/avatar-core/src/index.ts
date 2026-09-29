@@ -1,5 +1,6 @@
 export * from './contracts';
 export * from './faceContracts';
+export * from './garmentContracts';
 export * from './types';
 export { AvatarCoreError } from './errors';
 export {

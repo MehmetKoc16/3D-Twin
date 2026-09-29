@@ -127,12 +127,4 @@ export interface BodyParams {
   inseamCm?: number;
   shoe: { system: ShoeSystem; size: number };
 }
-export interface GarmentDef {
-  /* DRAFT — finalized in Wave 4 */
-  id: string;
-  category: 'top' | 'bottom' | 'shoes';
-  license: 'CC0-1.0' | 'CC-BY-4.0' | 'user';
-  attribution?: string;
-  mesh: string;
-  bindings?: string;
-}
+/* Garment contracts live in garmentContracts.ts (wave 4). */
