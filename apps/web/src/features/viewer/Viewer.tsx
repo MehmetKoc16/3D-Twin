@@ -1,6 +1,7 @@
-import { Suspense, useEffect, useRef } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { CameraControls, ContactShadows } from '@react-three/drei';
+import { Vector3 } from 'three';
 import { useTranslation } from 'react-i18next';
 import { AvatarSlot } from './AvatarSlot';
 import { boneFocusTargetProvider } from './boneFocusTargets';
@@ -17,22 +18,48 @@ const presets: FocusPreset[] = ['full', 'face', 'upper', 'lower', 'feet'];
 
 function CameraRig({ heightM, provider }: { heightM: number; provider: FocusTargetProvider }) {
   const controls = useRef<React.ComponentRef<typeof CameraControls>>(null);
+  const [dragging, setDragging] = useState(false);
+  const lastRequest = useRef(0);
+  const framedAvatar = useRef(false);
+  const targetHeight = useRef<number | null>(null);
   const { focusPreset, focusRequest, focusPoint, autoRotate } = useViewerStore();
   const restVersion = useAvatarRuntimeStore((state) => state.restVersion);
+  const avatarReady = useAvatarLoadStore((state) => state.status === 'ready');
 
   useEffect(() => {
+    const camera = controls.current;
+    if (!camera || dragging) return;
+    const requested = focusRequest !== lastRequest.current;
+    if (!requested && (!avatarReady || !framedAvatar.current)) {
+      if (!avatarReady) return;
+    }
     const destination = focusPoint
       ? { target: focusPoint, distance: 0.8 }
       : provider.getTargets(heightM)[focusPreset];
     const [x, y, z] = destination.target;
-    void controls.current?.setLookAt(x + destination.distance * 0.32, y + destination.distance * 0.12,
-      z + destination.distance * 0.95, x, y, z, true);
-  }, [heightM, restVersion, provider, focusPreset, focusRequest, focusPoint]);
+    if (requested || !framedAvatar.current) {
+      void camera.setLookAt(x + destination.distance * 0.32, y + destination.distance * 0.12,
+        z + destination.distance * 0.95, x, y, z, true);
+      lastRequest.current = focusRequest;
+      framedAvatar.current = avatarReady;
+      targetHeight.current = y;
+    } else if (!focusPoint && targetHeight.current !== null && Math.abs(y - targetHeight.current) > 0.02) {
+      const deltaY = y - targetHeight.current;
+      const position = camera.getPosition(new Vector3());
+      const target = camera.getTarget(new Vector3());
+      // Move the camera and target together to keep the user's orbit and distance.
+      void camera.setLookAt(position.x, position.y + deltaY, position.z,
+        target.x, target.y + deltaY, target.z, true);
+      targetHeight.current = y;
+    }
+  }, [avatarReady, dragging, heightM, restVersion, provider, focusPreset, focusRequest, focusPoint]);
 
   useFrame((_, delta) => {
-    if (autoRotate) controls.current?.rotate(0.35 * delta, 0, true);
+    if (autoRotate && !dragging) controls.current?.rotate(0.35 * delta, 0, true);
   });
-  return <CameraControls ref={controls} minDistance={0.25} maxDistance={6} smoothTime={0.55} />;
+  return <CameraControls ref={controls} minDistance={0.25} maxDistance={6} smoothTime={0.55}
+    onControlStart={() => { controls.current?.stop(); setDragging(true); }}
+    onControlEnd={() => setDragging(false)} />;
 }
 
 function Scene({ provider }: { provider: FocusTargetProvider }) {

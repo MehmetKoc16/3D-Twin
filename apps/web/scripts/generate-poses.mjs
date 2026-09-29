@@ -70,21 +70,36 @@ function createPose(id, label) {
   return { posedHead, aim, setWorldRotation, setLocal, output };
 }
 
-function horizontalHand(pose, side) {
+function orientHand(pose, side, desiredDirection, desiredPalmNormal) {
+  const axis = desiredDirection.clone().normalize();
   const sign = side === 'l' ? 1 : -1;
-  const axis = new Vector3(sign, 0, 0);
   const swing = new Quaternion().setFromUnitVectors(direction(`hand_${side}`), axis);
   // Palm plane from wrist, middle knuckle, and index-to-pinky knuckle span.
   const palmNormal = head(`middle_01_${side}`)
     .sub(head(`hand_${side}`))
     .cross(head(`pinky_01_${side}`).sub(head(`index_01_${side}`)))
     .normalize();
-  const swungNormal = palmNormal
-    .applyQuaternion(swing)
-    .addScaledVector(axis, -palmNormal.dot(axis))
-    .normalize();
-  const twist = new Quaternion().setFromUnitVectors(swungNormal, new Vector3(0, -1, 0));
+  const swungNormal = palmNormal.applyQuaternion(swing).projectOnPlane(axis).normalize();
+  const targetNormal = desiredPalmNormal.clone().multiplyScalar(sign).projectOnPlane(axis).normalize();
+  const twistAngle = Math.atan2(
+    axis.dot(new Vector3().crossVectors(swungNormal, targetNormal)),
+    swungNormal.dot(targetNormal),
+  );
+  const twist = new Quaternion().setFromAxisAngle(axis, twistAngle);
   pose.setWorldRotation(`hand_${side}`, twist.multiply(swing));
+}
+
+function straightFingers(pose, side) {
+  const sign = side === 'l' ? 1 : -1;
+  const spread = { index: 0.10, middle: 0.035, ring: -0.035, pinky: -0.10 };
+  for (const [finger, forward] of Object.entries(spread)) {
+    for (const segment of [1, 2, 3]) {
+      pose.aim(`${finger}_0${segment}_${side}`, new Vector3(sign, 0, forward));
+    }
+  }
+  for (const segment of [1, 2, 3]) {
+    pose.aim(`thumb_0${segment}_${side}`, new Vector3(sign * 0.4, 0, 0.9));
+  }
 }
 
 function curlFingers(pose) {
@@ -129,7 +144,7 @@ function relaxedArms(pose, intent) {
         forward + Math.sin(degrees(intent.elbowFlexDeg)),
       ),
     );
-    pose.aim(`hand_${side}`, new Vector3(sign * 0.08, -0.94, 0.3));
+    orientHand(pose, side, new Vector3(sign * 0.08, -0.94, 0.3), new Vector3(-sign, 0, 0));
   }
   curlFingers(pose);
 }
@@ -195,9 +210,10 @@ function build(spec) {
       for (const side of ['l', 'r']) {
         const sign = side === 'l' ? 1 : -1;
         for (const part of ['upperarm', 'lowerarm']) {
-          pose.aim(`${part}_${side}`, new Vector3(sign, 0, 0));
+          pose.aim(`${part}_${side}`, new Vector3(sign, 0.045, 0));
         }
-        horizontalHand(pose, side);
+        orientHand(pose, side, new Vector3(sign, 0, 0), new Vector3(0, -1, 0.35));
+        straightFingers(pose, side);
       }
       break;
     case 'a-pose':

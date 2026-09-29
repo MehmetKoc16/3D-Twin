@@ -25,6 +25,10 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-explicit-any': 'error' },
   },
   {
+    files: ['**/scripts/**/*.{js,mjs}'],
+    languageOptions: { globals: globals.node },
+  },
+  {
     files: ['apps/web/src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
     rules: {

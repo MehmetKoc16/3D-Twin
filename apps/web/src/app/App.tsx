@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BodyPanel } from '../features/body-panel/BodyPanel';
-import { Viewer } from '../features/viewer/Viewer';
 import { useBodyStore } from '../store/bodyStore';
 import faviconUrl from './favicon.svg?url';
+
+const Viewer = lazy(() => import('../features/viewer/Viewer').then((module) => ({ default: module.Viewer })));
+const BodyPanel = lazy(() => import('../features/body-panel/BodyPanel').then((module) => ({ default: module.BodyPanel })));
 
 export function App() {
   const { t, i18n } = useTranslation();
@@ -31,10 +32,10 @@ export function App() {
       </header>
       <div className="flex min-h-0 flex-1 flex-col min-[900px]:flex-row">
         <main className="relative min-h-[540px] min-w-0 flex-1 bg-[#171d21] max-[899px]:h-[62dvh] max-[899px]:min-h-[450px]">
-          <Viewer />
+          <Suspense fallback={null}><Viewer /></Suspense>
         </main>
         <aside className="w-full shrink-0 border-t border-white/10 bg-[#15191d] min-[900px]:min-h-0 min-[900px]:w-[380px] min-[900px]:overflow-y-auto min-[900px]:border-l min-[900px]:border-t-0" aria-label={t('panel.title')}>
-          <BodyPanel />
+          <Suspense fallback={null}><BodyPanel /></Suspense>
         </aside>
       </div>
     </div>

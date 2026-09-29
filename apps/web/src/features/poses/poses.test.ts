@@ -98,6 +98,21 @@ describe('generated poses on the real rig', () => {
       expect(
         elbow.clone().sub(shoulder).normalize().dot(wrist.clone().sub(elbow).normalize()),
       ).toBeGreaterThan(0.99);
+      const forearm = wrist.clone().sub(elbow).normalize();
+      const hand = state.end(`hand_${side}`).clone().sub(wrist).normalize();
+      expect(forearm.angleTo(hand), `${side} wrist bend`).toBeLessThan((5 * Math.PI) / 180);
+      for (const finger of ['index', 'middle', 'ring', 'pinky']) {
+        for (const segment of [1, 2, 3]) {
+          const name = `${finger}_0${segment}_${side}`;
+          const fingerDirection = state.end(name).clone().sub(state.joint(name)).normalize();
+          expect(forearm.angleTo(fingerDirection), `${name} bend`).toBeLessThan((7 * Math.PI) / 180);
+        }
+        expect(Math.abs(state.end(`${finger}_03_${side}`).y - shoulder.y), `${finger} fingertip height`)
+          .toBeLessThan(0.03);
+      }
+      const thumbDirection = state.end(`thumb_03_${side}`).clone().sub(state.joint(`thumb_03_${side}`)).normalize();
+      expect(thumbDirection.z).toBeGreaterThan(0.8);
+      expect(Math.abs(state.end(`thumb_03_${side}`).y - shoulder.y)).toBeLessThan(0.03);
       const palmNormal = state
         .joint(`middle_01_${side}`)
         .clone()
@@ -109,7 +124,7 @@ describe('generated poses on the real rig', () => {
             .sub(state.joint(`index_01_${side}`)),
         )
         .normalize();
-      expect(palmNormal.y).toBeLessThan(-0.9);
+      expect(palmNormal.y * (side === 'l' ? -1 : 1)).toBeGreaterThan(0.85);
     }
   });
 
@@ -128,6 +143,9 @@ describe('generated poses on the real rig', () => {
       const hand = state.joint(`hand_${side}`);
       expect(hand.y).toBeLessThan(state.joint('pelvis').y);
       expect(Math.abs(hand.x)).toBeGreaterThan(Math.abs(state.joint(`thigh_${side}`).x));
+      const palmNormal = state.joint(`middle_01_${side}`).clone().sub(hand)
+        .cross(state.joint(`pinky_01_${side}`).clone().sub(state.joint(`index_01_${side}`))).normalize();
+      expect(palmNormal.x).toBeLessThan(-0.8);
     }
   });
 
