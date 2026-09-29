@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@dt/avatar-core": "*",
+    "@mediapipe/tasks-vision": "^1.0.1",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "@tailwindcss/vite": "^4.3.3",
