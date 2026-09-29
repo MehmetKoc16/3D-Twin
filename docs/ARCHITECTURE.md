@@ -229,6 +229,47 @@ Requests are coalesced on the main thread (`LatestWinsRunner`): at most one solv
 dragging a slider never queues work and the UI thread only does the geometry upload (a few ms). The leg-height morphs push
 the feet below y = 0, so grounding is always applied after solving; joints are shifted by the same offset.
 
+### Wardrobe (try-on, Wave 4c)
+
+```text
+public/assets/garments/index.json  (GarmentTemplateDef[])  + <id>.glb  <id>.bind.bin  <id>.delete.bin
+        |  wardrobeStore.loadCatalog (catalogue)      IndexedDB `wardrobe:item:<id>`, `wardrobe:worn` (StoreItemDef, worn map)
+        v
+WardrobePanel: catalogue (licence badge, attribution) -> StoreItemForm (chartModel: sizes x measures, flat x2,
+               EU shoe sizes -> inner length, colour from a local photo by k-means) -> saved items -> Wear
+        |  wardrobeStore.worn (one item per category: top / bottom / shoes)
+        v
+WardrobeRig (created by Avatar; Avatar forwards every solve after the body geometry + skeleton were updated)
+  per worn item: GarmentInstance = SkinnedMesh on the avatar's Skeleton
+    once per template: glb index + UV, parseGarmentBinding, garmentSkinWeights from the body's skin attributes
+    after EVERY solve (solved, grounded render positions):
+      bindGarment -> buildGradeRings (chart[size] - (body + template defaultEase) at the chest / waist / hip / thigh
+      planes taken from measures.json loops) -> gradeGarment (leg-aware below the crotch) -> pushOutside (layering)
+      -> welded normals -> [heatmap: garmentClearance -> clearanceToColor vertex colours]
+  body: delete lists + body vertices under each garment's footprint are hidden (index rebuilt when the worn set changes)
+  shoes: the avatar (scene) is lifted so the lowest sole vertex stands at y = 0
+Fit report (React, no worker): analyzeItemFit = analyzeFit on solveStore.achievedCm; chips per region, overall,
+recommended size; recomputed whenever the body or the selected size changes.
+```
+
+Details that are not obvious:
+
+- Grading target. The bound garment already follows the body with the template's own ease, so the ring delta is
+  `chart - (body + defaultEase)`, not `chart - nativeMeasures` (identical only on the neutral body).
+- Leg-aware grade / clearance. avatar-core pools all vertices of a 1 cm height bin, which puts the centroid between
+  the legs; below the crotch the pass is run once per leg on a body copy that keeps only that leg in the bins.
+- Poke-through. MakeHuman delete lists leave islands (navel); body vertices that project into a garment triangle
+  (within 2 cm, prism test) are hidden too, a triangle is dropped only if all three vertices are hidden, so no hole
+  opens at a hem. A jumper (layer 2) over trousers (layer 1): its vertices are pushed out of the trousers and the
+  trousers' triangles under its footprint are hidden; trousers are pushed out of shoes.
+- Colour. Templates carry a neutral grey texture whose mean is `baseColor`; the material colour is
+  `item / baseColor` per linear channel, so the default shows the texture unchanged and a picked colour keeps the
+  fabric detail.
+- Fit verdict wording. Girths use tight / snug / comfortable / loose / oversized; sleeve, length and inseam use
+  short ... very long. Sleeve and inseam are compared with the template's intended length on the body (body +
+  `defaultEase`), and the sleeve of a short-sleeve template is shown as information only.
+- Privacy. Store URLs are stored as text and never fetched; a product photo is decoded on a canvas for its colour only.
+
 ## File ownership by wave
 
 | Wave | Work                                                                    | Owner (executor)            | Files                                                                  |

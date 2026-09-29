@@ -11,6 +11,7 @@ import { applySolveResult } from './applySolve';
 import { loadAvatarAssets, type AvatarAssets } from './avatarAssets';
 import { resolveSkinHex } from './skinComposite';
 import { SkinMap } from './SkinMap';
+import { WardrobeRig } from '../wardrobe/wardrobeRig';
 
 function setMap(assets: AvatarAssets, map: CanvasTexture | null): void {
   if (assets.material.map === map) return;
@@ -74,8 +75,10 @@ export function Avatar() {
 
   useEffect(() => {
     if (!assets) return;
+    const rig = new WardrobeRig(assets); // worn garments: mounted on the shared skeleton, re-fitted after each solve
     const off = assets.onSolve((envelope) => {
       applySolveResult(assets, envelope);
+      rig.onSolve(envelope);
       const runtime = useAvatarRuntimeStore.getState();
       if (runtime.skeleton !== assets.skeleton) runtime.setSkeleton(assets.skeleton);
       runtime.bumpRestVersion();
@@ -98,6 +101,7 @@ export function Avatar() {
     return () => {
       off();
       unsubscribe();
+      rig.dispose();
     };
   }, [assets]);
 

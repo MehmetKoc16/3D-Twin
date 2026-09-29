@@ -9,7 +9,8 @@ import { useFaceStore } from '../../store/faceStore';
 import { useSolveStore } from '../../store/solveStore';
 
 const FacePanel = lazy(() => import('../face/FacePanel').then((module) => ({ default: module.FacePanel })));
-type PanelTab = 'measurements' | 'face';
+const WardrobePanel = lazy(() => import('../wardrobe/WardrobePanel').then((module) => ({ default: module.WardrobePanel })));
+type PanelTab = 'measurements' | 'face' | 'wardrobe';
 
 type NumericField = Exclude<keyof BodyParams, 'shoe'>;
 interface FieldDef { key: NumericField; min: number; max: number; step?: number; unit: string; optional?: boolean }
@@ -179,13 +180,15 @@ export function BodyPanel() {
       <h2 className="mt-1 text-2xl font-semibold tracking-tight">{t('panel.title')}</h2>
       <p className="mt-2 text-xs leading-relaxed text-slate-400">{t('panel.description')}</p></div>
     <div className="flex gap-3 border-b border-white/10" role="tablist" aria-label={t('panel.tabs')}>
-      {(['measurements', 'face'] as const).map((key) => <button key={key} type="button" role="tab" id={`tab-${key}`} aria-selected={tab === key}
+      {(['measurements', 'face', 'wardrobe'] as const).map((key) => <button key={key} type="button" role="tab" id={`tab-${key}`} aria-selected={tab === key}
         aria-controls={`tabpanel-${key}`} onClick={() => setTab(key)}
         className={`px-2 py-2 text-sm focus-visible:outline-2 focus-visible:outline-teal-400 ${tab === key ? 'border-b-2 border-teal-400 font-semibold text-teal-300' : 'text-slate-400 hover:text-slate-200'}`}>{t(`panel.${key}`)}</button>)}
-      <button type="button" role="tab" aria-selected="false" disabled className="px-2 py-2 text-xs text-slate-500">{t('panel.wardrobe')} <span className="rounded bg-white/10 px-1 py-0.5 text-[10px]">{t('panel.soon')}</span></button>
     </div>
     {tab === 'face' && <div role="tabpanel" id="tabpanel-face" aria-labelledby="tab-face" className="mt-5">
       <Suspense fallback={null}><FacePanel /></Suspense>
+    </div>}
+    {tab === 'wardrobe' && <div role="tabpanel" id="tabpanel-wardrobe" aria-labelledby="tab-wardrobe" className="mt-5">
+      <Suspense fallback={null}><WardrobePanel /></Suspense>
     </div>}
     <div role="tabpanel" id="tabpanel-measurements" aria-labelledby="tab-measurements" hidden={tab !== 'measurements'}>
     <Section title={t('panel.basics')} fields={basics} />
