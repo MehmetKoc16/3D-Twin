@@ -1,0 +1,6037 @@
+{
+  "version": 1,
+  "unit": "m",
+  "vertexCount": 14586,
+  "renderVertexCount": 14517,
+  "jointPoints": [
+    {
+      "name": "joint-ground",
+      "position": [0.0, -0.000542, 0.0]
+    },
+    {
+      "name": "joint-head",
+      "position": [0.0, 1.515258, 0.016075]
+    },
+    {
+      "name": "joint-head-2",
+      "position": [0.0, 1.658198, 0.008245]
+    },
+    {
+      "name": "joint-l-ankle",
+      "position": [0.21962, 0.072978, -0.00091]
+    },
+    {
+      "name": "joint-l-clavicle",
+      "position": [0.026555, 1.336898, 0.069425]
+    },
+    {
+      "name": "joint-l-elbow",
+      "position": [0.312936, 1.167082, 0.013201]
+    },
+    {
+      "name": "joint-l-finger-1-1",
+      "position": [0.419508, 1.048348, 0.213439]
+    },
+    {
+      "name": "joint-l-finger-1-2",
+      "position": [0.409482, 1.043332, 0.237333]
+    },
+    {
+      "name": "joint-l-finger-1-3",
+      "position": [0.398384, 1.028728, 0.268221]
+    },
+    {
+      "name": "joint-l-finger-1-4",
+      "position": [0.391678, 1.017774, 0.287606]
+    },
+    {
+      "name": "joint-l-finger-2-1",
+      "position": [0.449554, 1.020792, 0.264416]
+    },
+    {
+      "name": "joint-l-finger-2-2",
+      "position": [0.453153, 1.007277, 0.285379]
+    },
+    {
+      "name": "joint-l-finger-2-3",
+      "position": [0.453383, 0.992303, 0.302354]
+    },
+    {
+      "name": "joint-l-finger-2-4",
+      "position": [0.452965, 0.976672, 0.319431]
+    },
+    {
+      "name": "joint-l-finger-3-1",
+      "position": [0.46083, 1.006378, 0.247898]
+    },
+    {
+      "name": "joint-l-finger-3-2",
+      "position": [0.471245, 0.985003, 0.269079]
+    },
+    {
+      "name": "joint-l-finger-3-3",
+      "position": [0.474674, 0.966581, 0.285589]
+    },
+    {
+      "name": "joint-l-finger-3-4",
+      "position": [0.478414, 0.948041, 0.301469]
+    },
+    {
+      "name": "joint-l-finger-4-1",
+      "position": [0.469636, 1.000262, 0.230946]
+    },
+    {
+      "name": "joint-l-finger-4-2",
+      "position": [0.481135, 0.979503, 0.246117]
+    },
+    {
+      "name": "joint-l-finger-4-3",
+      "position": [0.48591, 0.960332, 0.25919]
+    },
+    {
+      "name": "joint-l-finger-4-4",
+      "position": [0.491536, 0.940043, 0.27167]
+    },
+    {
+      "name": "joint-l-finger-5-1",
+      "position": [0.47454, 0.994136, 0.212385]
+    },
+    {
+      "name": "joint-l-finger-5-2",
+      "position": [0.480704, 0.975962, 0.222121]
+    },
+    {
+      "name": "joint-l-finger-5-3",
+      "position": [0.482991, 0.963298, 0.228132]
+    },
+    {
+      "name": "joint-l-finger-5-4",
+      "position": [0.485683, 0.946693, 0.235275]
+    },
+    {
+      "name": "joint-l-foot-1",
+      "position": [0.21986, 0.007613, 0.120845]
+    },
+    {
+      "name": "joint-l-hand",
+      "position": [0.431185, 1.062944, 0.175655]
+    },
+    {
+      "name": "joint-l-hand-3",
+      "position": [0.429115, 1.040388, 0.19686]
+    },
+    {
+      "name": "joint-l-knee",
+      "position": [0.158115, 0.448281, 0.032025]
+    },
+    {
+      "name": "joint-l-shoulder",
+      "position": [0.167713, 1.342343, 0.014605]
+    },
+    {
+      "name": "joint-l-toe-2-4",
+      "position": [0.216385, 0.017458, 0.191665]
+    },
+    {
+      "name": "joint-l-upper-leg",
+      "position": [0.110365, 0.866378, 0.012295]
+    },
+    {
+      "name": "joint-neck",
+      "position": [0.0, 1.406788, 0.006805]
+    },
+    {
+      "name": "joint-pelvis",
+      "position": [0.0, 0.890448, 0.01445]
+    },
+    {
+      "name": "joint-r-ankle",
+      "position": [-0.21962, 0.072978, -0.00091]
+    },
+    {
+      "name": "joint-r-clavicle",
+      "position": [-0.026555, 1.336898, 0.069425]
+    },
+    {
+      "name": "joint-r-elbow",
+      "position": [-0.312936, 1.167082, 0.013201]
+    },
+    {
+      "name": "joint-r-finger-1-1",
+      "position": [-0.419508, 1.048348, 0.213439]
+    },
+    {
+      "name": "joint-r-finger-1-2",
+      "position": [-0.409482, 1.043332, 0.237333]
+    },
+    {
+      "name": "joint-r-finger-1-3",
+      "position": [-0.398384, 1.028728, 0.268221]
+    },
+    {
+      "name": "joint-r-finger-1-4",
+      "position": [-0.391678, 1.017774, 0.287606]
+    },
+    {
+      "name": "joint-r-finger-2-1",
+      "position": [-0.449554, 1.020792, 0.264416]
+    },
+    {
+      "name": "joint-r-finger-2-2",
+      "position": [-0.453153, 1.007277, 0.285379]
+    },
+    {
+      "name": "joint-r-finger-2-3",
+      "position": [-0.453383, 0.992303, 0.302354]
+    },
+    {
+      "name": "joint-r-finger-2-4",
+      "position": [-0.452965, 0.976672, 0.319431]
+    },
+    {
+      "name": "joint-r-finger-3-1",
+      "position": [-0.46083, 1.006378, 0.247898]
+    },
+    {
+      "name": "joint-r-finger-3-2",
+      "position": [-0.471245, 0.985003, 0.269079]
+    },
+    {
+      "name": "joint-r-finger-3-3",
+      "position": [-0.474674, 0.966581, 0.285589]
+    },
+    {
+      "name": "joint-r-finger-3-4",
+      "position": [-0.478414, 0.948041, 0.301469]
+    },
+    {
+      "name": "joint-r-finger-4-1",
+      "position": [-0.469636, 1.000262, 0.230946]
+    },
+    {
+      "name": "joint-r-finger-4-2",
+      "position": [-0.481135, 0.979503, 0.246117]
+    },
+    {
+      "name": "joint-r-finger-4-3",
+      "position": [-0.48591, 0.960332, 0.25919]
+    },
+    {
+      "name": "joint-r-finger-4-4",
+      "position": [-0.491536, 0.940043, 0.27167]
+    },
+    {
+      "name": "joint-r-finger-5-1",
+      "position": [-0.47454, 0.994136, 0.212385]
+    },
+    {
+      "name": "joint-r-finger-5-2",
+      "position": [-0.480704, 0.975962, 0.222121]
+    },
+    {
+      "name": "joint-r-finger-5-3",
+      "position": [-0.482991, 0.963298, 0.228132]
+    },
+    {
+      "name": "joint-r-finger-5-4",
+      "position": [-0.485683, 0.946693, 0.235275]
+    },
+    {
+      "name": "joint-r-foot-1",
+      "position": [-0.21986, 0.007613, 0.120845]
+    },
+    {
+      "name": "joint-r-hand",
+      "position": [-0.431185, 1.062944, 0.175655]
+    },
+    {
+      "name": "joint-r-hand-3",
+      "position": [-0.429115, 1.040388, 0.19686]
+    },
+    {
+      "name": "joint-r-knee",
+      "position": [-0.158115, 0.448281, 0.032025]
+    },
+    {
+      "name": "joint-r-shoulder",
+      "position": [-0.167713, 1.342343, 0.014605]
+    },
+    {
+      "name": "joint-r-toe-2-4",
+      "position": [-0.216385, 0.017458, 0.191665]
+    },
+    {
+      "name": "joint-r-upper-leg",
+      "position": [-0.110365, 0.866378, 0.012295]
+    },
+    {
+      "name": "joint-spine-1",
+      "position": [0.0, 1.250618, -0.007125]
+    },
+    {
+      "name": "joint-spine-2",
+      "position": [0.0, 1.097428, 0.025945]
+    },
+    {
+      "name": "joint-spine-3",
+      "position": [0.0, 1.004428, 0.014855]
+    },
+    {
+      "name": "joint-spine-4",
+      "position": [0.0, 0.936448, -0.009625]
+    }
+  ],
+  "mesh": "base.glb",
+  "morphs": "morphs.bin",
+  "macroVariables": [
+    {
+      "id": "gender",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "buckets": [
+        {
+          "name": "female",
+          "at": 0.0
+        },
+        {
+          "name": "male",
+          "at": 1.0
+        }
+      ]
+    },
+    {
+      "id": "age",
+      "min": 0.5,
+      "max": 0.5,
+      "default": 0.5,
+      "buckets": [
+        {
+          "name": "young",
+          "at": 0.5
+        }
+      ]
+    },
+    {
+      "id": "muscle",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "buckets": [
+        {
+          "name": "minmuscle",
+          "at": 0.0
+        },
+        {
+          "name": "averagemuscle",
+          "at": 0.5
+        },
+        {
+          "name": "maxmuscle",
+          "at": 1.0
+        }
+      ]
+    },
+    {
+      "id": "weight",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "buckets": [
+        {
+          "name": "minweight",
+          "at": 0.0
+        },
+        {
+          "name": "averageweight",
+          "at": 0.5
+        },
+        {
+          "name": "maxweight",
+          "at": 1.0
+        }
+      ]
+    },
+    {
+      "id": "height",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "buckets": [
+        {
+          "name": "minheight",
+          "at": 0.0
+        },
+        {
+          "name": "averageheight",
+          "at": 0.5
+        },
+        {
+          "name": "maxheight",
+          "at": 1.0
+        }
+      ]
+    },
+    {
+      "id": "cupsize",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "buckets": [
+        {
+          "name": "mincup",
+          "at": 0.0
+        },
+        {
+          "name": "averagecup",
+          "at": 0.5
+        },
+        {
+          "name": "maxcup",
+          "at": 1.0
+        }
+      ]
+    },
+    {
+      "id": "firmness",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "buckets": [
+        {
+          "name": "minfirmness",
+          "at": 0.0
+        },
+        {
+          "name": "averagefirmness",
+          "at": 0.5
+        },
+        {
+          "name": "maxfirmness",
+          "at": 1.0
+        }
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "id": "macrodetails/young-female",
+      "group": "macro",
+      "byteOffset": 0,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/young-male",
+      "group": "macro",
+      "byteOffset": 233360,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-female-young-minmuscle-minweight",
+      "group": "macro",
+      "byteOffset": 466720,
+      "count": 14345,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-minmuscle-minweight-minheight",
+      "group": "macro",
+      "byteOffset": 696240,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-minmuscle-minweight-maxheight",
+      "group": "macro",
+      "byteOffset": 929600,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-female-young-minmuscle-averageweight",
+      "group": "macro",
+      "byteOffset": 1162960,
+      "count": 2886,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-minmuscle-averageweight-minheight",
+      "group": "macro",
+      "byteOffset": 1209136,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-minmuscle-averageweight-maxheight",
+      "group": "macro",
+      "byteOffset": 1442496,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-female-young-minmuscle-maxweight",
+      "group": "macro",
+      "byteOffset": 1675856,
+      "count": 6622,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-minmuscle-maxweight-minheight",
+      "group": "macro",
+      "byteOffset": 1781808,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-minmuscle-maxweight-maxheight",
+      "group": "macro",
+      "byteOffset": 2015168,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-female-young-averagemuscle-minweight",
+      "group": "macro",
+      "byteOffset": 2248528,
+      "count": 4312,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-averagemuscle-minweight-minheight",
+      "group": "macro",
+      "byteOffset": 2317520,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-averagemuscle-minweight-maxheight",
+      "group": "macro",
+      "byteOffset": 2550880,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-averagemuscle-averageweight-minheight",
+      "group": "macro",
+      "byteOffset": 2784240,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-averagemuscle-averageweight-maxheight",
+      "group": "macro",
+      "byteOffset": 3017600,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-female-young-averagemuscle-maxweight",
+      "group": "macro",
+      "byteOffset": 3250960,
+      "count": 3493,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-averagemuscle-maxweight-minheight",
+      "group": "macro",
+      "byteOffset": 3306848,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-averagemuscle-maxweight-maxheight",
+      "group": "macro",
+      "byteOffset": 3540208,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-female-young-maxmuscle-minweight",
+      "group": "macro",
+      "byteOffset": 3773568,
+      "count": 4306,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-maxmuscle-minweight-minheight",
+      "group": "macro",
+      "byteOffset": 3842464,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-maxmuscle-minweight-maxheight",
+      "group": "macro",
+      "byteOffset": 4075824,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-female-young-maxmuscle-averageweight",
+      "group": "macro",
+      "byteOffset": 4309184,
+      "count": 4002,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-maxmuscle-averageweight-minheight",
+      "group": "macro",
+      "byteOffset": 4373216,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-maxmuscle-averageweight-maxheight",
+      "group": "macro",
+      "byteOffset": 4606576,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-female-young-maxmuscle-maxweight",
+      "group": "macro",
+      "byteOffset": 4839936,
+      "count": 4428,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-maxmuscle-maxweight-minheight",
+      "group": "macro",
+      "byteOffset": 4910784,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/female-young-maxmuscle-maxweight-maxheight",
+      "group": "macro",
+      "byteOffset": 5144144,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-male-young-minmuscle-minweight",
+      "group": "macro",
+      "byteOffset": 5377504,
+      "count": 5050,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-minmuscle-minweight-minheight",
+      "group": "macro",
+      "byteOffset": 5458304,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-minmuscle-minweight-maxheight",
+      "group": "macro",
+      "byteOffset": 5691664,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-male-young-minmuscle-averageweight",
+      "group": "macro",
+      "byteOffset": 5925024,
+      "count": 3768,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-minmuscle-averageweight-minheight",
+      "group": "macro",
+      "byteOffset": 5985312,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-minmuscle-averageweight-maxheight",
+      "group": "macro",
+      "byteOffset": 6218672,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-male-young-minmuscle-maxweight",
+      "group": "macro",
+      "byteOffset": 6452032,
+      "count": 7936,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-minmuscle-maxweight-minheight",
+      "group": "macro",
+      "byteOffset": 6579008,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-minmuscle-maxweight-maxheight",
+      "group": "macro",
+      "byteOffset": 6812368,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-male-young-averagemuscle-minweight",
+      "group": "macro",
+      "byteOffset": 7045728,
+      "count": 3804,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-averagemuscle-minweight-minheight",
+      "group": "macro",
+      "byteOffset": 7106592,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-averagemuscle-minweight-maxheight",
+      "group": "macro",
+      "byteOffset": 7339952,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-averagemuscle-averageweight-minheight",
+      "group": "macro",
+      "byteOffset": 7573312,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-averagemuscle-averageweight-maxheight",
+      "group": "macro",
+      "byteOffset": 7806672,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-male-young-averagemuscle-maxweight",
+      "group": "macro",
+      "byteOffset": 8040032,
+      "count": 3941,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-averagemuscle-maxweight-minheight",
+      "group": "macro",
+      "byteOffset": 8103088,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-averagemuscle-maxweight-maxheight",
+      "group": "macro",
+      "byteOffset": 8336448,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-male-young-maxmuscle-minweight",
+      "group": "macro",
+      "byteOffset": 8569808,
+      "count": 4281,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-maxmuscle-minweight-minheight",
+      "group": "macro",
+      "byteOffset": 8638304,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-maxmuscle-minweight-maxheight",
+      "group": "macro",
+      "byteOffset": 8871664,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-male-young-maxmuscle-averageweight",
+      "group": "macro",
+      "byteOffset": 9105024,
+      "count": 4156,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-maxmuscle-averageweight-minheight",
+      "group": "macro",
+      "byteOffset": 9171520,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-maxmuscle-averageweight-maxheight",
+      "group": "macro",
+      "byteOffset": 9404880,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/universal-male-young-maxmuscle-maxweight",
+      "group": "macro",
+      "byteOffset": 9638240,
+      "count": 5018,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-maxmuscle-maxweight-minheight",
+      "group": "macro",
+      "byteOffset": 9718528,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "minheight"
+        }
+      ]
+    },
+    {
+      "id": "macrodetails/height/male-young-maxmuscle-maxweight-maxheight",
+      "group": "macro",
+      "byteOffset": 9951888,
+      "count": 14585,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "male"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "height",
+          "bucket": "maxheight"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-minweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10185248,
+      "count": 414,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-minweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10191872,
+      "count": 414,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-minweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10198496,
+      "count": 412,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-minweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10205088,
+      "count": 242,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-minweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10208960,
+      "count": 210,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-minweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10212320,
+      "count": 463,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-minweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10219728,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-minweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10226224,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-averageweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10232720,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-averageweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10239216,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-averageweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10245712,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-averageweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10252208,
+      "count": 250,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-averageweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10256208,
+      "count": 284,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-averageweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10260752,
+      "count": 463,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-averageweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10268160,
+      "count": 404,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-averageweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10274624,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-maxweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10281120,
+      "count": 378,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-maxweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10287168,
+      "count": 378,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-maxweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10293216,
+      "count": 378,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-maxweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10299264,
+      "count": 280,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-maxweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10303744,
+      "count": 325,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-maxweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10308944,
+      "count": 582,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-maxweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10318256,
+      "count": 412,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-minmuscle-maxweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10324848,
+      "count": 408,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "minmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-minweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10331376,
+      "count": 408,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-minweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10337904,
+      "count": 408,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-minweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10344432,
+      "count": 408,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-minweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10350960,
+      "count": 242,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-minweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10354832,
+      "count": 210,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-minweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10358192,
+      "count": 455,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-minweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10365472,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-minweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10371968,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-averageweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10378464,
+      "count": 402,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-averageweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10384896,
+      "count": 402,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-averageweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10391328,
+      "count": 402,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-averageweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10397760,
+      "count": 250,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-averageweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10401760,
+      "count": 280,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-averageweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10406240,
+      "count": 463,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10413648,
+      "count": 404,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10420112,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-maxweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10426608,
+      "count": 402,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-maxweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10433040,
+      "count": 402,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-maxweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10439472,
+      "count": 402,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-maxweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10445904,
+      "count": 256,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-maxweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10450000,
+      "count": 280,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-maxweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10454480,
+      "count": 467,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-maxweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10461952,
+      "count": 404,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-averagemuscle-maxweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10468416,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "averagemuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-minweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10474912,
+      "count": 408,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-minweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10481440,
+      "count": 408,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-minweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10487968,
+      "count": 408,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-minweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10494496,
+      "count": 242,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-minweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10498368,
+      "count": 210,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-minweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10501728,
+      "count": 465,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-minweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10509168,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-minweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10515664,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "minweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-averageweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10522160,
+      "count": 434,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-averageweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10529104,
+      "count": 436,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-averageweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10536080,
+      "count": 436,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-averageweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10543056,
+      "count": 250,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-averageweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10547056,
+      "count": 282,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-averageweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10551568,
+      "count": 455,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-averageweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10558848,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-averageweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10565344,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "averageweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-maxweight-mincup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10571840,
+      "count": 428,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-maxweight-mincup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10578688,
+      "count": 428,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-maxweight-mincup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10585536,
+      "count": 428,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "mincup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-maxweight-averagecup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10592384,
+      "count": 250,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-maxweight-averagecup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10596384,
+      "count": 282,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "averagecup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-maxweight-maxcup-minfirmness",
+      "group": "macro",
+      "byteOffset": 10600896,
+      "count": 463,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "minfirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-maxweight-maxcup-averagefirmness",
+      "group": "macro",
+      "byteOffset": 10608304,
+      "count": 406,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "averagefirmness"
+        }
+      ]
+    },
+    {
+      "id": "breast/female-young-maxmuscle-maxweight-maxcup-maxfirmness",
+      "group": "macro",
+      "byteOffset": 10614800,
+      "count": 404,
+      "macroConditions": [
+        {
+          "variable": "gender",
+          "bucket": "female"
+        },
+        {
+          "variable": "age",
+          "bucket": "young"
+        },
+        {
+          "variable": "muscle",
+          "bucket": "maxmuscle"
+        },
+        {
+          "variable": "weight",
+          "bucket": "maxweight"
+        },
+        {
+          "variable": "cupsize",
+          "bucket": "maxcup"
+        },
+        {
+          "variable": "firmness",
+          "bucket": "maxfirmness"
+        }
+      ]
+    },
+    {
+      "id": "measure/measure-neck-circ-decr",
+      "group": "measure",
+      "byteOffset": 10621264,
+      "count": 417
+    },
+    {
+      "id": "measure/measure-neck-circ-incr",
+      "group": "measure",
+      "byteOffset": 10627936,
+      "count": 700
+    },
+    {
+      "id": "measure/measure-neck-height-decr",
+      "group": "measure",
+      "byteOffset": 10639136,
+      "count": 4543
+    },
+    {
+      "id": "measure/measure-neck-height-incr",
+      "group": "measure",
+      "byteOffset": 10711824,
+      "count": 4543
+    },
+    {
+      "id": "measure/measure-upperarm-circ-decr",
+      "group": "measure",
+      "byteOffset": 10784512,
+      "count": 548
+    },
+    {
+      "id": "measure/measure-upperarm-circ-incr",
+      "group": "measure",
+      "byteOffset": 10793280,
+      "count": 548
+    },
+    {
+      "id": "measure/measure-upperarm-length-decr",
+      "group": "measure",
+      "byteOffset": 10802048,
+      "count": 4690
+    },
+    {
+      "id": "measure/measure-upperarm-length-incr",
+      "group": "measure",
+      "byteOffset": 10877088,
+      "count": 4696
+    },
+    {
+      "id": "measure/measure-lowerarm-length-decr",
+      "group": "measure",
+      "byteOffset": 10952224,
+      "count": 4182
+    },
+    {
+      "id": "measure/measure-lowerarm-length-incr",
+      "group": "measure",
+      "byteOffset": 11019136,
+      "count": 4086
+    },
+    {
+      "id": "measure/measure-wrist-circ-decr",
+      "group": "measure",
+      "byteOffset": 11084512,
+      "count": 522
+    },
+    {
+      "id": "measure/measure-wrist-circ-incr",
+      "group": "measure",
+      "byteOffset": 11092864,
+      "count": 524
+    },
+    {
+      "id": "measure/measure-frontchest-dist-decr",
+      "group": "measure",
+      "byteOffset": 11101248,
+      "count": 586
+    },
+    {
+      "id": "measure/measure-frontchest-dist-incr",
+      "group": "measure",
+      "byteOffset": 11110624,
+      "count": 502
+    },
+    {
+      "id": "measure/measure-bust-circ-decr",
+      "group": "measure",
+      "byteOffset": 11118656,
+      "count": 1218
+    },
+    {
+      "id": "measure/measure-bust-circ-incr",
+      "group": "measure",
+      "byteOffset": 11138144,
+      "count": 1215
+    },
+    {
+      "id": "measure/measure-underbust-circ-decr",
+      "group": "measure",
+      "byteOffset": 11157584,
+      "count": 1115
+    },
+    {
+      "id": "measure/measure-underbust-circ-incr",
+      "group": "measure",
+      "byteOffset": 11175424,
+      "count": 1156
+    },
+    {
+      "id": "measure/measure-waist-circ-decr",
+      "group": "measure",
+      "byteOffset": 11193920,
+      "count": 834
+    },
+    {
+      "id": "measure/measure-waist-circ-incr",
+      "group": "measure",
+      "byteOffset": 11207264,
+      "count": 834
+    },
+    {
+      "id": "measure/measure-napetowaist-dist-decr",
+      "group": "measure",
+      "byteOffset": 11220608,
+      "count": 10783
+    },
+    {
+      "id": "measure/measure-napetowaist-dist-incr",
+      "group": "measure",
+      "byteOffset": 11393136,
+      "count": 10787
+    },
+    {
+      "id": "measure/measure-waisttohip-dist-decr",
+      "group": "measure",
+      "byteOffset": 11565728,
+      "count": 10929
+    },
+    {
+      "id": "measure/measure-waisttohip-dist-incr",
+      "group": "measure",
+      "byteOffset": 11740592,
+      "count": 10723
+    },
+    {
+      "id": "measure/measure-shoulder-dist-decr",
+      "group": "measure",
+      "byteOffset": 11912160,
+      "count": 5256
+    },
+    {
+      "id": "measure/measure-shoulder-dist-incr",
+      "group": "measure",
+      "byteOffset": 11996256,
+      "count": 5078
+    },
+    {
+      "id": "measure/measure-hips-circ-decr",
+      "group": "measure",
+      "byteOffset": 12077504,
+      "count": 722
+    },
+    {
+      "id": "measure/measure-hips-circ-incr",
+      "group": "measure",
+      "byteOffset": 12089056,
+      "count": 738
+    },
+    {
+      "id": "measure/measure-upperleg-height-decr",
+      "group": "measure",
+      "byteOffset": 12100864,
+      "count": 3705
+    },
+    {
+      "id": "measure/measure-upperleg-height-incr",
+      "group": "measure",
+      "byteOffset": 12160144,
+      "count": 3547
+    },
+    {
+      "id": "measure/measure-thigh-circ-decr",
+      "group": "measure",
+      "byteOffset": 12216896,
+      "count": 542
+    },
+    {
+      "id": "measure/measure-thigh-circ-incr",
+      "group": "measure",
+      "byteOffset": 12225568,
+      "count": 550
+    },
+    {
+      "id": "measure/measure-lowerleg-height-decr",
+      "group": "measure",
+      "byteOffset": 12234368,
+      "count": 2957
+    },
+    {
+      "id": "measure/measure-lowerleg-height-incr",
+      "group": "measure",
+      "byteOffset": 12281680,
+      "count": 2907
+    },
+    {
+      "id": "measure/measure-calf-circ-decr",
+      "group": "measure",
+      "byteOffset": 12328192,
+      "count": 422
+    },
+    {
+      "id": "measure/measure-calf-circ-incr",
+      "group": "measure",
+      "byteOffset": 12334944,
+      "count": 422
+    },
+    {
+      "id": "measure/measure-knee-circ-decr",
+      "group": "measure",
+      "byteOffset": 12341696,
+      "count": 558
+    },
+    {
+      "id": "measure/measure-knee-circ-incr",
+      "group": "measure",
+      "byteOffset": 12350624,
+      "count": 564
+    },
+    {
+      "id": "measure/measure-ankle-circ-decr",
+      "group": "measure",
+      "byteOffset": 12359648,
+      "count": 572
+    },
+    {
+      "id": "measure/measure-ankle-circ-incr",
+      "group": "measure",
+      "byteOffset": 12368800,
+      "count": 572
+    },
+    {
+      "id": "torso/torso-scale-depth-decr",
+      "group": "body",
+      "byteOffset": 12377952,
+      "count": 1758
+    },
+    {
+      "id": "torso/torso-scale-depth-incr",
+      "group": "body",
+      "byteOffset": 12406080,
+      "count": 1655
+    },
+    {
+      "id": "torso/torso-scale-horiz-decr",
+      "group": "body",
+      "byteOffset": 12432560,
+      "count": 6440
+    },
+    {
+      "id": "torso/torso-scale-horiz-incr",
+      "group": "body",
+      "byteOffset": 12535600,
+      "count": 6088
+    },
+    {
+      "id": "torso/torso-scale-vert-decr",
+      "group": "body",
+      "byteOffset": 12633008,
+      "count": 10800
+    },
+    {
+      "id": "torso/torso-scale-vert-incr",
+      "group": "body",
+      "byteOffset": 12805808,
+      "count": 10613
+    },
+    {
+      "id": "torso/torso-vshape-decr",
+      "group": "body",
+      "byteOffset": 12975616,
+      "count": 5602
+    },
+    {
+      "id": "torso/torso-vshape-incr",
+      "group": "body",
+      "byteOffset": 13065248,
+      "count": 5572
+    },
+    {
+      "id": "torso/torso-muscle-dorsi-decr",
+      "group": "body",
+      "byteOffset": 13154400,
+      "count": 502
+    },
+    {
+      "id": "torso/torso-muscle-dorsi-incr",
+      "group": "body",
+      "byteOffset": 13162432,
+      "count": 502
+    },
+    {
+      "id": "torso/torso-muscle-pectoral-decr",
+      "group": "body",
+      "byteOffset": 13170464,
+      "count": 456
+    },
+    {
+      "id": "torso/torso-muscle-pectoral-incr",
+      "group": "body",
+      "byteOffset": 13177760,
+      "count": 472
+    },
+    {
+      "id": "hip/hip-scale-depth-decr",
+      "group": "body",
+      "byteOffset": 13185312,
+      "count": 1230
+    },
+    {
+      "id": "hip/hip-scale-depth-incr",
+      "group": "body",
+      "byteOffset": 13204992,
+      "count": 1236
+    },
+    {
+      "id": "hip/hip-scale-horiz-decr",
+      "group": "body",
+      "byteOffset": 13224768,
+      "count": 1112
+    },
+    {
+      "id": "hip/hip-scale-horiz-incr",
+      "group": "body",
+      "byteOffset": 13242560,
+      "count": 1112
+    },
+    {
+      "id": "hip/hip-scale-vert-decr",
+      "group": "body",
+      "byteOffset": 13260352,
+      "count": 1126
+    },
+    {
+      "id": "hip/hip-scale-vert-incr",
+      "group": "body",
+      "byteOffset": 13278368,
+      "count": 1126
+    },
+    {
+      "id": "hip/hip-waist-decr",
+      "group": "body",
+      "byteOffset": 13296384,
+      "count": 966
+    },
+    {
+      "id": "hip/hip-waist-incr",
+      "group": "body",
+      "byteOffset": 13311840,
+      "count": 535
+    },
+    {
+      "id": "neck/neck-scale-depth-decr",
+      "group": "body",
+      "byteOffset": 13320400,
+      "count": 740
+    },
+    {
+      "id": "neck/neck-scale-depth-incr",
+      "group": "body",
+      "byteOffset": 13332240,
+      "count": 740
+    },
+    {
+      "id": "neck/neck-scale-horiz-decr",
+      "group": "body",
+      "byteOffset": 13344080,
+      "count": 470
+    },
+    {
+      "id": "neck/neck-scale-horiz-incr",
+      "group": "body",
+      "byteOffset": 13351600,
+      "count": 574
+    },
+    {
+      "id": "neck/neck-scale-vert-decr",
+      "group": "body",
+      "byteOffset": 13360784,
+      "count": 4748
+    },
+    {
+      "id": "neck/neck-scale-vert-incr",
+      "group": "body",
+      "byteOffset": 13436752,
+      "count": 4533
+    },
+    {
+      "id": "neck/neck-double-decr",
+      "group": "body",
+      "byteOffset": 13509280,
+      "count": 177
+    },
+    {
+      "id": "neck/neck-double-incr",
+      "group": "body",
+      "byteOffset": 13512112,
+      "count": 209
+    },
+    {
+      "id": "stomach/stomach-pregnant-decr",
+      "group": "body",
+      "byteOffset": 13515456,
+      "count": 140
+    },
+    {
+      "id": "stomach/stomach-pregnant-incr",
+      "group": "body",
+      "byteOffset": 13517696,
+      "count": 346
+    },
+    {
+      "id": "stomach/stomach-tone-decr",
+      "group": "body",
+      "byteOffset": 13523232,
+      "count": 199
+    },
+    {
+      "id": "stomach/stomach-tone-incr",
+      "group": "body",
+      "byteOffset": 13526416,
+      "count": 173
+    },
+    {
+      "id": "buttocks/buttocks-volume-decr",
+      "group": "body",
+      "byteOffset": 13529184,
+      "count": 204
+    },
+    {
+      "id": "buttocks/buttocks-volume-incr",
+      "group": "body",
+      "byteOffset": 13532448,
+      "count": 510
+    },
+    {
+      "id": "pelvis/pelvis-tone-decr",
+      "group": "body",
+      "byteOffset": 13540608,
+      "count": 218
+    },
+    {
+      "id": "pelvis/pelvis-tone-incr",
+      "group": "body",
+      "byteOffset": 13544096,
+      "count": 470
+    },
+    {
+      "id": "breast/breast-dist-decr",
+      "group": "body",
+      "byteOffset": 13551616,
+      "count": 294
+    },
+    {
+      "id": "breast/breast-dist-incr",
+      "group": "body",
+      "byteOffset": 13556320,
+      "count": 290
+    },
+    {
+      "id": "breast/breast-point-decr",
+      "group": "body",
+      "byteOffset": 13560960,
+      "count": 278
+    },
+    {
+      "id": "breast/breast-point-incr",
+      "group": "body",
+      "byteOffset": 13565408,
+      "count": 200
+    },
+    {
+      "id": "breast/breast-trans-decr",
+      "group": "body",
+      "byteOffset": 13568608,
+      "count": 583
+    },
+    {
+      "id": "breast/breast-trans-incr",
+      "group": "body",
+      "byteOffset": 13577936,
+      "count": 579
+    },
+    {
+      "id": "breast/breast-volume-vert-decr",
+      "group": "body",
+      "byteOffset": 13587200,
+      "count": 241
+    },
+    {
+      "id": "breast/breast-volume-vert-incr",
+      "group": "body",
+      "byteOffset": 13591056,
+      "count": 344
+    },
+    {
+      "id": "armslegs/upperarm-scale-depth-decr",
+      "group": "body",
+      "byteOffset": 13596560,
+      "count": 546
+    },
+    {
+      "id": "armslegs/upperarm-scale-depth-incr",
+      "group": "body",
+      "byteOffset": 13605296,
+      "count": 546
+    },
+    {
+      "id": "armslegs/upperarm-scale-horiz-decr",
+      "group": "body",
+      "byteOffset": 13614032,
+      "count": 4530
+    },
+    {
+      "id": "armslegs/upperarm-scale-horiz-incr",
+      "group": "body",
+      "byteOffset": 13686512,
+      "count": 4518
+    },
+    {
+      "id": "armslegs/upperarm-scale-vert-decr",
+      "group": "body",
+      "byteOffset": 13758800,
+      "count": 422
+    },
+    {
+      "id": "armslegs/upperarm-scale-vert-incr",
+      "group": "body",
+      "byteOffset": 13765552,
+      "count": 422
+    },
+    {
+      "id": "armslegs/upperarm-fat-decr",
+      "group": "body",
+      "byteOffset": 13772304,
+      "count": 834
+    },
+    {
+      "id": "armslegs/upperarm-fat-incr",
+      "group": "body",
+      "byteOffset": 13785648,
+      "count": 860
+    },
+    {
+      "id": "armslegs/upperarm-muscle-decr",
+      "group": "body",
+      "byteOffset": 13799408,
+      "count": 438
+    },
+    {
+      "id": "armslegs/upperarm-muscle-incr",
+      "group": "body",
+      "byteOffset": 13806416,
+      "count": 432
+    },
+    {
+      "id": "armslegs/lowerarm-scale-depth-decr",
+      "group": "body",
+      "byteOffset": 13813328,
+      "count": 648
+    },
+    {
+      "id": "armslegs/lowerarm-scale-depth-incr",
+      "group": "body",
+      "byteOffset": 13823696,
+      "count": 642
+    },
+    {
+      "id": "armslegs/lowerarm-scale-horiz-decr",
+      "group": "body",
+      "byteOffset": 13833968,
+      "count": 4106
+    },
+    {
+      "id": "armslegs/lowerarm-scale-horiz-incr",
+      "group": "body",
+      "byteOffset": 13899664,
+      "count": 4108
+    },
+    {
+      "id": "armslegs/lowerarm-scale-vert-decr",
+      "group": "body",
+      "byteOffset": 13965392,
+      "count": 672
+    },
+    {
+      "id": "armslegs/lowerarm-scale-vert-incr",
+      "group": "body",
+      "byteOffset": 13976144,
+      "count": 672
+    },
+    {
+      "id": "armslegs/lowerarm-fat-decr",
+      "group": "body",
+      "byteOffset": 13986896,
+      "count": 344
+    },
+    {
+      "id": "armslegs/lowerarm-fat-incr",
+      "group": "body",
+      "byteOffset": 13992400,
+      "count": 942
+    },
+    {
+      "id": "armslegs/lowerarm-muscle-decr",
+      "group": "body",
+      "byteOffset": 14007472,
+      "count": 470
+    },
+    {
+      "id": "armslegs/lowerarm-muscle-incr",
+      "group": "body",
+      "byteOffset": 14014992,
+      "count": 322
+    },
+    {
+      "id": "armslegs/upperleg-scale-depth-decr",
+      "group": "body",
+      "byteOffset": 14020144,
+      "count": 516
+    },
+    {
+      "id": "armslegs/upperleg-scale-depth-incr",
+      "group": "body",
+      "byteOffset": 14028400,
+      "count": 526
+    },
+    {
+      "id": "armslegs/upperleg-scale-horiz-decr",
+      "group": "body",
+      "byteOffset": 14036816,
+      "count": 524
+    },
+    {
+      "id": "armslegs/upperleg-scale-horiz-incr",
+      "group": "body",
+      "byteOffset": 14045200,
+      "count": 662
+    },
+    {
+      "id": "armslegs/upperleg-scale-vert-decr",
+      "group": "body",
+      "byteOffset": 14055792,
+      "count": 830
+    },
+    {
+      "id": "armslegs/upperleg-scale-vert-incr",
+      "group": "body",
+      "byteOffset": 14069072,
+      "count": 662
+    },
+    {
+      "id": "armslegs/upperleg-fat-decr",
+      "group": "body",
+      "byteOffset": 14079664,
+      "count": 592
+    },
+    {
+      "id": "armslegs/upperleg-fat-incr",
+      "group": "body",
+      "byteOffset": 14089136,
+      "count": 997
+    },
+    {
+      "id": "armslegs/upperleg-muscle-decr",
+      "group": "body",
+      "byteOffset": 14105088,
+      "count": 594
+    },
+    {
+      "id": "armslegs/upperleg-muscle-incr",
+      "group": "body",
+      "byteOffset": 14114592,
+      "count": 546
+    },
+    {
+      "id": "armslegs/lowerleg-scale-depth-decr",
+      "group": "body",
+      "byteOffset": 14123328,
+      "count": 820
+    },
+    {
+      "id": "armslegs/lowerleg-scale-depth-incr",
+      "group": "body",
+      "byteOffset": 14136448,
+      "count": 882
+    },
+    {
+      "id": "armslegs/lowerleg-scale-horiz-decr",
+      "group": "body",
+      "byteOffset": 14150560,
+      "count": 620
+    },
+    {
+      "id": "armslegs/lowerleg-scale-horiz-incr",
+      "group": "body",
+      "byteOffset": 14160480,
+      "count": 682
+    },
+    {
+      "id": "armslegs/lowerleg-scale-vert-decr",
+      "group": "body",
+      "byteOffset": 14171392,
+      "count": 2968
+    },
+    {
+      "id": "armslegs/lowerleg-scale-vert-incr",
+      "group": "body",
+      "byteOffset": 14218880,
+      "count": 2894
+    },
+    {
+      "id": "armslegs/lowerleg-fat-decr",
+      "group": "body",
+      "byteOffset": 14265184,
+      "count": 330
+    },
+    {
+      "id": "armslegs/lowerleg-fat-incr",
+      "group": "body",
+      "byteOffset": 14270464,
+      "count": 456
+    },
+    {
+      "id": "armslegs/lowerleg-muscle-decr",
+      "group": "body",
+      "byteOffset": 14277760,
+      "count": 332
+    },
+    {
+      "id": "armslegs/lowerleg-muscle-incr",
+      "group": "body",
+      "byteOffset": 14283072,
+      "count": 351
+    },
+    {
+      "id": "armslegs/upperarm-shoulder-muscle-decr",
+      "group": "body",
+      "byteOffset": 14288688,
+      "count": 100
+    },
+    {
+      "id": "armslegs/upperarm-shoulder-muscle-incr",
+      "group": "body",
+      "byteOffset": 14290288,
+      "count": 330
+    },
+    {
+      "id": "armslegs/hand-scale-decr",
+      "group": "body",
+      "byteOffset": 14295568,
+      "count": 3888
+    },
+    {
+      "id": "armslegs/hand-scale-incr",
+      "group": "body",
+      "byteOffset": 14357776,
+      "count": 3888
+    },
+    {
+      "id": "armslegs/upperlegs-height-decr",
+      "group": "body",
+      "byteOffset": 14419984,
+      "count": 3707
+    },
+    {
+      "id": "armslegs/upperlegs-height-incr",
+      "group": "body",
+      "byteOffset": 14479296,
+      "count": 3547
+    },
+    {
+      "id": "armslegs/lowerlegs-height-decr",
+      "group": "body",
+      "byteOffset": 14536048,
+      "count": 2957
+    },
+    {
+      "id": "armslegs/lowerlegs-height-incr",
+      "group": "body",
+      "byteOffset": 14583360,
+      "count": 2907
+    },
+    {
+      "id": "armslegs/foot-scale-decr",
+      "group": "foot",
+      "byteOffset": 14629872,
+      "count": 2638
+    },
+    {
+      "id": "armslegs/foot-scale-incr",
+      "group": "foot",
+      "byteOffset": 14672080,
+      "count": 2706
+    },
+    {
+      "id": "armslegs/foot-scale-depth-decr",
+      "group": "foot",
+      "byteOffset": 14715376,
+      "count": 2618
+    },
+    {
+      "id": "armslegs/foot-scale-depth-incr",
+      "group": "foot",
+      "byteOffset": 14757264,
+      "count": 2616
+    },
+    {
+      "id": "armslegs/foot-scale-horiz-decr",
+      "group": "foot",
+      "byteOffset": 14799120,
+      "count": 2624
+    },
+    {
+      "id": "armslegs/foot-scale-horiz-incr",
+      "group": "foot",
+      "byteOffset": 14841104,
+      "count": 2624
+    },
+    {
+      "id": "armslegs/foot-scale-vert-decr",
+      "group": "foot",
+      "byteOffset": 14883088,
+      "count": 2512
+    },
+    {
+      "id": "armslegs/foot-scale-vert-incr",
+      "group": "foot",
+      "byteOffset": 14923280,
+      "count": 2614
+    },
+    {
+      "id": "head/head-age-decr",
+      "group": "face",
+      "byteOffset": 14965104,
+      "count": 3452
+    },
+    {
+      "id": "head/head-age-incr",
+      "group": "face",
+      "byteOffset": 15020336,
+      "count": 2670
+    },
+    {
+      "id": "head/head-fat-decr",
+      "group": "face",
+      "byteOffset": 15063056,
+      "count": 790
+    },
+    {
+      "id": "head/head-fat-incr",
+      "group": "face",
+      "byteOffset": 15075696,
+      "count": 769
+    },
+    {
+      "id": "head/head-scale-depth-decr",
+      "group": "face",
+      "byteOffset": 15088000,
+      "count": 3717
+    },
+    {
+      "id": "head/head-scale-depth-incr",
+      "group": "face",
+      "byteOffset": 15147472,
+      "count": 3717
+    },
+    {
+      "id": "head/head-scale-horiz-decr",
+      "group": "face",
+      "byteOffset": 15206944,
+      "count": 4314
+    },
+    {
+      "id": "head/head-scale-horiz-incr",
+      "group": "face",
+      "byteOffset": 15275968,
+      "count": 4314
+    },
+    {
+      "id": "head/head-scale-vert-decr",
+      "group": "face",
+      "byteOffset": 15344992,
+      "count": 4403
+    },
+    {
+      "id": "head/head-scale-vert-incr",
+      "group": "face",
+      "byteOffset": 15415440,
+      "count": 4403
+    },
+    {
+      "id": "head/head-oval",
+      "group": "face",
+      "byteOffset": 15485888,
+      "count": 1942
+    },
+    {
+      "id": "head/head-round",
+      "group": "face",
+      "byteOffset": 15516960,
+      "count": 1843
+    },
+    {
+      "id": "head/head-rectangular",
+      "group": "face",
+      "byteOffset": 15546448,
+      "count": 484
+    },
+    {
+      "id": "head/head-square",
+      "group": "face",
+      "byteOffset": 15554192,
+      "count": 529
+    },
+    {
+      "id": "head/head-triangular",
+      "group": "face",
+      "byteOffset": 15562656,
+      "count": 598
+    },
+    {
+      "id": "head/head-invertedtriangular",
+      "group": "face",
+      "byteOffset": 15572224,
+      "count": 2021
+    },
+    {
+      "id": "head/head-diamond",
+      "group": "face",
+      "byteOffset": 15604560,
+      "count": 550
+    },
+    {
+      "id": "forehead/forehead-scale-vert-decr",
+      "group": "face",
+      "byteOffset": 15613360,
+      "count": 146
+    },
+    {
+      "id": "forehead/forehead-scale-vert-incr",
+      "group": "face",
+      "byteOffset": 15615696,
+      "count": 146
+    },
+    {
+      "id": "chin/chin-width-decr",
+      "group": "face",
+      "byteOffset": 15618032,
+      "count": 142
+    },
+    {
+      "id": "chin/chin-width-incr",
+      "group": "face",
+      "byteOffset": 15620304,
+      "count": 198
+    },
+    {
+      "id": "chin/chin-height-decr",
+      "group": "face",
+      "byteOffset": 15623472,
+      "count": 278
+    },
+    {
+      "id": "chin/chin-height-incr",
+      "group": "face",
+      "byteOffset": 15627920,
+      "count": 533
+    },
+    {
+      "id": "chin/chin-prominent-decr",
+      "group": "face",
+      "byteOffset": 15636448,
+      "count": 182
+    },
+    {
+      "id": "chin/chin-prominent-incr",
+      "group": "face",
+      "byteOffset": 15639360,
+      "count": 108
+    },
+    {
+      "id": "chin/chin-jaw-drop-decr",
+      "group": "face",
+      "byteOffset": 15641088,
+      "count": 50
+    },
+    {
+      "id": "chin/chin-jaw-drop-incr",
+      "group": "face",
+      "byteOffset": 15641888,
+      "count": 42
+    },
+    {
+      "id": "nose/nose-scale-vert-decr",
+      "group": "face",
+      "byteOffset": 15642560,
+      "count": 335
+    },
+    {
+      "id": "nose/nose-scale-vert-incr",
+      "group": "face",
+      "byteOffset": 15647920,
+      "count": 397
+    },
+    {
+      "id": "nose/nose-scale-horiz-decr",
+      "group": "face",
+      "byteOffset": 15654272,
+      "count": 312
+    },
+    {
+      "id": "nose/nose-scale-horiz-incr",
+      "group": "face",
+      "byteOffset": 15659264,
+      "count": 448
+    },
+    {
+      "id": "nose/nose-scale-depth-decr",
+      "group": "face",
+      "byteOffset": 15666432,
+      "count": 342
+    },
+    {
+      "id": "nose/nose-scale-depth-incr",
+      "group": "face",
+      "byteOffset": 15671904,
+      "count": 366
+    },
+    {
+      "id": "nose/nose-nostrils-width-decr",
+      "group": "face",
+      "byteOffset": 15677760,
+      "count": 198
+    },
+    {
+      "id": "nose/nose-nostrils-width-incr",
+      "group": "face",
+      "byteOffset": 15680928,
+      "count": 252
+    },
+    {
+      "id": "mouth/mouth-scale-horiz-decr",
+      "group": "face",
+      "byteOffset": 15684960,
+      "count": 746
+    },
+    {
+      "id": "mouth/mouth-scale-horiz-incr",
+      "group": "face",
+      "byteOffset": 15696896,
+      "count": 870
+    },
+    {
+      "id": "mouth/mouth-scale-vert-decr",
+      "group": "face",
+      "byteOffset": 15710816,
+      "count": 467
+    },
+    {
+      "id": "mouth/mouth-scale-vert-incr",
+      "group": "face",
+      "byteOffset": 15718288,
+      "count": 798
+    },
+    {
+      "id": "mouth/mouth-scale-depth-decr",
+      "group": "face",
+      "byteOffset": 15731056,
+      "count": 485
+    },
+    {
+      "id": "mouth/mouth-scale-depth-incr",
+      "group": "face",
+      "byteOffset": 15738816,
+      "count": 476
+    },
+    {
+      "id": "eyes/eye-scale-decr",
+      "group": "face",
+      "byteOffset": 15746432,
+      "count": 980
+    },
+    {
+      "id": "eyes/eye-scale-incr",
+      "group": "face",
+      "byteOffset": 15762112,
+      "count": 986
+    },
+    {
+      "id": "cheek/cheek-volume-decr",
+      "group": "face",
+      "byteOffset": 15777888,
+      "count": 310
+    },
+    {
+      "id": "cheek/cheek-volume-incr",
+      "group": "face",
+      "byteOffset": 15782848,
+      "count": 424
+    }
+  ],
+  "modifiers": [
+    {
+      "id": "measure/measure-neck-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-neck-circ-decr",
+      "incrTarget": "measure/measure-neck-circ-incr"
+    },
+    {
+      "id": "measure/measure-neck-height",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-neck-height-decr",
+      "incrTarget": "measure/measure-neck-height-incr"
+    },
+    {
+      "id": "measure/measure-upperarm-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-upperarm-circ-decr",
+      "incrTarget": "measure/measure-upperarm-circ-incr"
+    },
+    {
+      "id": "measure/measure-upperarm-length",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-upperarm-length-decr",
+      "incrTarget": "measure/measure-upperarm-length-incr"
+    },
+    {
+      "id": "measure/measure-lowerarm-length",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-lowerarm-length-decr",
+      "incrTarget": "measure/measure-lowerarm-length-incr"
+    },
+    {
+      "id": "measure/measure-wrist-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-wrist-circ-decr",
+      "incrTarget": "measure/measure-wrist-circ-incr"
+    },
+    {
+      "id": "measure/measure-frontchest-dist",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-frontchest-dist-decr",
+      "incrTarget": "measure/measure-frontchest-dist-incr"
+    },
+    {
+      "id": "measure/measure-bust-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-bust-circ-decr",
+      "incrTarget": "measure/measure-bust-circ-incr"
+    },
+    {
+      "id": "measure/measure-underbust-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-underbust-circ-decr",
+      "incrTarget": "measure/measure-underbust-circ-incr"
+    },
+    {
+      "id": "measure/measure-waist-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-waist-circ-decr",
+      "incrTarget": "measure/measure-waist-circ-incr"
+    },
+    {
+      "id": "measure/measure-napetowaist-dist",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-napetowaist-dist-decr",
+      "incrTarget": "measure/measure-napetowaist-dist-incr"
+    },
+    {
+      "id": "measure/measure-waisttohip-dist",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-waisttohip-dist-decr",
+      "incrTarget": "measure/measure-waisttohip-dist-incr"
+    },
+    {
+      "id": "measure/measure-shoulder-dist",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-shoulder-dist-decr",
+      "incrTarget": "measure/measure-shoulder-dist-incr"
+    },
+    {
+      "id": "measure/measure-hips-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-hips-circ-decr",
+      "incrTarget": "measure/measure-hips-circ-incr"
+    },
+    {
+      "id": "measure/measure-upperleg-height",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-upperleg-height-decr",
+      "incrTarget": "measure/measure-upperleg-height-incr"
+    },
+    {
+      "id": "measure/measure-thigh-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-thigh-circ-decr",
+      "incrTarget": "measure/measure-thigh-circ-incr"
+    },
+    {
+      "id": "measure/measure-lowerleg-height",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-lowerleg-height-decr",
+      "incrTarget": "measure/measure-lowerleg-height-incr"
+    },
+    {
+      "id": "measure/measure-calf-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-calf-circ-decr",
+      "incrTarget": "measure/measure-calf-circ-incr"
+    },
+    {
+      "id": "measure/measure-knee-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-knee-circ-decr",
+      "incrTarget": "measure/measure-knee-circ-incr"
+    },
+    {
+      "id": "measure/measure-ankle-circ",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "measure/measure-ankle-circ-decr",
+      "incrTarget": "measure/measure-ankle-circ-incr"
+    },
+    {
+      "id": "torso/torso-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "torso/torso-scale-depth-decr",
+      "incrTarget": "torso/torso-scale-depth-incr"
+    },
+    {
+      "id": "torso/torso-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "torso/torso-scale-horiz-decr",
+      "incrTarget": "torso/torso-scale-horiz-incr"
+    },
+    {
+      "id": "torso/torso-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "torso/torso-scale-vert-decr",
+      "incrTarget": "torso/torso-scale-vert-incr"
+    },
+    {
+      "id": "torso/torso-vshape",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "torso/torso-vshape-decr",
+      "incrTarget": "torso/torso-vshape-incr"
+    },
+    {
+      "id": "torso/torso-muscle-dorsi",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "torso/torso-muscle-dorsi-decr",
+      "incrTarget": "torso/torso-muscle-dorsi-incr"
+    },
+    {
+      "id": "torso/torso-muscle-pectoral",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "torso/torso-muscle-pectoral-decr",
+      "incrTarget": "torso/torso-muscle-pectoral-incr"
+    },
+    {
+      "id": "hip/hip-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "hip/hip-scale-depth-decr",
+      "incrTarget": "hip/hip-scale-depth-incr"
+    },
+    {
+      "id": "hip/hip-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "hip/hip-scale-horiz-decr",
+      "incrTarget": "hip/hip-scale-horiz-incr"
+    },
+    {
+      "id": "hip/hip-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "hip/hip-scale-vert-decr",
+      "incrTarget": "hip/hip-scale-vert-incr"
+    },
+    {
+      "id": "hip/hip-waist",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "hip/hip-waist-decr",
+      "incrTarget": "hip/hip-waist-incr"
+    },
+    {
+      "id": "neck/neck-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "neck/neck-scale-depth-decr",
+      "incrTarget": "neck/neck-scale-depth-incr"
+    },
+    {
+      "id": "neck/neck-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "neck/neck-scale-horiz-decr",
+      "incrTarget": "neck/neck-scale-horiz-incr"
+    },
+    {
+      "id": "neck/neck-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "neck/neck-scale-vert-decr",
+      "incrTarget": "neck/neck-scale-vert-incr"
+    },
+    {
+      "id": "neck/neck-double",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "neck/neck-double-decr",
+      "incrTarget": "neck/neck-double-incr"
+    },
+    {
+      "id": "stomach/stomach-pregnant",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "stomach/stomach-pregnant-decr",
+      "incrTarget": "stomach/stomach-pregnant-incr"
+    },
+    {
+      "id": "stomach/stomach-tone",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "stomach/stomach-tone-decr",
+      "incrTarget": "stomach/stomach-tone-incr"
+    },
+    {
+      "id": "buttocks/buttocks-volume",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "buttocks/buttocks-volume-decr",
+      "incrTarget": "buttocks/buttocks-volume-incr"
+    },
+    {
+      "id": "pelvis/pelvis-tone",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "pelvis/pelvis-tone-decr",
+      "incrTarget": "pelvis/pelvis-tone-incr"
+    },
+    {
+      "id": "breast/breast-dist",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "breast/breast-dist-decr",
+      "incrTarget": "breast/breast-dist-incr"
+    },
+    {
+      "id": "breast/breast-point",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "breast/breast-point-decr",
+      "incrTarget": "breast/breast-point-incr"
+    },
+    {
+      "id": "breast/breast-trans",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "breast/breast-trans-decr",
+      "incrTarget": "breast/breast-trans-incr"
+    },
+    {
+      "id": "breast/breast-volume-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "breast/breast-volume-vert-decr",
+      "incrTarget": "breast/breast-volume-vert-incr"
+    },
+    {
+      "id": "armslegs/upperarm-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperarm-scale-depth-decr",
+      "incrTarget": "armslegs/upperarm-scale-depth-incr"
+    },
+    {
+      "id": "armslegs/upperarm-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperarm-scale-horiz-decr",
+      "incrTarget": "armslegs/upperarm-scale-horiz-incr"
+    },
+    {
+      "id": "armslegs/upperarm-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperarm-scale-vert-decr",
+      "incrTarget": "armslegs/upperarm-scale-vert-incr"
+    },
+    {
+      "id": "armslegs/upperarm-fat",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperarm-fat-decr",
+      "incrTarget": "armslegs/upperarm-fat-incr"
+    },
+    {
+      "id": "armslegs/upperarm-muscle",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperarm-muscle-decr",
+      "incrTarget": "armslegs/upperarm-muscle-incr"
+    },
+    {
+      "id": "armslegs/lowerarm-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerarm-scale-depth-decr",
+      "incrTarget": "armslegs/lowerarm-scale-depth-incr"
+    },
+    {
+      "id": "armslegs/lowerarm-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerarm-scale-horiz-decr",
+      "incrTarget": "armslegs/lowerarm-scale-horiz-incr"
+    },
+    {
+      "id": "armslegs/lowerarm-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerarm-scale-vert-decr",
+      "incrTarget": "armslegs/lowerarm-scale-vert-incr"
+    },
+    {
+      "id": "armslegs/lowerarm-fat",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerarm-fat-decr",
+      "incrTarget": "armslegs/lowerarm-fat-incr"
+    },
+    {
+      "id": "armslegs/lowerarm-muscle",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerarm-muscle-decr",
+      "incrTarget": "armslegs/lowerarm-muscle-incr"
+    },
+    {
+      "id": "armslegs/upperleg-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperleg-scale-depth-decr",
+      "incrTarget": "armslegs/upperleg-scale-depth-incr"
+    },
+    {
+      "id": "armslegs/upperleg-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperleg-scale-horiz-decr",
+      "incrTarget": "armslegs/upperleg-scale-horiz-incr"
+    },
+    {
+      "id": "armslegs/upperleg-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperleg-scale-vert-decr",
+      "incrTarget": "armslegs/upperleg-scale-vert-incr"
+    },
+    {
+      "id": "armslegs/upperleg-fat",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperleg-fat-decr",
+      "incrTarget": "armslegs/upperleg-fat-incr"
+    },
+    {
+      "id": "armslegs/upperleg-muscle",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperleg-muscle-decr",
+      "incrTarget": "armslegs/upperleg-muscle-incr"
+    },
+    {
+      "id": "armslegs/lowerleg-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerleg-scale-depth-decr",
+      "incrTarget": "armslegs/lowerleg-scale-depth-incr"
+    },
+    {
+      "id": "armslegs/lowerleg-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerleg-scale-horiz-decr",
+      "incrTarget": "armslegs/lowerleg-scale-horiz-incr"
+    },
+    {
+      "id": "armslegs/lowerleg-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerleg-scale-vert-decr",
+      "incrTarget": "armslegs/lowerleg-scale-vert-incr"
+    },
+    {
+      "id": "armslegs/lowerleg-fat",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerleg-fat-decr",
+      "incrTarget": "armslegs/lowerleg-fat-incr"
+    },
+    {
+      "id": "armslegs/lowerleg-muscle",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerleg-muscle-decr",
+      "incrTarget": "armslegs/lowerleg-muscle-incr"
+    },
+    {
+      "id": "armslegs/upperarm-shoulder-muscle",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperarm-shoulder-muscle-decr",
+      "incrTarget": "armslegs/upperarm-shoulder-muscle-incr"
+    },
+    {
+      "id": "armslegs/hand-scale",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/hand-scale-decr",
+      "incrTarget": "armslegs/hand-scale-incr"
+    },
+    {
+      "id": "armslegs/upperlegs-height",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/upperlegs-height-decr",
+      "incrTarget": "armslegs/upperlegs-height-incr"
+    },
+    {
+      "id": "armslegs/lowerlegs-height",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/lowerlegs-height-decr",
+      "incrTarget": "armslegs/lowerlegs-height-incr"
+    },
+    {
+      "id": "armslegs/foot-scale",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/foot-scale-decr",
+      "incrTarget": "armslegs/foot-scale-incr"
+    },
+    {
+      "id": "armslegs/foot-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/foot-scale-depth-decr",
+      "incrTarget": "armslegs/foot-scale-depth-incr"
+    },
+    {
+      "id": "armslegs/foot-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/foot-scale-horiz-decr",
+      "incrTarget": "armslegs/foot-scale-horiz-incr"
+    },
+    {
+      "id": "armslegs/foot-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "armslegs/foot-scale-vert-decr",
+      "incrTarget": "armslegs/foot-scale-vert-incr"
+    },
+    {
+      "id": "head/head-age",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "head/head-age-decr",
+      "incrTarget": "head/head-age-incr"
+    },
+    {
+      "id": "head/head-fat",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "head/head-fat-decr",
+      "incrTarget": "head/head-fat-incr"
+    },
+    {
+      "id": "head/head-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "head/head-scale-depth-decr",
+      "incrTarget": "head/head-scale-depth-incr"
+    },
+    {
+      "id": "head/head-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "head/head-scale-horiz-decr",
+      "incrTarget": "head/head-scale-horiz-incr"
+    },
+    {
+      "id": "head/head-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "head/head-scale-vert-decr",
+      "incrTarget": "head/head-scale-vert-incr"
+    },
+    {
+      "id": "head/head-oval",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "incrTarget": "head/head-oval"
+    },
+    {
+      "id": "head/head-round",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "incrTarget": "head/head-round"
+    },
+    {
+      "id": "head/head-rectangular",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "incrTarget": "head/head-rectangular"
+    },
+    {
+      "id": "head/head-square",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "incrTarget": "head/head-square"
+    },
+    {
+      "id": "head/head-triangular",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "incrTarget": "head/head-triangular"
+    },
+    {
+      "id": "head/head-invertedtriangular",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "incrTarget": "head/head-invertedtriangular"
+    },
+    {
+      "id": "head/head-diamond",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "incrTarget": "head/head-diamond"
+    },
+    {
+      "id": "forehead/forehead-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "forehead/forehead-scale-vert-decr",
+      "incrTarget": "forehead/forehead-scale-vert-incr"
+    },
+    {
+      "id": "chin/chin-width",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "chin/chin-width-decr",
+      "incrTarget": "chin/chin-width-incr"
+    },
+    {
+      "id": "chin/chin-height",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "chin/chin-height-decr",
+      "incrTarget": "chin/chin-height-incr"
+    },
+    {
+      "id": "chin/chin-prominent",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "chin/chin-prominent-decr",
+      "incrTarget": "chin/chin-prominent-incr"
+    },
+    {
+      "id": "chin/chin-jaw-drop",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "chin/chin-jaw-drop-decr",
+      "incrTarget": "chin/chin-jaw-drop-incr"
+    },
+    {
+      "id": "nose/nose-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "nose/nose-scale-vert-decr",
+      "incrTarget": "nose/nose-scale-vert-incr"
+    },
+    {
+      "id": "nose/nose-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "nose/nose-scale-horiz-decr",
+      "incrTarget": "nose/nose-scale-horiz-incr"
+    },
+    {
+      "id": "nose/nose-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "nose/nose-scale-depth-decr",
+      "incrTarget": "nose/nose-scale-depth-incr"
+    },
+    {
+      "id": "nose/nose-nostrils-width",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "nose/nose-nostrils-width-decr",
+      "incrTarget": "nose/nose-nostrils-width-incr"
+    },
+    {
+      "id": "mouth/mouth-scale-horiz",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "mouth/mouth-scale-horiz-decr",
+      "incrTarget": "mouth/mouth-scale-horiz-incr"
+    },
+    {
+      "id": "mouth/mouth-scale-vert",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "mouth/mouth-scale-vert-decr",
+      "incrTarget": "mouth/mouth-scale-vert-incr"
+    },
+    {
+      "id": "mouth/mouth-scale-depth",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "mouth/mouth-scale-depth-decr",
+      "incrTarget": "mouth/mouth-scale-depth-incr"
+    },
+    {
+      "id": "eyes/eye-scale",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "eyes/eye-scale-decr",
+      "incrTarget": "eyes/eye-scale-incr"
+    },
+    {
+      "id": "cheek/cheek-volume",
+      "min": -1.0,
+      "max": 1.0,
+      "default": 0.0,
+      "decrTarget": "cheek/cheek-volume-decr",
+      "incrTarget": "cheek/cheek-volume-incr"
+    }
+  ],
+  "license": {
+    "assets": "CC0-1.0",
+    "source": "MakeHuman base mesh and targets (makehumancommunity/makehuman@a8bc2d54ff0ac92e78ff71431b1023eda42bf482), MPFB2 game_engine rig and weights (makehumancommunity/mpfb2@3edf9df0551765be43563d047888cf7877eb89b4); CC0-1.0 data"
+  },
+  "provenance": {
+    "makehuman": {
+      "repo": "makehumancommunity/makehuman",
+      "sha": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482"
+    },
+    "mpfb2": {
+      "repo": "makehumancommunity/mpfb2",
+      "sha": "3edf9df0551765be43563d047888cf7877eb89b4"
+    },
+    "rig": "game_engine",
+    "groundOffsetY": 0.817763,
+    "restPose": "MakeHuman A-pose (world-aligned bones, identity rest rotation)",
+    "vertexIndexSpace": "render vertices of base.glb followed by jointPoints"
+  }
+}

@@ -1,0 +1,694 @@
+{
+  "version": 1,
+  "bones": [
+    {
+      "name": "Root",
+      "parent": null,
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14517
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14551
+      },
+      "roll": 0
+    },
+    {
+      "name": "pelvis",
+      "parent": "Root",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14551
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14585
+      },
+      "roll": 0
+    },
+    {
+      "name": "spine_01",
+      "parent": "pelvis",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14585
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14584
+      },
+      "roll": 0
+    },
+    {
+      "name": "spine_02",
+      "parent": "spine_01",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14584
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14583
+      },
+      "roll": 0
+    },
+    {
+      "name": "spine_03",
+      "parent": "spine_02",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14583
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14582
+      },
+      "roll": 0
+    },
+    {
+      "name": "clavicle_l",
+      "parent": "spine_03",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14521
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14547
+      },
+      "roll": 0
+    },
+    {
+      "name": "upperarm_l",
+      "parent": "clavicle_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14547
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14522
+      },
+      "roll": 0
+    },
+    {
+      "name": "lowerarm_l",
+      "parent": "upperarm_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14522
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14544
+      },
+      "roll": 0
+    },
+    {
+      "name": "hand_l",
+      "parent": "lowerarm_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14544
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14545
+      },
+      "roll": 0
+    },
+    {
+      "name": "index_01_l",
+      "parent": "hand_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14527
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14528
+      },
+      "roll": 0
+    },
+    {
+      "name": "index_02_l",
+      "parent": "index_01_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14528
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14529
+      },
+      "roll": 0
+    },
+    {
+      "name": "index_03_l",
+      "parent": "index_02_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14529
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14530
+      },
+      "roll": 0
+    },
+    {
+      "name": "middle_01_l",
+      "parent": "hand_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14531
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14532
+      },
+      "roll": 0
+    },
+    {
+      "name": "middle_02_l",
+      "parent": "middle_01_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14532
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14533
+      },
+      "roll": 0
+    },
+    {
+      "name": "middle_03_l",
+      "parent": "middle_02_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14533
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14534
+      },
+      "roll": 0
+    },
+    {
+      "name": "pinky_01_l",
+      "parent": "hand_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14539
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14540
+      },
+      "roll": 0
+    },
+    {
+      "name": "pinky_02_l",
+      "parent": "pinky_01_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14540
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14541
+      },
+      "roll": 0
+    },
+    {
+      "name": "pinky_03_l",
+      "parent": "pinky_02_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14541
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14542
+      },
+      "roll": 0
+    },
+    {
+      "name": "ring_01_l",
+      "parent": "hand_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14535
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14536
+      },
+      "roll": 0
+    },
+    {
+      "name": "ring_02_l",
+      "parent": "ring_01_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14536
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14537
+      },
+      "roll": 0
+    },
+    {
+      "name": "ring_03_l",
+      "parent": "ring_02_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14537
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14538
+      },
+      "roll": 0
+    },
+    {
+      "name": "thumb_01_l",
+      "parent": "hand_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14523
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14524
+      },
+      "roll": 0
+    },
+    {
+      "name": "thumb_02_l",
+      "parent": "thumb_01_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14524
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14525
+      },
+      "roll": 0
+    },
+    {
+      "name": "thumb_03_l",
+      "parent": "thumb_02_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14525
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14526
+      },
+      "roll": 0
+    },
+    {
+      "name": "clavicle_r",
+      "parent": "spine_03",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14553
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14579
+      },
+      "roll": 0
+    },
+    {
+      "name": "upperarm_r",
+      "parent": "clavicle_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14579
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14554
+      },
+      "roll": 0
+    },
+    {
+      "name": "lowerarm_r",
+      "parent": "upperarm_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14554
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14576
+      },
+      "roll": 0
+    },
+    {
+      "name": "hand_r",
+      "parent": "lowerarm_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14576
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14577
+      },
+      "roll": 0
+    },
+    {
+      "name": "index_01_r",
+      "parent": "hand_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14559
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14560
+      },
+      "roll": 0
+    },
+    {
+      "name": "index_02_r",
+      "parent": "index_01_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14560
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14561
+      },
+      "roll": 0
+    },
+    {
+      "name": "index_03_r",
+      "parent": "index_02_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14561
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14562
+      },
+      "roll": 0
+    },
+    {
+      "name": "middle_01_r",
+      "parent": "hand_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14563
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14564
+      },
+      "roll": 0
+    },
+    {
+      "name": "middle_02_r",
+      "parent": "middle_01_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14564
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14565
+      },
+      "roll": 0
+    },
+    {
+      "name": "middle_03_r",
+      "parent": "middle_02_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14565
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14566
+      },
+      "roll": 0
+    },
+    {
+      "name": "pinky_01_r",
+      "parent": "hand_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14571
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14572
+      },
+      "roll": 0
+    },
+    {
+      "name": "pinky_02_r",
+      "parent": "pinky_01_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14572
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14573
+      },
+      "roll": 0
+    },
+    {
+      "name": "pinky_03_r",
+      "parent": "pinky_02_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14573
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14574
+      },
+      "roll": 0
+    },
+    {
+      "name": "ring_01_r",
+      "parent": "hand_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14567
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14568
+      },
+      "roll": 0
+    },
+    {
+      "name": "ring_02_r",
+      "parent": "ring_01_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14568
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14569
+      },
+      "roll": 0
+    },
+    {
+      "name": "ring_03_r",
+      "parent": "ring_02_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14569
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14570
+      },
+      "roll": 0
+    },
+    {
+      "name": "thumb_01_r",
+      "parent": "hand_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14555
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14556
+      },
+      "roll": 0
+    },
+    {
+      "name": "thumb_02_r",
+      "parent": "thumb_01_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14556
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14557
+      },
+      "roll": 0
+    },
+    {
+      "name": "thumb_03_r",
+      "parent": "thumb_02_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14557
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14558
+      },
+      "roll": 0
+    },
+    {
+      "name": "neck_01",
+      "parent": "spine_03",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14550
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14518
+      },
+      "roll": 0
+    },
+    {
+      "name": "head",
+      "parent": "neck_01",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14518
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14519
+      },
+      "roll": 0
+    },
+    {
+      "name": "thigh_l",
+      "parent": "pelvis",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14549
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14546
+      },
+      "roll": 0
+    },
+    {
+      "name": "calf_l",
+      "parent": "thigh_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14546
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14520
+      },
+      "roll": 0
+    },
+    {
+      "name": "foot_l",
+      "parent": "calf_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14520
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14543
+      },
+      "roll": 0
+    },
+    {
+      "name": "ball_l",
+      "parent": "foot_l",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14543
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14548
+      },
+      "roll": 0
+    },
+    {
+      "name": "thigh_r",
+      "parent": "pelvis",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14581
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14578
+      },
+      "roll": 0
+    },
+    {
+      "name": "calf_r",
+      "parent": "thigh_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14578
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14552
+      },
+      "roll": 0
+    },
+    {
+      "name": "foot_r",
+      "parent": "calf_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14552
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14575
+      },
+      "roll": 0
+    },
+    {
+      "name": "ball_r",
+      "parent": "foot_r",
+      "head": {
+        "strategy": "VERTEX",
+        "vert": 14575
+      },
+      "tail": {
+        "strategy": "VERTEX",
+        "vert": 14580
+      },
+      "roll": 0
+    }
+  ]
+}

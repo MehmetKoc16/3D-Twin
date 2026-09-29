@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "measures": [
+    {
+      "id": "height",
+      "type": "height",
+      "drivers": [
+        "armslegs/upperlegs-height",
+        "armslegs/lowerlegs-height"
+      ]
+    },
+    {
+      "id": "neck",
+      "type": "circumference",
+      "verts": [1106, 1114, 903, 896, 889, 882, 875, 868, 793, 792, 807, 806, 816, 995, 4018, 836, 1111, 1112, 834, 833, 835, 8142, 8143, 8380, 8379, 8144, 11251, 8279, 8129, 8119, 8120, 8105, 8106, 8172, 8179, 8186, 8193, 8200, 8207, 8382, 8374, 915],
+      "drivers": [
+        "measure/measure-neck-circ"
+      ]
+    },
+    {
+      "id": "shoulder",
+      "type": "distance",
+      "verts": [8951, 1714],
+      "axis": "x",
+      "drivers": [
+        "measure/measure-shoulder-dist"
+      ]
+    },
+    {
+      "id": "chest",
+      "type": "circumference",
+      "verts": [9242, 9212, 9196, 9180, 9231, 9164, 9149, 9117, 9134, 9136, 9137, 9122, 9155, 9171, 9234, 9187, 9203, 9219, 11662, 11530, 8814, 8788, 9039, 11540, 11539, 11555, 11546, 11547, 11548, 11549, 11550, 11551, 4328, 4327, 4326, 4325, 4324, 4323, 4322, 4333, 4315, 4316, 1802, 1524, 1550, 4304, 4456, 1982, 1966, 1950, 1997, 1934, 1918, 1885, 1900, 1899, 1897, 1880, 1912, 1927, 1994, 1943, 1959, 1975, 2009, 2005],
+      "drivers": [
+        "measure/measure-bust-circ"
+      ]
+    },
+    {
+      "id": "waist",
+      "type": "circumference",
+      "verts": [4434, 4433, 4432, 4431, 4430, 4429, 4428, 4535, 4552, 4531, 4530, 4534, 4533, 4532, 4545, 4551, 4488, 4487, 4427, 4443, 4436, 4460, 11644, 11651, 11637, 11688, 11689, 11742, 11737, 11726, 11727, 11728, 11724, 11725, 11743, 11729, 11638, 11639, 11640, 11641, 11642, 11643],
+      "drivers": [
+        "measure/measure-waist-circ"
+      ]
+    },
+    {
+      "id": "hip",
+      "type": "circumference",
+      "verts": [4659, 4648, 4647, 4646, 4635, 4634, 4652, 4653, 4709, 4714, 4717, 4716, 4841, 4820, 4819, 4758, 4759, 4753, 4785, 4765, 4750, 11928, 11940, 11916, 11922, 11921, 11972, 11973, 11994, 11885, 11886, 11883, 11878, 11826, 11825, 11811, 11812, 11821, 11822, 11823, 11832, 4669],
+      "drivers": [
+        "measure/measure-hips-circ"
+      ]
+    },
+    {
+      "id": "thigh",
+      "type": "circumference",
+      "verts": [12007, 12029, 12030, 12036, 12025, 12026, 12023, 12004, 12001, 11965, 11835, 11836, 11996, 11987, 11985, 14097, 11984, 11988, 11980, 12000],
+      "drivers": [
+        "measure/measure-thigh-circ"
+      ]
+    },
+    {
+      "id": "upperArm",
+      "type": "circumference",
+      "verts": [9055, 9059, 11350, 11436, 9073, 9074, 9075, 9048, 9047, 9046, 11325, 9045, 9044, 9049, 9043, 9053, 9052, 9051, 9050, 9054],
+      "drivers": [
+        "measure/measure-upperarm-circ"
+      ]
+    },
+    {
+      "id": "armLength",
+      "type": "polyline",
+      "verts": [8951, 10902, 11491],
+      "drivers": [
+        "measure/measure-upperarm-length",
+        "measure/measure-lowerarm-length"
+      ]
+    },
+    {
+      "id": "inseam",
+      "type": "vertexHeight",
+      "vert": 4775,
+      "drivers": [
+        "measure/measure-upperleg-height",
+        "measure/measure-lowerleg-height"
+      ]
+    },
+    {
+      "id": "footLength",
+      "type": "distance",
+      "verts": [13465, 12529],
+      "axis": "z",
+      "drivers": [
+        "armslegs/foot-scale-depth"
+      ]
+    }
+  ]
+}
