@@ -28,7 +28,10 @@ function load(): { data: SolverData; rig: RigDef } {
   const rig = json<RigDef>('rig.json');
   const mesh = parseGlbMesh(bytes('base.glb'));
   const base = buildBasePositions(mesh.positions, manifest);
-  return { data: { manifest, base, morphs: bytes('morphs.bin'), measures, indices: mesh.indices }, rig };
+  return {
+    data: { manifest, base, morphs: bytes('morphs.bin'), measures, indices: mesh.indices },
+    rig,
+  };
 }
 
 const profile = (
@@ -134,9 +137,14 @@ describe.skipIf(!dir)('real MakeHuman assets', () => {
   it('height drivers (leg-height modifiers) and macro height do not fight', () => {
     // inseam target moves the leg-height modifiers; height must stay exact regardless.
     for (const inseam of [70, 80, 90]) {
-      const res = solveBody(data, { ...profile(1, 180, 80, 100, 85, 98, 39, 46, 43), inseamCm: inseam });
+      const res = solveBody(data, {
+        ...profile(1, 180, 80, 100, 85, 98, 39, 46, 43),
+        inseamCm: inseam,
+      });
       expect(Math.abs(res.achievedCm.height! - 180)).toBeLessThan(0.5);
-      console.log(`[real] inseam ${inseam} -> ${res.achievedCm.inseam!.toFixed(1)} (height ${res.achievedCm.height!.toFixed(2)})`);
+      console.log(
+        `[real] inseam ${inseam} -> ${res.achievedCm.inseam!.toFixed(1)} (height ${res.achievedCm.height!.toFixed(2)})`,
+      );
     }
   });
 
