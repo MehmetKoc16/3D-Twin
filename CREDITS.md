@@ -22,5 +22,27 @@
 
 ## Garments and other assets
 
-CC-BY garment packs (e.g. MakeHuman Shirts 02/03, Pants 02/03, Shoes 02/03) will be listed here with author
-attribution and license when they are added to the repository.
+Garment templates (`apps/web/public/assets/garments/`) are MakeHuman community clothes (MHCLO proxies from the
+[MakeHuman community asset packs](https://files2.makehumancommunity.org/asset_packs/)). The licence of each item was
+checked from its own `.mhclo` header and the pack's json (never from the pack name alone; e.g. some items inside the
+"cc0" packs are AGPL and were not used). Each item was re-fitted to a parametric body through the MHCLO binding,
+its texture was downscaled to at most 1024 px and it was converted to glTF. Pinned per-file SHA-256 hashes are in
+`tools/asset-pipeline/config.py` (`GARMENT_ASSETS`); the full credit text per item is in
+`apps/web/public/assets/garments/index.json` (`attribution`).
+
+CC-BY (attribution required):
+
+- **"Male classic jeans"** (`punkduck_male_classic_jeans`) by **punkduck**, MakeHuman community assets pack
+  `pants02` (<https://www.makehumancommunity.org/node/1655>), licensed **CC BY 4.0**
+  (<https://creativecommons.org/licenses/by/4.0/>).
+- **"Brown sneakers"** (`culturalibre_sneakers`) by **culturalibre**, original model by **yanix**
+  ([Sketchfab](https://sketchfab.com/3d-models/brown-sneakers-e6c51d2e77d945d1a0efbca530fb4b5b)), MakeHuman
+  community assets pack `shoes02` (<https://www.makehumancommunity.org/node/2555>), licensed **CC BY** (the upstream
+  file states no version; treated as 4.0, <https://creativecommons.org/licenses/by/4.0/>).
+
+CC0 (credited as a courtesy, no attribution required):
+
+- "T-shirt_basic_tucked" (`toigo_basic_tucked_t-shirt`), "Sweater_Fisherman" (`toigo_fisherman_sweater`),
+  "Pants_Wool" (`toigo_wool_pants`) and "MJ-Shoes" (`toigo_mj_cloth_shoes`) by **MRT** (MargaretToigo), packs
+  `shirts01`, `pants01`, `shoes01`.
+- "hero_boots_2" (`culturalibre_hero_boots_2`) by **culturalibre**, pack `shoes01`.

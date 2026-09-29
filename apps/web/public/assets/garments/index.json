@@ -1,0 +1,222 @@
+{
+  "version": 1,
+  "garments": [
+    {
+      "id": "tshirt",
+      "kind": "tshirt",
+      "category": "top",
+      "label": {
+        "tr": "Ti\u015f\u00f6rt",
+        "en": "T-shirt"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"T-shirt (basic, tucked)\" by MRT (MargaretToigo), MakeHuman community assets (https://www.makehumancommunity.org/node/1203), CC0 1.0 (public domain dedication). Changes: re-fitted to a parametric body through the MHCLO binding, texture downscaled, converted to glTF.",
+      "source": "MakeHuman community assets pack shirts01_cc0 (https://files2.makehumancommunity.org/asset_packs/shirts01/shirts01_cc0.zip) clothes/toigo_basic_tucked_t-shirt/toigo_basic_tucked_t-shirt.mhclo sha256:c34bd03895c5ad9ec46965ef7d5f3e5e8c567630797ab312f8762c1d9fde8f71",
+      "mesh": "tshirt.glb",
+      "binding": "tshirt.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1434],
+        "y": [835, 942, 0.24098],
+        "z": [1033, 5782, 0.20001]
+      },
+      "nativeMeasures": {
+        "chest": 90.8,
+        "waist": 75.9,
+        "length": 45.1,
+        "sleeve": 18.9
+      },
+      "defaultEase": {
+        "chest": 3.0,
+        "waist": 6.5,
+        "sleeve": -34.5
+      },
+      "layer": 1,
+      "baseColor": "#838383"
+    },
+    {
+      "id": "sweatshirt",
+      "kind": "sweatshirt",
+      "category": "top",
+      "label": {
+        "tr": "Kazak",
+        "en": "Sweater"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Fisherman sweater\" by MRT (MargaretToigo), MakeHuman community assets (https://www.makehumancommunity.org/node/1187), CC0 1.0 (public domain dedication). Changes: re-fitted to a parametric body through the MHCLO binding, texture downscaled, converted to glTF.",
+      "source": "MakeHuman community assets pack shirts01_cc0 (https://files2.makehumancommunity.org/asset_packs/shirts01/shirts01_cc0.zip) clothes/toigo_fisherman_sweater/toigo_fisherman_sweater.mhclo sha256:b454960bdd61985f246e88e547a127a75d590dc87d6c1a4062fb7c7c281d8999",
+      "mesh": "sweatshirt.glb",
+      "binding": "sweatshirt.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1434],
+        "y": [835, 942, 0.24098],
+        "z": [1033, 5782, 0.20001]
+      },
+      "nativeMeasures": {
+        "chest": 89.5,
+        "waist": 72.5,
+        "length": 55.8,
+        "sleeve": 52.4
+      },
+      "defaultEase": {
+        "chest": 1.5,
+        "waist": 3.0,
+        "sleeve": -1.0
+      },
+      "layer": 2,
+      "baseColor": "#5f1f1f"
+    },
+    {
+      "id": "pants",
+      "kind": "pants",
+      "category": "bottom",
+      "label": {
+        "tr": "Kuma\u015f pantolon",
+        "en": "Trousers"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Wool pants\" by MRT (MargaretToigo), MakeHuman community assets (https://www.makehumancommunity.org/node/1194), CC0 1.0 (public domain dedication). Changes: re-fitted to a parametric body through the MHCLO binding, texture downscaled, converted to glTF.",
+      "source": "MakeHuman community assets pack pants01_cc0 (https://files2.makehumancommunity.org/asset_packs/pants01/pants01_cc0.zip) clothes/toigo_wool_pants/toigo_wool_pants.mhclo sha256:ac1a57a817976d80ece8a88698873d54de7f252d01ba3dca5e361693621fcf22",
+      "mesh": "pants.glb",
+      "binding": "pants.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1434],
+        "y": [835, 942, 0.24098],
+        "z": [1033, 5782, 0.20001]
+      },
+      "nativeMeasures": {
+        "waist": 69.4,
+        "hip": 100.2,
+        "thigh": 69.7,
+        "length": 93.8,
+        "inseam": 71.8
+      },
+      "defaultEase": {
+        "waist": 0.0,
+        "hip": 5.5,
+        "thigh": 16.0,
+        "inseam": -6.5
+      },
+      "layer": 1,
+      "baseColor": "#3a3b3d"
+    },
+    {
+      "id": "jeans",
+      "kind": "jeans",
+      "category": "bottom",
+      "label": {
+        "tr": "Kot pantolon",
+        "en": "Jeans"
+      },
+      "license": "CC-BY-4.0",
+      "attribution": "\"Male classic jeans\" by punkduck, MakeHuman community assets (https://www.makehumancommunity.org/node/1655), CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Changes: re-fitted to a parametric body through the MHCLO binding, texture downscaled, converted to glTF.",
+      "source": "MakeHuman community assets pack pants02_ccby (https://files2.makehumancommunity.org/asset_packs/pants02/pants02_ccby.zip) clothes/punkduck_male_classic_jeans/punkduck_male_classic_jeans.mhclo sha256:8e375d1fc5eae9a52f2677eb02474b116d2ce6918c8e45142d254391c6b46944",
+      "mesh": "jeans.glb",
+      "binding": "jeans.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1434],
+        "y": [835, 942, 0.24098],
+        "z": [1033, 5782, 0.20001]
+      },
+      "deleteVerts": "jeans.delete.bin",
+      "nativeMeasures": {
+        "waist": 69.3,
+        "hip": 103.7,
+        "thigh": 62.3,
+        "length": 95.9,
+        "inseam": 72.2
+      },
+      "defaultEase": {
+        "waist": 0.0,
+        "hip": 9.0,
+        "thigh": 8.5,
+        "inseam": -6.0
+      },
+      "layer": 1,
+      "baseColor": "#494e4f"
+    },
+    {
+      "id": "sneakers",
+      "kind": "sneakers",
+      "category": "shoes",
+      "label": {
+        "tr": "Spor ayakkab\u0131",
+        "en": "Sneakers"
+      },
+      "license": "CC-BY-4.0",
+      "attribution": "\"Brown sneakers\" by culturalibre, original by yanix, MakeHuman community assets (https://www.makehumancommunity.org/node/2555), CC BY (version not stated upstream, 4.0 assumed) (https://creativecommons.org/licenses/by/4.0/). Changes: re-fitted to a parametric body through the MHCLO binding, texture downscaled, converted to glTF.",
+      "source": "MakeHuman community assets pack shoes02_ccby (https://files2.makehumancommunity.org/asset_packs/shoes02/shoes02_ccby.zip) clothes/culturalibre_sneakers/culturalibre_sneakers.mhclo sha256:fdb2a1d62dce8f759d544e5022f87e7530d43b1d03b7db80f0bbcd69ba7ddfab",
+      "mesh": "sneakers.glb",
+      "binding": "sneakers.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.148],
+        "y": [835, 942, 0.23298],
+        "z": [1033, 5782, 0.19221]
+      },
+      "deleteVerts": "sneakers.delete.bin",
+      "nativeMeasures": {
+        "footLength": 23.7
+      },
+      "defaultEase": {
+        "footLength": 0.5
+      },
+      "layer": 1,
+      "baseColor": "#56473f"
+    },
+    {
+      "id": "shoes",
+      "kind": "shoes",
+      "category": "shoes",
+      "label": {
+        "tr": "Kuma\u015f ayakkab\u0131",
+        "en": "Cloth shoes"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"MJ cloth shoes\" by MRT (MargaretToigo), MakeHuman community assets (https://www.makehumancommunity.org/node/1700), CC0 1.0 (public domain dedication). Changes: re-fitted to a parametric body through the MHCLO binding, texture downscaled, converted to glTF.",
+      "source": "MakeHuman community assets pack shoes01_cc0 (https://files2.makehumancommunity.org/asset_packs/shoes01/shoes01_cc0.zip) clothes/toigo_mj_cloth_shoes/toigo_mj_cloth_shoes.mhclo sha256:6e81c1d6475a03b91a2c7002176883efce5e2a0b129d6c8cb00864415cdb905e",
+      "mesh": "shoes.glb",
+      "binding": "shoes.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1398],
+        "y": [835, 942, 0.22028],
+        "z": [1033, 5782, 0.18441]
+      },
+      "deleteVerts": "shoes.delete.bin",
+      "nativeMeasures": {
+        "footLength": 23.3
+      },
+      "defaultEase": {
+        "footLength": 0.0
+      },
+      "layer": 1,
+      "baseColor": "#282525"
+    },
+    {
+      "id": "boots",
+      "kind": "boots",
+      "category": "shoes",
+      "label": {
+        "tr": "Bot",
+        "en": "Boots"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Hero boots 2\" by culturalibre, MakeHuman community assets (https://www.makehumancommunity.org/node/2132), CC0 1.0 (public domain dedication). Changes: re-fitted to a parametric body through the MHCLO binding, texture downscaled, converted to glTF.",
+      "source": "MakeHuman community assets pack shoes01_cc0 (https://files2.makehumancommunity.org/asset_packs/shoes01/shoes01_cc0.zip) clothes/culturalibre_hero_boots_2/culturalibre_hero_boots_2.mhclo sha256:b8046c7e7b9cf39ea93d1155fbb76f9bdfc612c7a0ea140a11aba38a68f3542f",
+      "mesh": "boots.glb",
+      "binding": "boots.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1434],
+        "y": [835, 942, 0.24098],
+        "z": [1033, 5782, 0.20001]
+      },
+      "deleteVerts": "boots.delete.bin",
+      "nativeMeasures": {
+        "footLength": 25.9
+      },
+      "defaultEase": {
+        "footLength": 2.5
+      },
+      "layer": 1,
+      "baseColor": "#0a69ab"
+    }
+  ]
+}

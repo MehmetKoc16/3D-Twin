@@ -48,6 +48,8 @@ from `tools/asset-pipeline`. The glTF test uses the Khronos validator when `npm`
 | `debug_png.py`   | numpy + zlib PNG helpers for the debug images (`.cache/debug/face_map_uv*.png`)                        |
 | `gltf_writer.py` | `base.glb` via pygltflib: skinned mesh, skeleton nodes, inverse bind matrices, one material, no morphs |
 | `writers.py`     | JSON writers (stable key order)                                                                        |
+| `mhclo.py`       | MHCLO / garment OBJ / MHMAT parsers, licence classification, reconstruction reference                  |
+| `garments.py`    | garment templates -> `apps/web/public/assets/garments/` (glb, bind.bin, delete.bin, index.json), ADR 0007 |
 
 ## Outputs
 
@@ -104,3 +106,11 @@ cross-check (the acromion vertex found for the shoulder is the same one MakeHuma
   the crotch, the crotch is the lowest vertex on the mid-sagittal plane.
 - Size headroom: `morphs.bin` is 15.8 MB of the 20 MB budget. Per-target int16 quantisation (scale in the manifest)
   would halve it if needed.
+
+## Garments (Wave 4a)
+
+`build.py` also writes `apps/web/public/assets/garments/` (`index.json` = `{ version: 1, garments: GarmentTemplateDef[] }`,
+per template `<id>.glb`, `<id>.bind.bin`, optional `<id>.delete.bin`) and debug renders `.cache/debug/garment_<id>.png`
+(front | side, z-buffered, body triangles under `delete_verts` hidden). Sources are single files of the MakeHuman
+community asset packs (`config.GARMENT_ASSETS`, sha256-pinned, fetched by HTTP range into `.cache/garments/`,
+about 16 MB). See `docs/adr/0007-garment-templates.md`. Needs Pillow (`requirements.txt`).

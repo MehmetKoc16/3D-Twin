@@ -10,7 +10,9 @@ from pathlib import Path
 import hashlib
 import urllib.request
 
-from config import CACHE_DIR, MEDIAPIPE, SOURCES
+from config import (
+    CACHE_DIR, GARMENT_ASSETS, GARMENT_CACHE, GARMENT_PACK_URL, MEDIAPIPE, SOURCES,
+)
 
 REQUIRED_FILES = {
     "mh": [
@@ -95,11 +97,100 @@ def fetch_mediapipe() -> None:
         dest.write_bytes(data)
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Garment assets (MakeHuman community asset packs): single files out of remote zips, sha256-verified, idempotent.
+# ---------------------------------------------------------------------------------------------------------------
+
+
+class _HttpRangeFile:
+    """Read-only seekable file over HTTP range requests (enough for zipfile to read single members)."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 (fixed https URL)
+            self.size = int(resp.headers["Content-Length"])
+            if resp.headers.get("Accept-Ranges", "").lower() != "bytes":
+                raise RuntimeError(f"{url}: server does not support range requests")
+        self.pos = 0
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.pos
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        self.pos = offset if whence == 0 else self.pos + offset if whence == 1 else self.size + offset
+        return self.pos
+
+    def read(self, n: int = -1) -> bytes:
+        if n < 0 or self.pos + n > self.size:
+            n = self.size - self.pos
+        if n <= 0:
+            return b""
+        req = urllib.request.Request(self.url, headers={"Range": f"bytes={self.pos}-{self.pos + n - 1}"})
+        with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
+            data = resp.read()
+        self.pos += len(data)
+        return data
+
+
+def garment_dir(gid: str) -> Path:
+    return GARMENT_CACHE / gid
+
+
+def _garment_names(gid: str) -> dict[str, str]:
+    """File name -> sha256 for one template, including the pack json under the key `pack.json`."""
+    a = GARMENT_ASSETS[gid]
+    return {**a["files"], "pack.json": a["packJson"]}
+
+
+def _garment_ok(gid: str) -> bool:
+    d = garment_dir(gid)
+    return all(
+        (d / n).exists() and hashlib.sha256((d / n).read_bytes()).hexdigest() == h
+        for n, h in _garment_names(gid).items()
+    )
+
+
+def fetch_garments() -> None:
+    import zipfile
+
+    zips: dict[str, zipfile.ZipFile] = {}
+    for gid, a in GARMENT_ASSETS.items():
+        if _garment_ok(gid):
+            continue
+        pack = a["pack"]
+        if pack not in zips:
+            name = pack.split("_")[0]
+            print(f"[fetch] garments: opening {pack}.zip (range reads)")
+            zips[pack] = zipfile.ZipFile(_HttpRangeFile(GARMENT_PACK_URL.format(name=name, pack=pack)))  # type: ignore[arg-type]
+        zf = zips[pack]
+        d = garment_dir(gid)
+        d.mkdir(parents=True, exist_ok=True)
+        for fname, digest in _garment_names(gid).items():
+            member = f"packs/{pack.split('_')[0]}.json" if fname == "pack.json" else f"clothes/{a['dir']}/{fname}"
+            data = zf.read(member)
+            got = hashlib.sha256(data).hexdigest()
+            if got != digest:
+                raise RuntimeError(f"{gid}: {member} sha256 {got} != pinned {digest}")
+            (d / fname).write_bytes(data)
+        print(f"[fetch] garments: {gid} ({a['dir']}) ok")
+
+
+def ensure_garments_present() -> None:
+    for gid in GARMENT_ASSETS:
+        if not _garment_ok(gid):
+            raise RuntimeError(f"garment asset {gid} missing or not at the pinned sha256; run without --no-fetch")
+
+
 def fetch_all() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     for key in SOURCES:
         fetch_source(key)
     fetch_mediapipe()
+    fetch_garments()
 
 
 def ensure_present() -> None:
@@ -113,6 +204,7 @@ def ensure_present() -> None:
     for rel in MEDIAPIPE["files"]:
         if not _mediapipe_ok(rel):
             raise RuntimeError(f"mediapipe file {rel} missing or not at the pinned sha256; run without --no-fetch")
+    ensure_garments_present()
 
 
 if __name__ == "__main__":

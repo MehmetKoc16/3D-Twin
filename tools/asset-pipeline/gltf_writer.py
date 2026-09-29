@@ -127,3 +127,88 @@ def write_glb(
     g.scene = 0
     g.set_binary_blob(bytes(data))
     g.save_binary(str(path))
+
+
+def write_static_glb(
+    path: Path,
+    name: str,
+    positions: np.ndarray,  # (R, 3) meters
+    normals: np.ndarray,  # (R, 3)
+    uvs: np.ndarray,  # (R, 2) OBJ convention (v up); flipped here for glTF
+    tris: np.ndarray,  # (T, 3)
+    texture: bytes | None,
+    texture_mime: str,
+    base_color: list[float],
+    alpha_mask: bool = False,
+) -> None:
+    """Unskinned single-mesh glb (garments): POSITION, NORMAL, TEXCOORD_0, one PBR material, optional embedded image.
+
+    The base colour texture is sRGB (glTF default for baseColorTexture); `base_color` is the linear factor (white when a
+    texture is present). Double sided because garments are open surfaces (sleeve/leg openings, collars).
+    """
+    R = positions.shape[0]
+    pos = np.ascontiguousarray(positions, dtype="<f4")
+    nor = np.ascontiguousarray(normals, dtype="<f4")
+    tex = np.ascontiguousarray(np.stack([uvs[:, 0], 1.0 - uvs[:, 1]], axis=1), dtype="<f4")
+    idx = np.ascontiguousarray(tris.reshape(-1), dtype="<u2" if R < 65535 else "<u4")
+    blobs = [
+        ("POSITION", pos, ARRAY_BUFFER, gl.FLOAT, gl.VEC3),
+        ("NORMAL", nor, ARRAY_BUFFER, gl.FLOAT, gl.VEC3),
+        ("TEXCOORD_0", tex, ARRAY_BUFFER, gl.FLOAT, gl.VEC2),
+        ("indices", idx, ELEMENT_ARRAY_BUFFER,
+         gl.UNSIGNED_SHORT if idx.dtype == np.dtype("<u2") else gl.UNSIGNED_INT, gl.SCALAR),
+    ]
+    g = gl.GLTF2()
+    g.asset = gl.Asset(version="2.0", generator="dijital-ikiz asset-pipeline")
+    data = bytearray()
+    acc_index: dict[str, int] = {}
+    for bname, arr, target, ctype, atype in blobs:
+        while len(data) % 4:
+            data.append(0)
+        offset = len(data)
+        raw = arr.tobytes()
+        data += raw
+        g.bufferViews.append(gl.BufferView(buffer=0, byteOffset=offset, byteLength=len(raw), target=target))
+        acc = gl.Accessor(bufferView=len(g.bufferViews) - 1, componentType=ctype, count=int(arr.shape[0]), type=atype)
+        if bname == "POSITION":
+            acc.min = [float(x) for x in pos.min(axis=0)]
+            acc.max = [float(x) for x in pos.max(axis=0)]
+        g.accessors.append(acc)
+        acc_index[bname] = len(g.accessors) - 1
+    pbr = gl.PbrMetallicRoughness(baseColorFactor=list(base_color), metallicFactor=0.0, roughnessFactor=0.85)
+    if texture is not None:
+        while len(data) % 4:
+            data.append(0)
+        g.bufferViews.append(gl.BufferView(buffer=0, byteOffset=len(data), byteLength=len(texture)))
+        data += texture
+        g.images.append(gl.Image(bufferView=len(g.bufferViews) - 1, mimeType=texture_mime, name=f"{name}_diffuse"))
+        g.samplers.append(gl.Sampler(magFilter=9729, minFilter=9987, wrapS=10497, wrapT=10497))
+        g.textures.append(gl.Texture(source=0, sampler=0))
+        pbr.baseColorTexture = gl.TextureInfo(index=0)
+    while len(data) % 4:
+        data.append(0)
+    g.buffers.append(gl.Buffer(byteLength=len(data)))
+    g.materials.append(
+        gl.Material(
+            name=name, pbrMetallicRoughness=pbr, doubleSided=True, alphaMode="MASK" if alpha_mask else "OPAQUE",
+            alphaCutoff=0.5 if alpha_mask else None,
+        )
+    )
+    g.meshes.append(
+        gl.Mesh(
+            name=name,
+            primitives=[
+                gl.Primitive(
+                    attributes=gl.Attributes(
+                        POSITION=acc_index["POSITION"], NORMAL=acc_index["NORMAL"], TEXCOORD_0=acc_index["TEXCOORD_0"]
+                    ),
+                    indices=acc_index["indices"], material=0, mode=gl.TRIANGLES,
+                )
+            ],
+        )
+    )
+    g.nodes.append(gl.Node(name=name, mesh=0))
+    g.scenes.append(gl.Scene(name="Scene", nodes=[0]))
+    g.scene = 0
+    g.set_binary_blob(bytes(data))
+    g.save_binary(str(path))

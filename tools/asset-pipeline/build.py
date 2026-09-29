@@ -16,9 +16,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from config import DEFAULT_OUT_DIR, OUTPUT_FILES, RIG_NAME, SOURCES, VENV_DIR  # noqa: E402
+from config import DEFAULT_GARMENTS_DIR, DEFAULT_OUT_DIR, OUTPUT_FILES, RIG_NAME, SOURCES, VENV_DIR  # noqa: E402
 
-REQUIRED_MODULES = ("numpy", "pygltflib")
+REQUIRED_MODULES = ("numpy", "pygltflib", "PIL")
 
 
 def _venv_python() -> Path:
@@ -56,10 +56,16 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def build_all(out_dir: Path, verbose: bool = True) -> dict:
+def garments_dir_for(out_dir: Path) -> Path:
+    """Default garments dir for the default body dir; `<out>/garments` for any other (temp / test) output dir."""
+    return DEFAULT_GARMENTS_DIR if out_dir.resolve() == DEFAULT_OUT_DIR.resolve() else out_dir / "garments"
+
+
+def build_all(out_dir: Path, verbose: bool = True, garments_dir: Path | None = None) -> dict:
     import numpy as np
 
     import face_map as face_map_mod
+    import garments as garments_mod
     import gltf_writer
     import macro
     import measures as measures_mod
@@ -188,7 +194,14 @@ def build_all(out_dir: Path, verbose: bool = True) -> dict:
         )
         face_map_mod.write_debug_images(CACHE_DIR / "debug" / "face_map_uv.png", mesh, face)
 
+    # --- garment templates (neutral body frame) ---------------------------------------------------------------
+    gdir = garments_dir if garments_dir is not None else garments_dir_for(out_dir)
+    garments_mod.build_garments(mesh, neutral, landmarks, measure_defs, gdir, verbose=verbose)
+    if verbose:
+        garments_mod.write_debug_images(mesh, neutral, gdir, CACHE_DIR / "debug")
+
     hashes = {f: sha256(out_dir / f) for f in OUTPUT_FILES}
+    hashes.update({f"garments/{n}": sha256(gdir / n) for n in garments_mod.garment_files(gdir)})
     if verbose:
         total = 0
         for f in OUTPUT_FILES:
@@ -219,9 +232,10 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="dt-assets-") as tmp:
             fresh = build_all(Path(tmp), verbose=False)
         bad = []
-        for f in OUTPUT_FILES:
-            existing = args.out / f
-            if not existing.exists() or sha256(existing) != fresh[f]:
+        gdir = garments_dir_for(args.out)
+        for f, digest in fresh.items():
+            existing = gdir / f[len("garments/"):] if f.startswith("garments/") else args.out / f
+            if not existing.exists() or sha256(existing) != digest:
                 bad.append(f)
         if bad:
             print(f"[check] MISMATCH in {args.out}: {', '.join(bad)} (run `npm run assets:build`)", file=sys.stderr)
