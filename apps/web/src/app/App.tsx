@@ -1,49 +1,42 @@
-import { Canvas } from '@react-three/fiber';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-
-function Placeholder() {
-  return (
-    <>
-      <ambientLight intensity={0.8} />
-      <directionalLight position={[3, 5, 4]} intensity={1.5} />
-      <mesh position={[0, 0.9, 0]}>
-        <capsuleGeometry args={[0.2, 1.0, 8, 16]} />
-        <meshStandardMaterial color="#9ca3af" />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[1, 48]} />
-        <meshStandardMaterial color="#4b5563" />
-      </mesh>
-    </>
-  );
-}
+import { BodyPanel } from '../features/body-panel/BodyPanel';
+import { Viewer } from '../features/viewer/Viewer';
+import { useBodyStore } from '../store/bodyStore';
+import faviconUrl from './favicon.svg?url';
 
 export function App() {
   const { t, i18n } = useTranslation();
-  const toggleLang = () => void i18n.changeLanguage(i18n.language === 'tr' ? 'en' : 'tr');
+  useEffect(() => {
+    void useBodyStore.getState().hydrate();
+    const icon = document.createElement('link');
+    icon.rel = 'icon';
+    icon.href = faviconUrl;
+    document.head.append(icon);
+    return () => icon.remove();
+  }, []);
 
   return (
-    <div className="flex h-full bg-neutral-900 text-neutral-100">
-      <main className="relative min-w-0 flex-1">
-        <Canvas camera={{ position: [0, 1.3, 3.5], fov: 40 }}>
-          <Placeholder />
-        </Canvas>
-      </main>
-      <aside className="w-[360px] shrink-0 border-l border-neutral-700 p-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">{t('app.title')}</h1>
-          <button
-            type="button"
-            onClick={toggleLang}
-            className="rounded border border-neutral-500 px-2 py-1 text-sm"
-          >
-            {t('lang.toggle')}
-          </button>
+    <div className="flex min-h-dvh flex-col bg-[#101316] text-slate-100 min-[900px]:h-dvh min-[900px]:overflow-hidden">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-5 sm:px-8">
+        <div className="flex items-center gap-3">
+          <div aria-hidden="true" className="grid size-9 place-items-center rounded-xl bg-teal-400 font-black text-slate-950">D</div>
+          <h1 className="text-lg font-semibold tracking-tight">{t('app.title')}</h1>
         </div>
-        <h2 className="mt-6 text-sm uppercase tracking-wide text-neutral-400">
-          {t('panel.measurements')}
-        </h2>
-      </aside>
+        <button type="button" onClick={() => void i18n.changeLanguage(i18n.language === 'tr' ? 'en' : 'tr')}
+          aria-label={t('app.changeLanguage')}
+          className="rounded-lg border border-white/20 px-3 py-1.5 text-sm font-semibold transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400">
+          {t('app.languageToggle')}
+        </button>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col min-[900px]:flex-row">
+        <main className="relative min-h-[540px] min-w-0 flex-1 bg-[#171d21] max-[899px]:h-[62dvh] max-[899px]:min-h-[450px]">
+          <Viewer />
+        </main>
+        <aside className="w-full shrink-0 border-t border-white/10 bg-[#15191d] min-[900px]:min-h-0 min-[900px]:w-[380px] min-[900px]:overflow-y-auto min-[900px]:border-l min-[900px]:border-t-0" aria-label={t('panel.title')}>
+          <BodyPanel />
+        </aside>
+      </div>
     </div>
   );
 }
