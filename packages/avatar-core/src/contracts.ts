@@ -33,6 +33,17 @@ export interface ModifierDef {
 export interface BodyManifest {
   version: 1;
   unit: 'm';
+  /** Vertices in base.glb (glTF order, after UV-seam split). Indices [0, renderVertexCount) are render vertices. */
+  renderVertexCount: number;
+  /**
+   * Virtual points appended AFTER the render vertices (index = renderVertexCount + i). They are morphed by targets
+   * like any vertex and are used only for the skeleton (and, optionally, measures).
+   */
+  jointPoints: { name: string; position: Vec3 }[];
+  /**
+   * renderVertexCount + jointPoints.length. ALL vertex indices in morphs.bin, rig.json and measures.json use this
+   * combined index space.
+   */
   vertexCount: number;
   mesh: string;
   morphs: string;
@@ -50,6 +61,7 @@ export interface BoneDef {
   parent: string | null;
   head: JointRef;
   tail: JointRef;
+  /** Always 0: bones are world-aligned (identity rest rotation). Kept for format stability. */
   roll: number;
 }
 export interface RigDef {
@@ -68,11 +80,27 @@ export type MeasureId =
   | 'armLength'
   | 'inseam'
   | 'footLength';
+/**
+ * `drivers` = ids of the modifiers the solver may adjust to hit the measure (e.g. armLength = [upperarm-length,
+ * lowerarm-length]). Symmetric l/r modifiers are pre-merged by the pipeline.
+ */
 export type MeasureDef =
-  | { id: MeasureId; type: 'circumference'; verts: number[]; driver: string }
-  | { id: MeasureId; type: 'distance'; verts: [number, number]; driver: string }
-  | { id: MeasureId; type: 'polyline'; verts: number[]; driver: string }
-  | { id: 'height'; type: 'height'; driver: string };
+  /** Tape measure: perimeter of the 2-D convex hull of the loop vertices projected on the loop's plane
+   *  (plane normal via Newell's method over the ordered loop). */
+  | { id: MeasureId; type: 'circumference'; verts: number[]; drivers: string[] }
+  /** Euclidean distance, or only along `axis` when given (shoulder: x, footLength: z). */
+  | {
+      id: MeasureId;
+      type: 'distance';
+      verts: [number, number];
+      axis?: 'x' | 'y' | 'z';
+      drivers: string[];
+    }
+  | { id: MeasureId; type: 'polyline'; verts: number[]; drivers: string[] }
+  /** Vertex y minus the floor (min y over render vertices); used for inseam. */
+  | { id: MeasureId; type: 'vertexHeight'; vert: number; drivers: string[] }
+  /** Bounding-box Y extent over render vertices only (joint points excluded). */
+  | { id: 'height'; type: 'height'; drivers: string[] };
 export interface MeasuresDef {
   version: 1;
   measures: MeasureDef[];
