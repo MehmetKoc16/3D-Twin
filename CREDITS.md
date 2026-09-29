@@ -13,6 +13,11 @@
 ## Libraries
 
 - **MediaPipe** (`@mediapipe/tasks-vision`, Face Landmarker) - Apache-2.0, Google.
+- **MediaPipe canonical face model** (`canonical_face_model.obj`: landmark topology and triangulation) and the face
+  mesh connection lists (`face_mesh_connections.py`: face oval, eyes, eyebrows, lips) -
+  [google-ai-edge/mediapipe](https://github.com/google-ai-edge/mediapipe), Apache-2.0, Copyright The MediaPipe Authors.
+  Pinned commit: `9519bb59bf55fc6a79ed5b9f283d72e6cdfb6678`. Used by the asset pipeline to generate
+  `face-map.json` (triangle index triples and index lists only, no vertex positions or UVs are redistributed).
 - three.js, React, @react-three/fiber, drei, zustand, i18next, comlink, idb-keyval, Vite, Tailwind CSS - MIT.
 
 ## Garments and other assets

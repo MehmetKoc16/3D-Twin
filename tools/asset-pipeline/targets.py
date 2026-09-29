@@ -64,6 +64,27 @@ def _t(rel: str) -> Path:
     return p
 
 
+# Slider ranges beyond the MakeHuman default of [-1, 1] for the measure modifiers that drive the solver. The morph
+# model is linear (|value| * target), so a value of 1.5 is a linear extrapolation of the MakeHuman target. Each
+# extension was checked geometrically (tests/test_morphs.py::test_extended_ranges_are_geometrically_sane): no
+# folded or collapsed triangles on neutral / extreme bodies, monotonic measure, loop convexity kept. Sides that
+# failed the check keep the default: upperarm-circ / upperarm-length (negative side folds the arm mesh) and
+# bust-circ (positive side already folds the nipple region at +1, so it is not extended at all upwards).
+EXTENDED_RANGE: dict[str, tuple[float, float]] = {
+    "measure/measure-neck-circ": (-1.5, 1.5),
+    "measure/measure-shoulder-dist": (-1.5, 1.5),
+    "measure/measure-bust-circ": (-1.5, 1.0),
+    "measure/measure-waist-circ": (-1.5, 1.5),
+    "measure/measure-hips-circ": (-1.5, 1.5),
+    "measure/measure-thigh-circ": (-1.5, 1.5),
+    "measure/measure-upperarm-circ": (-1.0, 1.5),
+    "measure/measure-upperarm-length": (-1.0, 1.5),
+    "measure/measure-lowerarm-length": (-1.5, 1.5),
+    "measure/measure-upperleg-height": (-1.5, 1.5),
+    "measure/measure-lowerleg-height": (-1.5, 1.5),
+}
+
+
 def _macro_targets(cat: Catalog) -> None:
     for g in GENDERS:
         # Race pre-merged: neutral 1/3 mix of the three young race targets of this gender.
@@ -138,8 +159,9 @@ def _add_modifier(
     if incr:
         inc_id = base + "-incr" if decr else base
         cat.targets.append(TargetSpec(inc_id, group, [(_t(f), 1.0) for f in incr]))
+    lo, hi = EXTENDED_RANGE.get(mod_id, (-1.0, 1.0))
     cat.modifiers.append(
-        ModifierSpec(mod_id, -1.0 if decr else 0.0, 1.0, 0.0, dec_id, inc_id)
+        ModifierSpec(mod_id, lo if decr else 0.0, hi, 0.0, dec_id, inc_id)
     )
 
 

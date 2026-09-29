@@ -39,6 +39,21 @@ SOURCES = {
     },
 }
 
+# MediaPipe (Apache-2.0): canonical face model + connection lists, plain files at a pinned commit (no git checkout).
+MEDIAPIPE = {
+    "repo": "google-ai-edge/mediapipe",
+    "sha": "9519bb59bf55fc6a79ed5b9f283d72e6cdfb6678",
+    "dir": CACHE_DIR / "mediapipe",
+    "files": {
+        "mediapipe/modules/face_geometry/data/canonical_face_model.obj":
+            "8bac80443397e113f41a8b565ea72c59390bc031d9defab289dba7bc0c54e618",
+        "mediapipe/python/solutions/face_mesh_connections.py":
+            "cc7171e44d0612db38720cb2fd2516c395992cdd7457efe341543be6f3c22d87",
+    },
+}
+CANONICAL_OBJ = MEDIAPIPE["dir"] / MEDIAPIPE["sha"] / "mediapipe/modules/face_geometry/data/canonical_face_model.obj"
+FACE_CONNECTIONS_PY = MEDIAPIPE["dir"] / MEDIAPIPE["sha"] / "mediapipe/python/solutions/face_mesh_connections.py"
+
 MH_DATA = SOURCES["mh"]["dir"] / "makehuman" / "data"
 MPFB_DATA = SOURCES["mpfb2"]["dir"] / "src" / "mpfb" / "data"
 
@@ -49,4 +64,4 @@ DM_TO_M = 0.1
 # Morph deltas with every component below this magnitude (meters) are dropped.
 DELTA_EPS_M = 1e-5
 
-OUTPUT_FILES = ("base.glb", "morphs.bin", "manifest.json", "rig.json", "measures.json")
+OUTPUT_FILES = ("base.glb", "morphs.bin", "manifest.json", "rig.json", "measures.json", "face-map.json")

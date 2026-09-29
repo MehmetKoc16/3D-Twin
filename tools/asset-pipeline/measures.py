@@ -7,7 +7,7 @@ Measure semantics (must match the runtime, see docs/ARCHITECTURE.md):
   circumference   convex hull of the loop vertices projected onto the plane of the ordered loop (Newell's method),
                   perimeter of the hull (tape-measure semantics); loops are stored in angular order
   distance        Euclidean distance of 2 vertices, or |difference| along `axis` if given
-  polyline        sum of consecutive vertex distances
+  polyline        sum of consecutive vertex distances (shoulder: acromion -> across the upper back over C7 -> acromion)
   height          bbox Y extent of the render vertices
   vertexHeight    y of one vertex minus the lowest render vertex (floor)
 All vertex indices live in the combined index space (render vertices, then joint points).
@@ -203,6 +203,47 @@ def _horizontal_search(ctx: Context, mask: np.ndarray, ys: np.ndarray, pick: str
     return best[1], best[2]
 
 
+def _c7_vertex(ctx: Context) -> int:
+    """Midline back vertex (x = 0, behind the body axis) closest in height to the neck joint (base of the neck)."""
+    ren = ctx.P[: ctx.R]
+    y = ctx.joint("joint-neck")[1]
+    mid = np.where((np.abs(ren[:, 0]) < 1e-4) & (ren[:, 2] < 0.0))[0]
+    return int(mid[np.abs(ren[mid, 1] - y).argmin()])
+
+
+def _back_path(ctx: Context, acro_l: int, acro_r: int, c7: int) -> list[int]:
+    """Ordered render vertices (acro_l first, acro_r last) of the back-surface slice through acro_l, c7, acro_r.
+
+    One vertex (nearest to the plane) per crossed quad edge, restricted to the shoulder girdle / upper back bones,
+    to |x| <= the acromion x and to the back side of the chord acromion -> C7 -> acromion; ordered by decreasing x.
+    """
+    ren = ctx.P[: ctx.R]
+    pa, pb, pc = ren[acro_l], ren[acro_r], ren[c7]
+    n = np.cross(pb - pa, pc - pa)
+    n /= np.linalg.norm(n)
+    mask = ctx.bones_mask(
+        "spine_02", "spine_03", "clavicle_l", "clavicle_r", "upperarm_l", "upperarm_r", "neck_01", exact=True
+    )
+    s = (ren - pa) @ n
+    a, b = ctx.edges[:, 0], ctx.edges[:, 1]
+    crossed = (s[a] * s[b] < 0) | ((s[a] == 0) & (s[b] != 0))
+    ea, eb = a[crossed], b[crossed]
+    ids = np.unique(np.where(np.abs(s[ea]) <= np.abs(s[eb]), ea, eb))
+    ids = ids[mask[ids]]
+    half = abs(pa[0])
+
+    def chord_z(x: np.ndarray) -> np.ndarray:
+        t = np.clip(np.abs(x) / half, 0.0, 1.0)
+        return pc[2] * (1.0 - t) + pa[2] * t
+
+    ids = ids[(np.abs(ren[ids, 0]) <= half + 1e-6) & (ren[ids, 2] <= chord_z(ren[ids, 0]) + 0.004)]
+    mh = np.unique(ctx.mesh.render_mh[ids])
+    ids = np.sort(ctx.first_copy[mh])
+    ids = ids[(ids != acro_l) & (ids != acro_r)]
+    ids = ids[np.argsort(-ren[ids, 0], kind="stable")]
+    return [acro_l, *[int(i) for i in ids], acro_r]
+
+
 def derive(ctx: Context) -> tuple[list[dict], dict]:
     P, R = ctx.P, ctx.R
     ren = P[:R]
@@ -245,7 +286,14 @@ def derive(ctx: Context) -> tuple[list[dict], dict]:
     acro_l = int(cand[ren[cand, 1].argmax()])
     acro_r = ctx.mirror(acro_l)
     lm["acromion_l"], lm["acromion_r"] = acro_l, acro_r
-    out["shoulder"] = {"id": "shoulder", "type": "distance", "verts": [acro_l, acro_r], "axis": "x"}
+    # shoulder width as garment size charts define it: measured ACROSS THE BACK SURFACE from one acromion over the
+    # upper back at C7 to the other acromion (tape-measure path, longer than the straight biacromial distance).
+    # C7 = midline back vertex at the height of the neck joint. The path is the slice of the back surface by the plane
+    # through both acromia and C7, listed from the subject's left acromion (+X) to the right one (-X).
+    c7 = _c7_vertex(ctx)
+    lm["c7"] = c7
+    path = _back_path(ctx, acro_l, acro_r, c7)
+    out["shoulder"] = {"id": "shoulder", "type": "polyline", "verts": path}
 
     # chest: bust level = height of the nipples (located by the caller from the nipple-point target); if absent it
     # falls back to 0.727 * height, which is where the nipples sit on the neutral body

@@ -24,3 +24,4 @@ export {
 export { solveBody, createBodySolver, BodySolver, bmiToWeightValue } from './solver';
 export { computeJoints, validateRig, boneOrder, type JointPair } from './joints';
 export { footLengthCmFromShoe, shoeFromFootLengthCm, convertShoeSize, roundShoeSize } from './shoe';
+export * from './face';

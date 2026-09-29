@@ -1,7 +1,7 @@
 """Asset pipeline entry point:  python tools/asset-pipeline/build.py [--out DIR] [--no-fetch] [--check]
 
 Raw MakeHuman + MPFB2 CC0 data (pinned commits, .cache/) -> base.glb, morphs.bin, manifest.json, rig.json,
-measures.json in apps/web/public/assets/body/.
+measures.json, face-map.json in apps/web/public/assets/body/.
 """
 
 from __future__ import annotations
@@ -59,6 +59,7 @@ def sha256(path: Path) -> str:
 def build_all(out_dir: Path, verbose: bool = True) -> dict:
     import numpy as np
 
+    import face_map as face_map_mod
     import gltf_writer
     import macro
     import measures as measures_mod
@@ -67,7 +68,7 @@ def build_all(out_dir: Path, verbose: bool = True) -> dict:
     import targets as targets_mod
     import weights as weights_mod
     import writers
-    from config import DM_TO_M, MH_DATA, MPFB_DATA
+    from config import CACHE_DIR, DM_TO_M, MH_DATA, MPFB_DATA
 
     log = print if verbose else (lambda *a, **k: None)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -173,6 +174,19 @@ def build_all(out_dir: Path, verbose: bool = True) -> dict:
     writers.write_json(out_dir / "manifest.json", manifest)
     writers.write_json(out_dir / "rig.json", {"version": 1, "bones": bones})
     writers.write_json(out_dir / "measures.json", {"version": 1, "measures": measure_defs})
+
+    # --- face-map.json ----------------------------------------------------------------------------------------
+    morphset = macro.MorphSet(manifest, morphs_bytes, base)
+    face = face_map_mod.build_face_map(mesh, morphset.positions(), morphset, manifest)
+    writers.write_json(out_dir / "face-map.json", face.data)
+    if verbose:
+        rep = face.report
+        log(
+            f"[build] face-map: {rep['bound']} landmarks bound, max distance {rep['max_distance_mm']:.1f} mm "
+            f"(xy {rep['max_xy_distance_mm']:.1f} mm), single UV island {rep['seams']['single_island']}, "
+            f"flipped faces {len(rep['flipped_faces'])}, fitModifiers {len(rep['fit_modifiers'])}"
+        )
+        face_map_mod.write_debug_images(CACHE_DIR / "debug" / "face_map_uv.png", mesh, face)
 
     hashes = {f: sha256(out_dir / f) for f in OUTPUT_FILES}
     if verbose:

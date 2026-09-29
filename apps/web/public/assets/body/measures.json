@@ -19,9 +19,8 @@
     },
     {
       "id": "shoulder",
-      "type": "distance",
-      "verts": [8951, 1714],
-      "axis": "x",
+      "type": "polyline",
+      "verts": [8951, 8900, 8841, 8851, 8859, 8858, 8388, 8358, 917, 1090, 1120, 1601, 1602, 1590, 1580, 1649, 1714],
       "drivers": [
         "measure/measure-shoulder-dist"
       ]

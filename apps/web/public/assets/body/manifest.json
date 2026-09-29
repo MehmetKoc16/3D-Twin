@@ -5256,8 +5256,8 @@
   "modifiers": [
     {
       "id": "measure/measure-neck-circ",
-      "min": -1.0,
-      "max": 1.0,
+      "min": -1.5,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-neck-circ-decr",
       "incrTarget": "measure/measure-neck-circ-incr"
@@ -5273,7 +5273,7 @@
     {
       "id": "measure/measure-upperarm-circ",
       "min": -1.0,
-      "max": 1.0,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-upperarm-circ-decr",
       "incrTarget": "measure/measure-upperarm-circ-incr"
@@ -5281,15 +5281,15 @@
     {
       "id": "measure/measure-upperarm-length",
       "min": -1.0,
-      "max": 1.0,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-upperarm-length-decr",
       "incrTarget": "measure/measure-upperarm-length-incr"
     },
     {
       "id": "measure/measure-lowerarm-length",
-      "min": -1.0,
-      "max": 1.0,
+      "min": -1.5,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-lowerarm-length-decr",
       "incrTarget": "measure/measure-lowerarm-length-incr"
@@ -5312,7 +5312,7 @@
     },
     {
       "id": "measure/measure-bust-circ",
-      "min": -1.0,
+      "min": -1.5,
       "max": 1.0,
       "default": 0.0,
       "decrTarget": "measure/measure-bust-circ-decr",
@@ -5328,8 +5328,8 @@
     },
     {
       "id": "measure/measure-waist-circ",
-      "min": -1.0,
-      "max": 1.0,
+      "min": -1.5,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-waist-circ-decr",
       "incrTarget": "measure/measure-waist-circ-incr"
@@ -5352,40 +5352,40 @@
     },
     {
       "id": "measure/measure-shoulder-dist",
-      "min": -1.0,
-      "max": 1.0,
+      "min": -1.5,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-shoulder-dist-decr",
       "incrTarget": "measure/measure-shoulder-dist-incr"
     },
     {
       "id": "measure/measure-hips-circ",
-      "min": -1.0,
-      "max": 1.0,
+      "min": -1.5,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-hips-circ-decr",
       "incrTarget": "measure/measure-hips-circ-incr"
     },
     {
       "id": "measure/measure-upperleg-height",
-      "min": -1.0,
-      "max": 1.0,
+      "min": -1.5,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-upperleg-height-decr",
       "incrTarget": "measure/measure-upperleg-height-incr"
     },
     {
       "id": "measure/measure-thigh-circ",
-      "min": -1.0,
-      "max": 1.0,
+      "min": -1.5,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-thigh-circ-decr",
       "incrTarget": "measure/measure-thigh-circ-incr"
     },
     {
       "id": "measure/measure-lowerleg-height",
-      "min": -1.0,
-      "max": 1.0,
+      "min": -1.5,
+      "max": 1.5,
       "default": 0.0,
       "decrTarget": "measure/measure-lowerleg-height-decr",
       "incrTarget": "measure/measure-lowerleg-height-incr"

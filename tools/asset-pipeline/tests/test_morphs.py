@@ -160,3 +160,92 @@ def test_height_macro_range(morphset, manifest):
     assert h(gender=0.0, height=0.0) < h(gender=0.0) < h(gender=0.0, height=1.0)
     assert h(gender=1.0, height=0.0) < h(gender=1.0) < h(gender=1.0, height=1.0)
     assert 1.1 < h(gender=0.0, height=0.0) and h(gender=1.0, height=1.0) < 2.6
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Extended measure-modifier ranges (targets.EXTENDED_RANGE): linear extrapolation must stay geometrically sane
+# ---------------------------------------------------------------------------------------------------------------
+
+EXT_BASES = ({}, {"gender": 1.0, "weight": 1.0}, {"gender": 0.0, "weight": 0.0})
+
+
+def _tri_normals(P, tris):
+    a, b, c = (P[tris[:, i]] for i in range(3))
+    return np.cross(b - a, c - a)
+
+
+def test_extended_ranges_are_geometrically_sane(morphset, mesh, manifest, measures):
+    """At every extended end (|value| > 1): no folded triangle (normal turned by more than ~78 deg), no collapsed
+    triangle (area >= 20 % of the base area) on neutral, heavy male and thin female bodies; and the driven
+    circumference is monotonic over the whole range with its loop convexity intact."""
+    import measures as M
+
+    R = manifest["renderVertexCount"]
+    tris = mesh.tris
+    bases = [(m, morphset.positions(m)) for m in EXT_BASES]
+    base_n = [_tri_normals(P[:R], tris) for _, P in bases]
+    defs = {m["id"]: m for m in manifest["modifiers"]}
+    checked = 0
+    for mid, (lo, hi) in T.EXTENDED_RANGE.items():
+        assert defs[mid]["min"] == lo and defs[mid]["max"] == hi
+        for val in (lo, hi):
+            if abs(val) <= 1.0:
+                continue
+            for (macros, P0), n0 in zip(bases, base_n):
+                P = morphset.positions(macros, {mid: val})
+                n = _tri_normals(P[:R], tris)
+                na, nb = np.linalg.norm(n, axis=1), np.maximum(np.linalg.norm(n0, axis=1), 1e-30)
+                cos = (n * n0).sum(axis=1) / np.maximum(na * nb, 1e-30)
+                moved = (np.abs(P[:R] - P0[:R]).max(axis=1) > 1e-6)[tris].any(axis=1)
+                assert (cos[moved] >= 0.2).all(), (mid, val, macros, int((cos < 0.2).sum()))
+                assert (na[moved] / nb[moved]).min() >= 0.2, (mid, val, macros)
+            checked += 1
+    assert checked >= 15
+
+    # circumference drivers: monotonic perimeter and convexity kept over the full extended range
+    for meas in measures["measures"]:
+        if meas["type"] != "circumference":
+            continue
+        drv = meas["drivers"][0]
+        lo, hi = T.EXTENDED_RANGE.get(drv, (-1.0, 1.0))
+        vals = np.linspace(lo, hi, 7)
+        for macros in EXT_BASES[1:]:
+            per, conv = [], []
+            for v in vals:
+                pts = morphset.positions(macros, {drv: float(v)})[meas["verts"]]
+                per.append(M.circumference(pts))
+                conv.append(_polygon_area(pts) / _hull_area(pts))
+            assert (np.diff(per) > 0).all(), (meas["id"], macros)
+            assert min(conv) > conv[list(vals).index(0.0) if 0.0 in vals else 3] - 0.05, (meas["id"], macros, conv)
+
+
+def _project(pts):
+    import measures as M
+
+    n = M.newell_normal(pts)
+    return (pts - pts.mean(axis=0)) @ M._plane_basis(n)
+
+
+def _polygon_area(pts):
+    q = _project(pts)
+    return 0.5 * abs((q[:, 0] * np.roll(q[:, 1], -1) - np.roll(q[:, 0], -1) * q[:, 1]).sum())
+
+
+def _hull_area(pts):
+    q = _project(pts)
+    p = sorted(set(map(tuple, np.round(q, 9).tolist())))
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower, upper = [], []
+    for r in p:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], r) <= 0:
+            lower.pop()
+        lower.append(r)
+    for r in reversed(p):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], r) <= 0:
+            upper.pop()
+        upper.append(r)
+    h = np.array(lower[:-1] + upper[:-1])
+    return 0.5 * abs((h[:, 0] * np.roll(h[:, 1], -1) - np.roll(h[:, 0], -1) * h[:, 1]).sum())

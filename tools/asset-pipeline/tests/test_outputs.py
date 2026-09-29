@@ -7,7 +7,7 @@ import hashlib
 import numpy as np
 
 from config import OUTPUT_FILES
-from targets import ENTRY_DTYPE
+from targets import ENTRY_DTYPE, EXTENDED_RANGE
 
 MAX_TOTAL_BYTES = 20 * 1024 * 1024
 
@@ -75,8 +75,13 @@ def test_target_and_modifier_references(manifest):
     for m in manifest["modifiers"]:
         assert m["min"] <= m["default"] <= m["max"]
         assert "decrTarget" in m or "incrTarget" in m, m["id"]
+        # default range +-1; the measure drivers listed in targets.EXTENDED_RANGE reach 1.5 where geometry allows
+        lo, hi = EXTENDED_RANGE.get(m["id"], (-1.0, 1.0))
+        assert m["max"] == hi
         if "decrTarget" in m:
-            assert m["min"] == -1.0
+            assert m["min"] == lo
+        else:
+            assert m["min"] == 0.0
         for k in ("decrTarget", "incrTarget"):
             if k in m:
                 assert m[k] in target_ids, (m["id"], m[k])

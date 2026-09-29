@@ -7,7 +7,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from config import CACHE_DIR, SOURCES
+import hashlib
+import urllib.request
+
+from config import CACHE_DIR, MEDIAPIPE, SOURCES
 
 REQUIRED_FILES = {
     "mh": [
@@ -65,10 +68,38 @@ def fetch_source(key: str) -> None:
         raise RuntimeError(f"{key}: checkout at {sha} is incomplete")
 
 
+def _mediapipe_path(rel: str) -> Path:
+    return MEDIAPIPE["dir"] / MEDIAPIPE["sha"] / rel
+
+
+def _mediapipe_ok(rel: str) -> bool:
+    p = _mediapipe_path(rel)
+    return p.exists() and hashlib.sha256(p.read_bytes()).hexdigest() == MEDIAPIPE["files"][rel]
+
+
+def fetch_mediapipe() -> None:
+    """Download the pinned MediaPipe files (Apache-2.0) via raw.githubusercontent.com; sha256-verified, idempotent."""
+    sha = MEDIAPIPE["sha"]
+    for rel, digest in MEDIAPIPE["files"].items():
+        if _mediapipe_ok(rel):
+            continue
+        url = f"https://raw.githubusercontent.com/{MEDIAPIPE['repo']}/{sha}/{rel}"
+        print(f"[fetch] mediapipe: {rel} @ {sha[:10]}")
+        with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310 (fixed https URL)
+            data = resp.read()
+        got = hashlib.sha256(data).hexdigest()
+        if got != digest:
+            raise RuntimeError(f"{rel}: sha256 {got} != pinned {digest}")
+        dest = _mediapipe_path(rel)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+
+
 def fetch_all() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     for key in SOURCES:
         fetch_source(key)
+    fetch_mediapipe()
 
 
 def ensure_present() -> None:
@@ -79,6 +110,9 @@ def ensure_present() -> None:
         head = _head(src["dir"])
         if head != src["sha"]:
             print(f"[fetch] WARNING: {key} is at {head}, pinned {src['sha']}", file=sys.stderr)
+    for rel in MEDIAPIPE["files"]:
+        if not _mediapipe_ok(rel):
+            raise RuntimeError(f"mediapipe file {rel} missing or not at the pinned sha256; run without --no-fetch")
 
 
 if __name__ == "__main__":

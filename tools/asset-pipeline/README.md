@@ -1,7 +1,7 @@
 # Asset pipeline
 
 Converts raw MakeHuman + MPFB2 **CC0 data** (no code from either project) into the web assets in
-`apps/web/public/assets/body/`: `base.glb`, `morphs.bin`, `manifest.json`, `rig.json`, `measures.json`.
+`apps/web/public/assets/body/`: `base.glb`, `morphs.bin`, `manifest.json`, `rig.json`, `measures.json`, `face-map.json`.
 Deterministic: two builds produce byte-identical files. No Blender needed.
 
 ## Run (Windows 11, Python 3.12)
@@ -27,7 +27,7 @@ The first run fetches the pinned upstream commits (shallow, blobless, sparse: ab
 `fetch.py` is idempotent: it skips a source that is already at the pinned SHA. Set `DT_ASSET_CACHE` to use another
 cache directory.
 
-Tests (about 5 s, builds the assets twice in temp dirs): `tools\asset-pipeline\.venv\Scripts\python.exe -m pytest`
+Tests (about 25 s, builds the assets twice in temp dirs): `tools\asset-pipeline\.venv\Scripts\python.exe -m pytest`
 from `tools/asset-pipeline`. The glTF test uses the Khronos validator when `npm` is available (installs
 `gltf-validator` into `.cache/node`), and skips only that test otherwise.
 
@@ -44,6 +44,8 @@ from `tools/asset-pipeline`. The glTF test uses the Khronos validator when `npm`
 | `rig.py`         | `game_engine` rig -> joint points, `rig.json` bones                                                    |
 | `weights.py`     | skin weights -> top-4 `JOINTS_0` / `WEIGHTS_0`                                                         |
 | `measures.py`    | measure loops derived from geometry, numpy reference of the measure semantics, driver table            |
+| `face_map.py`    | `face-map.json`: MediaPipe canonical landmarks -> head surface (alignment, binding, regions, fit set)  |
+| `debug_png.py`   | numpy + zlib PNG helpers for the debug images (`.cache/debug/face_map_uv*.png`)                        |
 | `gltf_writer.py` | `base.glb` via pygltflib: skinned mesh, skeleton nodes, inverse bind matrices, one material, no morphs |
 | `writers.py`     | JSON writers (stable key order)                                                                        |
 
@@ -58,7 +60,12 @@ current build:
 | `morphs.bin`    | 15,789,632   | 311 targets, 986,852 entries of 16 bytes                                   |
 | `manifest.json` | 136,204      | 69 joint points, 7 macro variables, 311 targets, 96 modifiers              |
 | `rig.json`      | 12,645       | 53 bones, `VERTEX` joint refs into the joint points                        |
-| `measures.json` | 3,290        | 11 measures with drivers                                                   |
+| `measures.json` | 3,360        | 11 measures with drivers (`shoulder` is a back-surface polyline)           |
+| `face-map.json` | 86,359       | 468 landmark bindings, 898 triangles, regions, uvBounds, 9 fitModifiers    |
+
+`face-map.json` is described in `docs/adr/0006-face-map.md` (contract `FaceMapDef`). The build also writes the debug
+images `.cache/debug/face_map_uv.png` (whole body UV layout) and `face_map_uv_zoom.png` (face crop) with the mapped
+canonical triangles (orange), eye contours (cyan), lips (magenta), oval (yellow) and collapsed / flipped faces (red).
 
 Index space: `[14517 render vertices] ++ [69 joint points]` = 14586. Meters, +Y up, +Z front, feet on y = 0 for the
 neutral body (`groundOffsetY` = 0.817763 m). Rest pose = MakeHuman A-pose, world-aligned bones.
@@ -73,6 +80,9 @@ re-implemented from the data itself. The generated assets are therefore CC0 as w
 | ----------------------------------------------- | ------------------------------------------ | ------------------------------------------ |
 | https://github.com/makehumancommunity/makehuman | `a8bc2d54ff0ac92e78ff71431b1023eda42bf482` | `base.obj`, `.target` files                |
 | https://github.com/makehumancommunity/mpfb2     | `3edf9df0551765be43563d047888cf7877eb89b4` | `game_engine` rig JSON + skin weights JSON |
+| https://github.com/google-ai-edge/mediapipe     | `9519bb59bf55fc6a79ed5b9f283d72e6cdfb6678` | canonical face model + connection lists    |
+
+The two MediaPipe files (Apache-2.0) are plain downloads verified by sha256 (`config.MEDIAPIPE`), not a git checkout.
 
 Measurement loops are generated from geometry (plane slices between joint points and skin-weight body regions), not
 taken from MakeHuman's measurement plugin. MakeHuman's own vertex lists were used read-only as a plausibility
@@ -83,6 +93,9 @@ cross-check (the acromion vertex found for the shoulder is the same one MakeHuma
 - Age is fixed at 25 years (only `young` targets), race is pre-merged (1/3 each), proportions are not shipped.
 - The neutral body is "macro defaults"; `base.glb` is the raw base mesh, so runtime code must always apply the
   morph model (`v = base + sum w_i * delta_i`) before showing the body.
+- Measure modifiers: `EXTENDED_RANGE` in `targets.py` lets the solver drivers go beyond +-1 (up to 1.5, linear
+  extrapolation) where the mesh stays sane; the manifest carries the per-modifier `min` / `max`.
+- `shoulder` is the tape path across the upper back (acromion, C7, acromion), see ADR 0006.
 - Circumference loops in `measures.json` are ordered (counter-clockwise from above, first vertex not repeated)
   because the runtime derives the loop plane with Newell's method.
 - The render mesh is closed (watertight once UV-seam copies are welded), so volume/mass estimation works on it.

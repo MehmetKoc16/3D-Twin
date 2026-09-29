@@ -13,7 +13,7 @@ REQUIRED = ["height", "neck", "shoulder", "chest", "waist", "hip", "thigh", "upp
 RANGES = {
     "height": (158.0, 160.0, 172.0, 174.0),
     "neck": (27, 36, 35, 43),
-    "shoulder": (32, 40, 36, 45),  # biacromial width (x distance of the acromion pair)
+    "shoulder": (34, 42, 37, 46),  # across the back over C7 (acromion -> C7 -> acromion), longer than biacromial
     "chest": (78, 96, 88, 106),
     "waist": (58, 80, 68, 90),
     "hip": (86, 104, 88, 106),
@@ -53,7 +53,7 @@ def test_measure_structure(measures, manifest):
     d = defs(measures)
     assert d["height"]["type"] == "height"
     assert d["inseam"]["type"] == "vertexHeight"
-    assert d["shoulder"]["type"] == "distance" and d["shoulder"]["axis"] == "x"
+    assert d["shoulder"]["type"] == "polyline" and len(d["shoulder"]["verts"]) >= 9
     assert d["footLength"]["type"] == "distance" and d["footLength"]["axis"] == "z"
     assert d["armLength"]["type"] == "polyline"
     for k in ("neck", "chest", "waist", "hip", "thigh", "upperArm"):
@@ -78,9 +78,20 @@ def test_shoulder_pair_is_mirrored_and_landmark_ordering(morphset, manifest, mea
     R = manifest["renderVertexCount"]
     P = morphset.positions()
     d = defs(measures)
-    a, b = d["shoulder"]["verts"]
+    path = d["shoulder"]["verts"]
+    a, b = path[0], path[-1]
     assert P[a, 0] > 0 > P[b, 0]  # left = +X
     assert abs(P[a, 0] + P[b, 0]) < 1e-4 and abs(P[a, 1] - P[b, 1]) < 1e-4 and abs(P[a, 2] - P[b, 2]) < 1e-4
+    # the shoulder path runs across the back: x strictly decreasing, behind the acromion line, symmetric, over C7
+    x = P[path, 0]
+    assert (np.diff(x) < 0).all()
+    assert (P[path[1:-1], 2] < P[a, 2] + 0.005).all()
+    assert np.abs(P[path, 0] + P[path[::-1], 0]).max() < 1e-4 and np.abs(P[path, 1] - P[path[::-1], 1]).max() < 1e-4
+    mid = path[len(path) // 2]
+    assert abs(P[mid, 0]) < 1e-4 and P[mid, 1] > P[a, 1] + 0.03 and P[mid, 2] < P[a, 2]  # C7: higher and behind
+    # longer than the straight biacromial distance (acromion pair), but not by more than ~20 %
+    straight = abs(P[a, 0] - P[b, 0])
+    assert straight * 1.03 < M.evaluate(d["shoulder"], morphset.positions(), R) < straight * 1.20
     # vertical ordering of the loop planes on the neutral body
     y = {k: P[d[k]["verts"], 1].mean() for k in ("neck", "chest", "waist", "hip", "thigh")}
     assert y["neck"] > y["chest"] > y["waist"] > y["hip"] > y["thigh"]
