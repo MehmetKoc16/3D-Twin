@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { assembleBakeGeometry } from './assemble';
 import { delightGain, maskedBlur } from './delight';
-import { buildMask, featherAlpha, foreheadFade, insideDistance, smoothstep } from './mask';
+import { buildMask, featherAlpha, foreheadFade, insideDistance, smoothstep, sortByAngle } from './mask';
 import { makeMockFaceMap } from './mockFaceMap';
 import { processFaceCrop } from './process';
 import { hexToLinearRgb, linearRgbToHex, median, medianLinearRgb, sampleLandmarkColors } from './skinTone';
@@ -113,5 +113,45 @@ describe('delighting', () => {
     });
     expect(spread(rgba)).toBeLessThan(before);
     expect(rgba[3]).toBe(255);
+  });
+});
+
+describe('mask: rotated forehead axis and holes', () => {
+  const polygon: [number, number][] = [[0, 0], [100, 0], [100, 100], [0, 100]];
+  it('fades along an arbitrary axis (top of the head toward -x)', () => {
+    const forehead = { origin: [60, 50] as [number, number], axis: [-1, 0] as [number, number], topT: 50, browT: 20 };
+    const { alpha } = buildMask({ width: 100, height: 100, polygon, feather: 1, forehead });
+    expect(alpha[50 * 100 + 5]).toBeLessThan(0.05); // top of the head side
+    expect(alpha[50 * 100 + 80]).toBe(1);
+  });
+  it('leaves holes unpainted', () => {
+    const hole: [number, number][] = [[40, 40], [60, 40], [60, 60], [40, 60]];
+    const { alpha } = buildMask({ width: 100, height: 100, polygon, feather: 1, holes: [{ polygon: hole, grow: 2, feather: 2 }] });
+    expect(alpha[50 * 100 + 50]).toBe(0);
+    expect(alpha[20 * 100 + 20]).toBe(1);
+  });
+  it('sorts contour points by angle', () => {
+    const sorted = sortByAngle([[1, 1], [-1, -1], [1, -1], [-1, 1]]);
+    expect(sorted).toHaveLength(4);
+    const angles = sorted.map(([x, y]) => Math.atan2(y, x));
+    expect([...angles].sort((a, b) => a - b)).toEqual(angles);
+  });
+});
+
+describe('assembleBakeGeometry slivers', () => {
+  it('skips collapsed and flipped triangles', () => {
+    const map = makeMockFaceMap();
+    // a flipped triangle (minority orientation) and a collapsed one (two identical landmark UVs)
+    const flipped: [number, number, number] = [0, 19, 1];
+    const collapsedLm = map.landmarks[100]!;
+    map.landmarks[101] = { ...map.landmarks[101]!, uv: [...collapsedLm.uv] };
+    map.triangles.push(flipped, [100, 101, 102]);
+    const landmarks = new Float32Array(478 * 3);
+    const geometry = assembleBakeGeometry(map, landmarks, 100, 100);
+    const triples = new Set<string>();
+    for (let i = 0; i < geometry.indices.length; i += 3) triples.add(`${geometry.indices[i]},${geometry.indices[i + 1]},${geometry.indices[i + 2]}`);
+    expect(triples.has('0,19,1')).toBe(false);
+    expect(triples.has('100,101,102')).toBe(false);
+    expect(triples.has('0,1,18')).toBe(true);
   });
 });

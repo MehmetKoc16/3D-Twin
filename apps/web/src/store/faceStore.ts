@@ -1,8 +1,6 @@
 import { del, get, set } from 'idb-keyval';
 import { create } from 'zustand';
-import { bakeFace, readPhotoPixels } from '../features/face/bake/bake';
 import { FaceMapUnavailableError, loadFaceMap } from '../features/face/bake/faceMap';
-import { detectFace } from '../features/face/landmarker';
 import { assessQuality, landmarkBox, LANDMARK_COUNT, meanLumaInBox, type QualityHint } from '../features/face/quality';
 
 export type FaceStatus =
@@ -13,6 +11,13 @@ export type FaceStatus =
   | 'baking'
   | 'baked'
   | 'error';
+
+/** Result of fitting the avatar's face modifiers to the photo landmarks (computed in the avatar worker). */
+export interface FaceFit {
+  modifierValues: Record<string, number>;
+  /** RMS landmark residual after the fit, in mm of the avatar head. */
+  rmsResidual: number;
+}
 
 export const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
 export const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -29,8 +34,11 @@ interface FaceState {
   hints: QualityHint[];
   overlayCanvas?: HTMLCanvasElement;
   skinToneHex?: string;
-  /** Bumped on every successful bake. */
+  /** Bumped on every successful bake and on clear. */
   revision: number;
+  /** Face-shape fit reported by the worker; undefined until fitted, null if the fit failed. */
+  fit?: FaceFit | null;
+  setFit: (fit: FaceFit | null) => void;
   loadPhoto: (blob: Blob) => Promise<void>;
   bake: () => Promise<void>;
   hydrate: () => Promise<void>;
@@ -49,6 +57,7 @@ const initial = {
   hints: [] as QualityHint[],
   overlayCanvas: undefined,
   skinToneHex: undefined,
+  fit: undefined,
 };
 
 let token = 0;
@@ -68,6 +77,7 @@ function decode(blob: Blob): Promise<ImageBitmap> {
 export const useFaceStore = create<FaceState>((update, read) => ({
   ...initial,
   revision: 0,
+  setFit: (fit) => update({ fit }),
 
   loadPhoto: async (blob) => {
     const mine = ++token;
@@ -79,6 +89,8 @@ export const useFaceStore = create<FaceState>((update, read) => ({
       const bitmap = await decode(blob);
       if (mine !== token) return bitmap.close();
       update({ status: 'detecting' });
+      // heavy modules (MediaPipe, WebGL baker) load on demand so the app shell stays small
+      const { detectFace } = await import('../features/face/landmarker');
       const detected = await detectFace(bitmap);
       if (mine !== token) return bitmap.close();
       if (!detected.landmarks || detected.landmarks.length < LANDMARK_COUNT * 3) {
@@ -88,6 +100,7 @@ export const useFaceStore = create<FaceState>((update, read) => ({
       const imageSize = { width: bitmap.width, height: bitmap.height };
       let faceLuma: number | undefined;
       try {
+        const { readPhotoPixels } = await import('../features/face/bake/bake');
         faceLuma = meanLumaInBox(readPhotoPixels(bitmap), landmarkBox(detected.landmarks));
       } catch {
         faceLuma = undefined;
@@ -113,12 +126,14 @@ export const useFaceStore = create<FaceState>((update, read) => ({
     update({ status: 'baking', error: undefined });
     try {
       const faceMap = await loadFaceMap();
+      const { bakeFace } = await import('../features/face/bake/bake');
       const result = await bakeFace(bitmap, landmarks, faceMap);
       if (mine !== token) return;
       update((state) => ({
         status: 'baked',
         overlayCanvas: result.overlayCanvas,
         skinToneHex: result.skinToneHex,
+        fit: undefined,
         revision: state.revision + 1,
       }));
       await persist([[KEYS.skin, result.skinToneHex]]);
@@ -165,7 +180,7 @@ export const useFaceStore = create<FaceState>((update, read) => ({
   clear: async () => {
     token += 1;
     read().bitmap?.close();
-    update({ ...initial });
+    update((state) => ({ ...initial, revision: state.revision + 1 }));
     try {
       await Promise.all(Object.values(KEYS).map((key) => del(key)));
     } catch {

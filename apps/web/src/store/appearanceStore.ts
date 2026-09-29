@@ -21,6 +21,9 @@ export const MANNEQUIN_COLOR = '#b4b9be';
 interface AppearanceState {
   mode: AvatarMaterialMode;
   toneIndex: number;
+  /** Use the skin tone estimated from the selfie (when a face is baked) instead of the preset. */
+  useFaceTone: boolean;
+  setUseFaceTone: (value: boolean) => void;
   setMode: (mode: AvatarMaterialMode) => void;
   setTone: (toneIndex: number) => void;
 }
@@ -28,6 +31,8 @@ interface AppearanceState {
 export const useAppearanceStore = create<AppearanceState>((set) => ({
   mode: 'skin',
   toneIndex: 1,
+  useFaceTone: true,
+  setUseFaceTone: (useFaceTone) => set({ useFaceTone }),
   setMode: (mode) => set({ mode }),
-  setTone: (toneIndex) => set({ toneIndex, mode: 'skin' }),
+  setTone: (toneIndex) => set({ toneIndex, mode: 'skin', useFaceTone: false }),
 }));

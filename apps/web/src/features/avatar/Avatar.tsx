@@ -1,26 +1,56 @@
 import { useEffect, useState } from 'react';
+import type { CanvasTexture } from 'three';
 import { useAvatarLoadStore } from '../../store/avatarLoadStore';
 import { useAvatarRuntimeStore } from '../../store/avatarRuntimeStore';
-import { MANNEQUIN_COLOR, skinTones, useAppearanceStore } from '../../store/appearanceStore';
+import { MANNEQUIN_COLOR, useAppearanceStore } from '../../store/appearanceStore';
+import { useFaceStore } from '../../store/faceStore';
 import { useBodyStore } from '../../store/bodyStore';
 import { useSolveStore } from '../../store/solveStore';
 import { useViewerStore } from '../../store/viewerStore';
 import { applySolveResult } from './applySolve';
 import { loadAvatarAssets, type AvatarAssets } from './avatarAssets';
+import { resolveSkinHex } from './skinComposite';
+import { SkinMap } from './SkinMap';
 
-function applyAppearance(assets: AvatarAssets, mode: 'skin' | 'mannequin', toneIndex: number): void {
+function setMap(assets: AvatarAssets, map: CanvasTexture | null): void {
+  if (assets.material.map === map) return;
+  assets.material.map = map;
+  assets.material.needsUpdate = true; // the shader gains / loses the map sampler
+}
+
+/**
+ * Mannequin: flat grey. Skin: without a baked face a plain colour, with one the composite skin map (skin tone +
+ * face overlay) whose base colour is the photo tone or the preset tone.
+ */
+function applyAppearance(assets: AvatarAssets, skin: { current: SkinMap | null }): void {
   const material = assets.material;
+  const { mode, toneIndex, useFaceTone } = useAppearanceStore.getState();
+  const face = useFaceStore.getState();
   if (mode === 'mannequin') {
+    setMap(assets, null);
     material.color.set(MANNEQUIN_COLOR);
     material.roughness = 0.85;
     material.sheen = 0;
-  } else {
-    material.color.set((skinTones[toneIndex] ?? skinTones[1]!).color);
-    material.roughness = 0.6;
-    material.sheen = 0.35;
-    material.sheenRoughness = 0.5;
-    material.sheenColor.set('#ffd9c4');
+    useAvatarRuntimeStore.getState().setFaceTextureRevision(0);
+    return;
   }
+  const hex = resolveSkinHex({ mode, toneIndex, useFaceTone, faceToneHex: face.skinToneHex });
+  if (face.overlayCanvas) {
+    skin.current ??= new SkinMap();
+    skin.current.update(hex, face.overlayCanvas);
+    setMap(assets, skin.current.texture);
+    material.color.set('#ffffff'); // the map carries the colour
+    useAvatarRuntimeStore.getState().setFaceTextureRevision(face.revision);
+    if (import.meta.env.DEV) (window as unknown as { __dtSkinCanvas?: HTMLCanvasElement }).__dtSkinCanvas = skin.current.canvas;
+  } else {
+    setMap(assets, null);
+    material.color.set(hex);
+    useAvatarRuntimeStore.getState().setFaceTextureRevision(0);
+  }
+  material.roughness = 0.6;
+  material.sheen = 0.35;
+  material.sheenRoughness = 0.5;
+  material.sheenColor.set('#ffd9c4');
 }
 
 /** The MakeHuman body: geometry morphed in a worker, skeleton rebuilt after each solve. Renders inside <Canvas>. */
@@ -50,6 +80,7 @@ export function Avatar() {
       if (runtime.skeleton !== assets.skeleton) runtime.setSkeleton(assets.skeleton);
       runtime.bumpRestVersion();
       const r = envelope.result;
+      if (r.faceFit !== undefined) useFaceStore.getState().setFit(r.faceFit);
       useSolveStore.getState().setSolve({
         achievedCm: r.achievedCm,
         residualsCm: r.residualsCm,
@@ -72,12 +103,32 @@ export function Avatar() {
 
   useEffect(() => {
     if (!assets) return;
-    const apply = (): void => {
-      const { mode, toneIndex } = useAppearanceStore.getState();
-      applyAppearance(assets, mode, toneIndex);
-    };
+    const skin: { current: SkinMap | null } = { current: null };
+    const apply = (): void => applyAppearance(assets, skin);
     apply();
-    return useAppearanceStore.subscribe(apply);
+    let previousOverlay = useFaceStore.getState().overlayCanvas;
+    const offAppearance = useAppearanceStore.subscribe(apply);
+    const offFace = useFaceStore.subscribe((state, previous) => {
+      if (state.revision !== previous.revision || state.overlayCanvas !== previous.overlayCanvas || state.skinToneHex !== previous.skinToneHex) apply();
+      // Face shape: fit in the worker when a new bake arrives, clear it when the photo is removed.
+      if (state.overlayCanvas === previousOverlay) return;
+      previousOverlay = state.overlayCanvas;
+      if (state.overlayCanvas && state.landmarks && state.imageSize) {
+        void assets.client.setFace(state.landmarks, state.imageSize.width, state.imageSize.height);
+      } else {
+        void assets.client.clearFace();
+      }
+    });
+    if (previousOverlay) {
+      const state = useFaceStore.getState();
+      if (state.landmarks && state.imageSize) void assets.client.setFace(state.landmarks, state.imageSize.width, state.imageSize.height);
+    }
+    return () => {
+      offAppearance();
+      offFace();
+      skin.current?.dispose();
+      setMap(assets, null);
+    };
   }, [assets]);
 
   if (!assets) return null;

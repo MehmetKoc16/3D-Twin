@@ -14,6 +14,7 @@ export function FacePanel() {
   const bitmap = useFaceStore((s) => s.bitmap);
   const landmarks = useFaceStore((s) => s.landmarks);
   const skinToneHex = useFaceStore((s) => s.skinToneHex);
+  const fit = useFaceStore((s) => s.fit);
   const loadPhoto = useFaceStore((s) => s.loadPhoto);
   const bake = useFaceStore((s) => s.bake);
   const clear = useFaceStore((s) => s.clear);
@@ -66,6 +67,8 @@ export function FacePanel() {
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    // The raw (un-mirrored) frame: MediaPipe and the face map expect the subject's left on the image right.
+    // Only the on-screen preview is mirrored (CSS), like a mirror.
     canvas.getContext('2d')?.drawImage(video, 0, 0);
     stopCamera();
     canvas.toBlob(
@@ -93,29 +96,29 @@ export function FacePanel() {
         <h2 id="face-title" className="text-lg font-semibold">
           {t('face.title')}
         </h2>
-        <p className="text-sm text-slate-500">{t('face.description')}</p>
+        <p className="text-sm text-slate-400">{t('face.description')}</p>
       </header>
 
       <p
         data-testid="face-privacy"
-        className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900"
+        className="rounded-lg border border-emerald-400/40 bg-emerald-400/10 p-3 text-sm text-emerald-100"
       >
         {t('face.privacy')}
       </p>
 
       {cameraOn ? (
         <div className="flex flex-col gap-2">
-          <video ref={videoRef} muted playsInline className="w-full rounded-md bg-black" />
+          <video ref={videoRef} muted playsInline className="w-full rounded-lg bg-black -scale-x-100" />
           <div className="flex gap-2">
             <button
               type="button"
               data-testid="face-capture"
-              className="rounded-md bg-sky-600 px-3 py-2 text-white"
+              className="rounded-lg bg-teal-400 px-3 py-2 text-sm font-semibold text-slate-950"
               onClick={capture}
             >
               {t('face.capture')}
             </button>
-            <button type="button" className="rounded-md border px-3 py-2" onClick={stopCamera}>
+            <button type="button" className="rounded-lg border border-white/20 px-3 py-2 text-sm" onClick={stopCamera}>
               {t('face.cameraCancel')}
             </button>
           </div>
@@ -129,16 +132,16 @@ export function FacePanel() {
           }}
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
-          className={`flex flex-col items-center gap-3 rounded-md border-2 border-dashed p-6 text-center ${
-            dragging ? 'border-sky-500 bg-sky-50' : 'border-slate-300'
+          className={`flex flex-col items-center gap-3 rounded-lg border-2 border-dashed p-6 text-center ${
+            dragging ? 'border-teal-400 bg-teal-400/10' : 'border-white/20'
           }`}
         >
           <p className="font-medium">{t('face.drop')}</p>
-          <p className="text-xs text-slate-500">{t('face.formats')}</p>
+          <p className="text-xs text-slate-400">{t('face.formats')}</p>
           <div className="flex flex-wrap justify-center gap-2">
             <button
               type="button"
-              className="rounded-md bg-sky-600 px-3 py-2 text-white"
+              className="rounded-lg bg-teal-400 px-3 py-2 text-sm font-semibold text-slate-950"
               disabled={busy}
               onClick={() => inputRef.current?.click()}
             >
@@ -147,7 +150,7 @@ export function FacePanel() {
             <button
               type="button"
               data-testid="face-camera"
-              className="rounded-md border px-3 py-2"
+              className="rounded-lg border border-white/20 px-3 py-2 text-sm"
               disabled={busy}
               onClick={() => void startCamera()}
             >
@@ -168,7 +171,7 @@ export function FacePanel() {
         </div>
       )}
       {cameraError && (
-        <p role="alert" className="text-sm text-red-700">
+        <p role="alert" className="text-sm text-red-300">
           {t('face.cameraError')}
         </p>
       )}
@@ -177,13 +180,13 @@ export function FacePanel() {
         {t(`face.status.${status}`)}
       </p>
       {error && (
-        <p data-testid="face-error" role="alert" className="text-sm text-red-700">
+        <p data-testid="face-error" role="alert" className="text-sm text-red-300">
           {t(error)}
         </p>
       )}
 
       {hints.length > 0 && (
-        <ul data-testid="face-hints" className="list-disc pl-5 text-sm text-amber-800">
+        <ul data-testid="face-hints" className="list-disc pl-5 text-sm text-amber-200">
           {hints.map((hint) => (
             <li key={hint} data-hint={hint}>
               {t(`face.hints.${hint}`)}
@@ -199,10 +202,10 @@ export function FacePanel() {
             data-testid="face-preview"
             role="img"
             aria-label={t('face.previewAlt')}
-            className="max-h-96 w-full rounded-md object-contain"
+            className="max-h-96 w-full rounded-lg object-contain"
           />
           {landmarks && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-400">
               <span data-testid="face-landmark-count" data-count={landmarks.length / 3}>
                 {t('face.landmarks', { count: landmarks.length / 3 })}
               </span>
@@ -216,10 +219,25 @@ export function FacePanel() {
           <span
             data-testid="face-skin-tone"
             data-hex={skinToneHex}
-            className="inline-block size-5 rounded-full border"
+            className="inline-block size-5 rounded-full border border-white/30"
             style={{ backgroundColor: skinToneHex }}
           />
           {t('face.skinTone')}: {skinToneHex}
+        </p>
+      )}
+
+      {status === 'baked' && (
+        <p
+          data-testid="face-fit"
+          data-rms={fit ? fit.rmsResidual.toFixed(2) : ''}
+          data-state={fit === undefined ? 'pending' : fit === null ? 'failed' : 'fitted'}
+          className="text-sm text-slate-300"
+        >
+          {fit === undefined
+            ? t('face.fitPending')
+            : fit === null
+              ? t('face.fitFailed')
+              : t('face.fit', { rms: fit.rmsResidual.toFixed(2) })}
         </p>
       )}
 
@@ -227,7 +245,7 @@ export function FacePanel() {
         <button
           type="button"
           data-testid="face-apply"
-          className="rounded-md bg-sky-600 px-3 py-2 text-white disabled:opacity-50"
+          className="rounded-lg bg-teal-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
           disabled={busy || !bitmap || !landmarks}
           onClick={() => void bake()}
         >
@@ -236,7 +254,7 @@ export function FacePanel() {
         <button
           type="button"
           data-testid="face-remove"
-          className="rounded-md border px-3 py-2 disabled:opacity-50"
+          className="rounded-lg border border-white/20 px-3 py-2 text-sm disabled:opacity-50"
           disabled={busy || (!bitmap && status !== 'error')}
           onClick={() => void clear()}
         >

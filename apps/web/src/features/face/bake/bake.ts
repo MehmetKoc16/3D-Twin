@@ -1,12 +1,17 @@
 import type { FaceMapDef } from '@dt/avatar-core';
 import { assembleBakeGeometry } from './assemble';
-import { buildMask, type Point } from './mask';
+import { buildMask, sortByAngle, type Point } from './mask';
 import { processFaceCrop } from './process';
 import { hexToLinearRgb, linearRgbToHex, sampleLandmarkColors, type PixelSource } from './skinTone';
 import { warpPhotoToUv } from './warp';
 import { landmarkBox } from '../quality';
 
 export const BAKE_SIZE = 2048;
+
+/** MediaPipe inner-lip contour in ring order (the mouth slit is a hole of the head UV island). */
+export const INNER_LIP_RING: readonly number[] = [
+  78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191,
+];
 
 export interface BakeOptions {
   size?: number;
@@ -95,16 +100,42 @@ export async function bakeFace(
   if (width <= 0 || height <= 0) throw new Error('empty face region');
 
   const localOval: Point[] = oval.map(([x, y]) => [x - x0, y - y0]);
-  const foreheadPts = regionPoints(faceMap.regions.forehead, uvs, size);
-  const eyePts = regionPoints([...faceMap.regions.leftEye, ...faceMap.regions.rightEye], uvs, size);
-  let forehead: { topY: number; browY: number } | undefined;
+  const foreheadPts = regionPoints(faceMap.regions.forehead, uvs, size).map(([x, y]): Point => [x - x0, y - y0]);
+  const eyeGroups = [faceMap.regions.leftEye, faceMap.regions.rightEye].map((ids) =>
+    regionPoints(ids, uvs, size).map(([x, y]): Point => [x - x0, y - y0]),
+  );
+  const eyePts = eyeGroups.flat();
+  // The head UV island is rotated: derive "toward the top of the head" from the eyes -> forehead direction.
+  let forehead: { origin: Point; axis: Point; topT: number; browT: number } | undefined;
   if (foreheadPts.length && eyePts.length) {
-    const topY = Math.min(...foreheadPts.map((p) => p[1])) - y0;
-    const eyeTop = Math.min(...eyePts.map((p) => p[1])) - y0;
-    if (eyeTop > topY) forehead = { topY, browY: topY + 0.6 * (eyeTop - topY) };
+    const mean = (pts: readonly Point[]): Point => [
+      pts.reduce((sum, p) => sum + p[0], 0) / pts.length,
+      pts.reduce((sum, p) => sum + p[1], 0) / pts.length,
+    ];
+    const origin = mean(eyePts);
+    const top = mean(foreheadPts);
+    const length = Math.hypot(top[0] - origin[0], top[1] - origin[1]);
+    if (length > 1) {
+      const axis: Point = [(top[0] - origin[0]) / length, (top[1] - origin[1]) / length];
+      const topT = Math.max(...foreheadPts.map((p) => (p[0] - origin[0]) * axis[0] + (p[1] - origin[1]) * axis[1]));
+      if (topT > 1) forehead = { origin, axis, topT, browT: 0.4 * topT };
+    }
+  }
+  // Eye openings and the mouth slit are holes of the head UV island: never paint them from the photo.
+  const holeGrow = Math.max(1.5, faceHeight * 0.006);
+  const holeFeather = Math.max(2, faceHeight * 0.012);
+  const holes: { polygon: readonly Point[]; grow: number; feather: number }[] = [];
+  for (const group of eyeGroups) if (group.length >= 3) holes.push({ polygon: sortByAngle(group), grow: holeGrow, feather: holeFeather });
+  const slit = INNER_LIP_RING.map((index) => uvs.get(index)).filter((uv): uv is [number, number] => uv !== undefined);
+  if (slit.length >= 3) {
+    holes.push({
+      polygon: slit.map(([u, v]): Point => [u * size - x0, v * size - y0]),
+      grow: holeGrow,
+      feather: holeFeather,
+    });
   }
 
-  const mask = buildMask({ width, height, polygon: localOval, feather, forehead });
+  const mask = buildMask({ width, height, polygon: localOval, feather, forehead, holes });
   const context = warped.getContext('2d', { willReadFrequently: true });
   if (!context) throw new Error('2D canvas is not available');
   const crop = context.getImageData(x0, y0, width, height);

@@ -1,11 +1,15 @@
-import { useRef, useState } from 'react';
+import { lazy, Suspense, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { convertShoeSize, footLengthCmFromShoe, roundShoeSize } from '@dt/avatar-core';
 import type { BodyParams, MeasureId, ShoeSystem } from '@dt/avatar-core';
 import { skinTones, useAppearanceStore } from '../../store/appearanceStore';
 import { useBodyStore, isBodyParams } from '../../store/bodyStore';
+import { useFaceStore } from '../../store/faceStore';
 import { useSolveStore } from '../../store/solveStore';
+
+const FacePanel = lazy(() => import('../face/FacePanel').then((module) => ({ default: module.FacePanel })));
+type PanelTab = 'measurements' | 'face';
 
 type NumericField = Exclude<keyof BodyParams, 'shoe'>;
 interface FieldDef { key: NumericField; min: number; max: number; step?: number; unit: string; optional?: boolean }
@@ -122,7 +126,8 @@ function shoeSizeOptions(shoe: BodyParams['shoe']): number[] {
 
 function AppearanceSection() {
   const { t } = useTranslation();
-  const { mode, toneIndex, setMode, setTone } = useAppearanceStore();
+  const { mode, toneIndex, useFaceTone, setMode, setTone, setUseFaceTone } = useAppearanceStore();
+  const faceToneHex = useFaceStore((state) => (state.overlayCanvas ? state.skinToneHex : undefined));
   const chip = 'rounded-lg border px-3 py-2 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400';
   return <section className="mt-5"><h3 className="text-xs font-bold uppercase tracking-[0.16em] text-teal-300">{t('panel.appearance')}</h3>
     <div className="mt-3 flex gap-2" role="group" aria-label={t('panel.appearance')}>
@@ -131,10 +136,16 @@ function AppearanceSection() {
     </div>
     <div className="mt-3 flex gap-2" role="group" aria-label={t('appearance.tone.label')}>
       {skinTones.map((tone, index) => <button key={tone.id} type="button" onClick={() => setTone(index)}
-        aria-label={t(`appearance.tone.${tone.id}`)} aria-pressed={mode === 'skin' && toneIndex === index} title={t(`appearance.tone.${tone.id}`)}
+        aria-label={t(`appearance.tone.${tone.id}`)} aria-pressed={mode === 'skin' && !(useFaceTone && faceToneHex) && toneIndex === index} title={t(`appearance.tone.${tone.id}`)}
         style={{ backgroundColor: tone.color }}
-        className={`size-8 rounded-full border-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400 ${mode === 'skin' && toneIndex === index ? 'border-white' : 'border-transparent'}`} />)}
+        className={`size-8 rounded-full border-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400 ${mode === 'skin' && !(useFaceTone && faceToneHex) && toneIndex === index ? 'border-white' : 'border-transparent'}`} />)}
     </div>
+    {faceToneHex && <label className="mt-3 flex items-center gap-2 text-xs text-slate-300">
+      <input type="checkbox" data-testid="use-face-tone" checked={useFaceTone} onChange={(event) => setUseFaceTone(event.target.checked)}
+        className="accent-teal-400 focus-visible:outline-2 focus-visible:outline-teal-400" />
+      <span className="inline-block size-4 rounded-full border border-white/30" style={{ backgroundColor: faceToneHex }} aria-hidden="true" />
+      {t('appearance.useFaceTone')}
+    </label>}
   </section>;
 }
 
@@ -144,6 +155,7 @@ export function BodyPanel() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [tab, setTab] = useState<PanelTab>('measurements');
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -166,11 +178,16 @@ export function BodyPanel() {
     <div className="mb-5"><p className="text-[11px] font-bold uppercase tracking-[0.2em] text-teal-300">{t('panel.subtitle')}</p>
       <h2 className="mt-1 text-2xl font-semibold tracking-tight">{t('panel.title')}</h2>
       <p className="mt-2 text-xs leading-relaxed text-slate-400">{t('panel.description')}</p></div>
-    <div className="flex border-b border-white/10" role="tablist" aria-label={t('panel.tabs')}>
-      <button type="button" role="tab" aria-selected="true" className="border-b-2 border-teal-400 px-2 py-2 text-sm font-semibold text-teal-300 focus-visible:outline-2 focus-visible:outline-teal-400">{t('panel.measurements')}</button>
-      {(['face', 'wardrobe'] as const).map((key) => <button key={key} type="button" role="tab" aria-selected="false" disabled
-        className="px-2 py-2 text-xs text-slate-500">{t(`panel.${key}`)} <span className="rounded bg-white/10 px-1 py-0.5 text-[10px]">{t('panel.soon')}</span></button>)}
+    <div className="flex gap-3 border-b border-white/10" role="tablist" aria-label={t('panel.tabs')}>
+      {(['measurements', 'face'] as const).map((key) => <button key={key} type="button" role="tab" id={`tab-${key}`} aria-selected={tab === key}
+        aria-controls={`tabpanel-${key}`} onClick={() => setTab(key)}
+        className={`px-2 py-2 text-sm focus-visible:outline-2 focus-visible:outline-teal-400 ${tab === key ? 'border-b-2 border-teal-400 font-semibold text-teal-300' : 'text-slate-400 hover:text-slate-200'}`}>{t(`panel.${key}`)}</button>)}
+      <button type="button" role="tab" aria-selected="false" disabled className="px-2 py-2 text-xs text-slate-500">{t('panel.wardrobe')} <span className="rounded bg-white/10 px-1 py-0.5 text-[10px]">{t('panel.soon')}</span></button>
     </div>
+    {tab === 'face' && <div role="tabpanel" id="tabpanel-face" aria-labelledby="tab-face" className="mt-5">
+      <Suspense fallback={null}><FacePanel /></Suspense>
+    </div>}
+    <div role="tabpanel" id="tabpanel-measurements" aria-labelledby="tab-measurements" hidden={tab !== 'measurements'}>
     <Section title={t('panel.basics')} fields={basics} />
     <Section title={t('panel.upper')} fields={upper} />
     <Section title={t('panel.lower')} fields={lower} />
@@ -195,6 +212,7 @@ export function BodyPanel() {
       <p className="mt-1 text-xs text-slate-500">{t('measure.shoeSize.help')}</p>
     </section>
     <AppearanceSection />
+    </div>
     <section className="mt-7 border-t border-white/10 pt-5"><h3 className="text-xs font-bold uppercase tracking-[0.16em] text-teal-300">{t('panel.profile')}</h3>
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" className={`${buttonClass} border-teal-400/50 text-teal-200`} onClick={() => void save().then((ok) => setStatus(t(ok ? 'panel.saved' : 'panel.saveError')))}>{t('panel.save')}</button>

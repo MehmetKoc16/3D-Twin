@@ -1,7 +1,8 @@
 import { FaceLandmarker, type FaceLandmarkerResult } from '@mediapipe/tasks-vision';
-// The package `exports` map hides the wasm folder from bare specifiers, so import through node_modules.
-import wasmLoaderPath from '../../../node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.js?url';
-import wasmBinaryPath from '../../../node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm?url';
+// The package `exports` map hides the wasm folder from bare specifiers; `@mediapipe-wasm` is a Vite alias
+// (vite.config.ts) to the wasm folder of the installed package, wherever npm put it.
+import wasmLoaderPath from '@mediapipe-wasm/vision_wasm_internal.js?url';
+import wasmBinaryPath from '@mediapipe-wasm/vision_wasm_internal.wasm?url';
 
 export const LOCAL_MODEL_URL = '/models/face_landmarker.task';
 export const REMOTE_MODEL_URL =

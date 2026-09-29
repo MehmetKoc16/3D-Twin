@@ -20,6 +20,7 @@ export class AvatarClient {
   private readonly worker: Worker;
   private readonly api: Comlink.Remote<AvatarWorkerApi>;
   private readonly runner: LatestWinsRunner<BodyParams, SolveEnvelope>;
+  private lastParams: BodyParams | null = null;
 
   constructor(onResult: (envelope: SolveEnvelope) => void, onError: (error: unknown) => void) {
     this.worker = new Worker(new URL('./avatar.worker.ts', import.meta.url), { type: 'module' });
@@ -43,7 +44,19 @@ export class AvatarClient {
   }
 
   solve(params: BodyParams): void {
-    this.runner.submit({ ...params, shoe: { ...params.shoe } });
+    this.lastParams = { ...params, shoe: { ...params.shoe } };
+    this.runner.submit(this.lastParams);
+  }
+
+  /** Sends photo landmarks; the worker fits the face shape during the re-solve triggered here. */
+  async setFace(landmarks: Float32Array, imageWidth: number, imageHeight: number): Promise<void> {
+    await this.api.setFaceLandmarks(landmarks.slice(), imageWidth, imageHeight);
+    if (this.lastParams) this.runner.submit(this.lastParams);
+  }
+
+  async clearFace(): Promise<void> {
+    await this.api.clearFace();
+    if (this.lastParams) this.runner.submit(this.lastParams);
   }
 
   dispose(): void {

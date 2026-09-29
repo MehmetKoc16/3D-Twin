@@ -13,7 +13,7 @@ export function featherAlpha(inside: number, feather: number): number {
   return smoothstep(0, feather, inside);
 }
 
-/** Alpha factor that fades the area above the brow line: 0 at `topY`, 1 at/below `browY` (y grows downwards). */
+/** Alpha factor that fades the area above the brow line: 0 at `topY`, 1 at `browY` (works for either order). */
 export function foreheadFade(y: number, topY: number, browY: number): number {
   return smoothstep(topY, browY, y);
 }
@@ -52,8 +52,22 @@ export interface MaskSpec {
   polygon: readonly Point[];
   /** Feather width in mask pixels. */
   feather: number;
-  /** Optional forehead fade band in mask pixel y coordinates. */
-  forehead?: { topY: number; browY: number };
+  /**
+   * Optional forehead fade along an arbitrary direction (the head UV island is rotated, so "up" is not +y):
+   * t = dot(p - origin, axis) (axis is a unit vector pointing toward the top of the head); alpha is 0 at
+   * t >= topT and 1 at t <= browT.
+   */
+  forehead?: { origin: Point; axis: Point; topT: number; browT: number };
+  /** Regions that must stay unpainted (eye openings, mouth slit): alpha 0 inside, grown by `grow` px, then feathered. */
+  holes?: { polygon: readonly Point[]; grow: number; feather: number }[];
+}
+
+/** Orders points by angle around their centroid (for convex-ish contours whose index order is unknown). */
+export function sortByAngle(points: readonly Point[]): Point[] {
+  if (points.length === 0) return [];
+  const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length;
+  const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length;
+  return [...points].sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
 }
 
 export interface MaskResult {
@@ -63,14 +77,23 @@ export interface MaskResult {
 }
 
 export function buildMask(spec: MaskSpec): MaskResult {
-  const { width, height, polygon, feather, forehead } = spec;
+  const { width, height, polygon, feather, forehead, holes } = spec;
   const alpha = new Float32Array(width * height);
   const inside = new Float32Array(width * height);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const d = insideDistance(x + 0.5, y + 0.5, polygon);
       let a = featherAlpha(d, feather);
-      if (forehead && a > 0) a *= foreheadFade(y + 0.5, forehead.topY, forehead.browY);
+      if (forehead && a > 0) {
+        const t = (x + 0.5 - forehead.origin[0]) * forehead.axis[0] + (y + 0.5 - forehead.origin[1]) * forehead.axis[1];
+        a *= foreheadFade(t, forehead.topT, forehead.browT);
+      }
+      if (holes && a > 0) {
+        for (const hole of holes) {
+          a *= featherAlpha(-insideDistance(x + 0.5, y + 0.5, hole.polygon) - hole.grow, hole.feather);
+          if (a <= 0) break;
+        }
+      }
       alpha[y * width + x] = a;
       inside[y * width + x] = d;
     }

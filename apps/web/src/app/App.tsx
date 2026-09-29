@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useBodyStore } from '../store/bodyStore';
+import { useFaceStore } from '../store/faceStore';
 import faviconUrl from './favicon.svg?url';
 
 const Viewer = lazy(() => import('../features/viewer/Viewer').then((module) => ({ default: module.Viewer })));
@@ -10,6 +11,7 @@ export function App() {
   const { t, i18n } = useTranslation();
   useEffect(() => {
     void useBodyStore.getState().hydrate();
+    void useFaceStore.getState().ensureBaked(); // restores a saved selfie and bakes it
     const icon = document.createElement('link');
     icon.rel = 'icon';
     icon.href = faviconUrl;

@@ -1,6 +1,6 @@
 import type { FaceMapDef } from '@dt/avatar-core';
 
-export const FACE_MAP_URL = '/assets/body/face-map.json';
+export const FACE_MAP_URL = `${import.meta.env.BASE_URL}assets/body/face-map.json`;
 
 export class FaceMapUnavailableError extends Error {
   constructor() {

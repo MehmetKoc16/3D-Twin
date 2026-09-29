@@ -80,7 +80,7 @@ Targets that are empty upstream (average/average) are omitted.
 
 **Modifiers.** 96 modifiers, ids follow MakeHuman folders (`measure/measure-waist-circ`, `torso/torso-scale-vert`,
 `armslegs/upperarm-fat`, `head/head-scale-horiz`, ...). Symmetric left/right targets are pre-merged into one
-target (`armslegs/foot-scale-depth-incr` etc.). Two-sided modifiers have `min = -1`, `max = 1`, one-sided ones
+target (`armslegs/foot-scale-depth-incr` etc.). Two-sided modifiers have `min = -1`, `max = 1` (the measure modifiers may span up to +-1.5, see ADR 0006), one-sided ones
 (`head/head-oval` ...) have `min = 0` and only `incrTarget`. All defaults are 0.
 
 **Rig and rest pose.** MPFB2 `game_engine` preset (53 bones: `Root`, `pelvis`, `spine_01..03`, `neck_01`, `head`,
@@ -98,8 +98,8 @@ influences per vertex and renormalised (`JOINTS_0` uint16, `WEIGHTS_0` float32).
 | type            | definition                                                                                             |
 | --------------- | ------------------------------------------------------------------------------------------------------ |
 | `circumference` | perimeter of the 2D convex hull of the loop vertices projected on the Newell plane of the ordered loop |
-| `distance`      | Euclidean distance of 2 vertices, or `abs` difference along `axis` (`shoulder`: x, `footLength`: z)    |
-| `polyline`      | sum of consecutive vertex distances (`armLength`: acromion, elbow, wrist along the skin)               |
+| `distance`      | Euclidean distance of 2 vertices, or `abs` difference along `axis` (`footLength`: z)                   |
+| `polyline`      | sum of consecutive vertex distances (`armLength`: acromion, elbow, wrist; `shoulder`: back surface via C7) |
 | `height`        | bbox Y extent over render vertices only                                                                |
 | `vertexHeight`  | `y(vert)` minus the lowest render vertex (`inseam`: crotch)                                            |
 
@@ -197,6 +197,33 @@ applySolveResult:
   avatarRuntimeStore.setSkeleton / bumpRestVersion();  solveStore <- achieved values (body panel)
 PoseDriver (features/poses) re-applies the pose on restVersion; focus targets read the posed bones.
 ```
+
+### Face pipeline (selfie -> texture + head shape)
+
+```text
+main thread (all in the browser, nothing is uploaded)               avatar worker
+-----------------------------------------------------               -------------
+FacePanel: file / webcam frame (raw, un-mirrored; only the preview is mirrored)
+faceStore.loadPhoto: decode -> MediaPipe FaceLandmarker (478 landmarks, lazy wasm) -> quality hints
+                     photo + landmarks persisted in IndexedDB
+faceStore.bake: face-map.json (binding of the 468 canonical landmarks to body UVs, ADR 0006)
+  warp: per canonical triangle affine (photo px -> body UV), offscreen WebGL, 2048^2
+        (slivers with UV area < 1e-6 or minority orientation are skipped: eye / lip holes)
+  mask: feathered face oval, forehead fade along the (rotated) up axis, eyes + mouth slit cut out
+  delight + border colour match  ->  overlayCanvas (straight alpha), skinToneHex (cheek median)
+  revision++
+Avatar (subscribes to faceStore + appearanceStore)
+  SkinMap: 2048^2 canvas = skin tone (photo tone or preset) + overlay -> CanvasTexture
+           (flipY false, sRGB) as material.map; mannequin mode: no map
+  overlay set / removed -> client.setFace(landmarks, w, h) / clearFace() ---> FaceShapeState.set / clear
+                           then re-solve                                      solve: fitFaceModifiers on the solved
+  <---------------------- faceFit { modifierValues, rmsResidual } ------------ weights (once per photo), then
+  faceStore.fit -> "face shape fitted" status in FacePanel                     mergeWeights(body, modifierWeights(face))
+                                                                               is applied in EVERY later solve
+```
+
+The face-shape fit is done once per photo against the body solved at that moment; the fitted values then stay
+constant while the body sliders move. `faceStore.ensureBaked()` runs at startup and restores a stored selfie.
 
 Requests are coalesced on the main thread (`LatestWinsRunner`): at most one solve is in flight and one waits, so
 dragging a slider never queues work and the UI thread only does the geometry upload (a few ms). The leg-height morphs push

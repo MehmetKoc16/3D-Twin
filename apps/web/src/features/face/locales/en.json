@@ -13,6 +13,9 @@
   "remove": "Remove photo",
   "previewAlt": "Uploaded photo with detected face landmarks",
   "landmarks": "{{count}} face landmarks found",
+  "fit": "Face shape fitted (residual {{rms}} mm)",
+  "fitFailed": "Face shape could not be fitted; only the texture is applied.",
+  "fitPending": "Fitting face shape…",
   "skinTone": "Estimated skin tone",
   "status": {
     "idle": "Waiting for a photo",

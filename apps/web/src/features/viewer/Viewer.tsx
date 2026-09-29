@@ -91,7 +91,8 @@ function Scene({ provider }: { provider: FocusTargetProvider }) {
 function AvatarStatus() {
   const { t } = useTranslation();
   const { status, progress, error } = useAvatarLoadStore();
-  if (status === 'ready') return <div data-testid="avatar-ready" className="sr-only" />;
+  const faceRevision = useAvatarRuntimeStore((s) => s.faceTextureRevision);
+  if (status === 'ready') return <div data-testid="avatar-ready" data-face-revision={faceRevision} className="sr-only" />;
   if (status === 'error') {
     return <div role="alert" data-testid="avatar-error" className="absolute inset-x-4 top-16 mx-auto max-w-md rounded-xl border border-amber-400/40 bg-slate-950/85 p-3 text-sm text-amber-200 shadow-xl backdrop-blur">
       <strong className="block">{t('viewer.loadError')}</strong>

@@ -13,6 +13,9 @@
   "remove": "Fotoğrafı kaldır",
   "previewAlt": "Yüklenen fotoğraf ve tespit edilen yüz noktaları",
   "landmarks": "{{count}} yüz noktası bulundu",
+  "fit": "Yüz şekli uyarlandı (artık hata {{rms}} mm)",
+  "fitFailed": "Yüz şekli uyarlanamadı; yalnızca doku uygulandı.",
+  "fitPending": "Yüz şekli uyarlanıyor…",
   "skinTone": "Tahmini ten rengi",
   "status": {
     "idle": "Fotoğraf bekleniyor",

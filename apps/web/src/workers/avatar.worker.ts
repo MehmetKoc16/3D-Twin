@@ -1,14 +1,19 @@
 /// <reference lib="webworker" />
 import * as Comlink from 'comlink';
 import {
+  applyMorphs,
   buildBasePositions,
   computeJoints,
   createBodySolver,
+  fitFaceModifiers,
+  mergeWeights,
+  modifierWeights,
   parseMorphs,
   validateRig,
   type BodyManifest,
   type BodyParams,
   type BodySolver,
+  type FaceMapDef,
   type MeasuresDef,
   type RigDef,
 } from '@dt/avatar-core';
@@ -19,6 +24,7 @@ import type {
   AvatarWorkerApi,
 } from './avatarProtocol';
 import { flattenJoints, groundRenderPositions } from './ground';
+import { FaceShapeState } from './faceShape';
 
 const MORPHS_FALLBACK_BYTES = 15_789_632;
 
@@ -26,6 +32,15 @@ let solver: BodySolver | null = null;
 let rig: RigDef | null = null;
 let manifest: BodyManifest | null = null;
 let boneNames: string[] = [];
+let solverData: { manifest: BodyManifest; base: Float32Array; morphs: ArrayBuffer } | null = null;
+let baseUrl = '';
+let faceMap: FaceMapDef | null = null;
+let solvedWeights: ReadonlyMap<string, number> | null = null;
+const face = new FaceShapeState((request) => {
+  if (!solverData || !solvedWeights) throw new Error('avatar worker: face fit before the first solve');
+  const fit = fitFaceModifiers({ data: solverData, baseWeights: solvedWeights, ...request });
+  return { modifierValues: fit.modifierValues, rmsResidual: fit.rmsResidual };
+});
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -72,6 +87,8 @@ const api: AvatarWorkerApi = {
     parseMorphs(morphs, m); // validate once (the solver parses and caches its own copy)
     solver = createBodySolver({ manifest: m, base, morphs, measures, indices: init.indices });
     manifest = m;
+    solverData = { manifest: m, base, morphs };
+    baseUrl = init.baseUrl;
     rig = rigDef;
     boneNames = rigDef.bones.map((b) => b.name);
     report(1);
@@ -82,9 +99,18 @@ const api: AvatarWorkerApi = {
     if (!solver || !rig || !manifest) throw new Error('avatar worker: solve() before init()');
     const t0 = performance.now();
     const res = solver.solve(params);
+    solvedWeights = res.weights;
+    let bodyPositions = res.positions;
+    const faced = face.apply();
+    if (faced.values && solverData) {
+      // face modifiers on top of the solved body weights
+      const merged = mergeWeights(res.weights, modifierWeights(manifest, faced.values));
+      bodyPositions = new Float32Array(res.positions.length);
+      applyMorphs(solverData.base, solverData.morphs, manifest, merged, bodyPositions);
+    }
     const solveMs = performance.now() - t0;
-    const { positions, offsetY } = groundRenderPositions(res.positions, manifest.renderVertexCount);
-    const joints = flattenJoints(boneNames, computeJoints(rig, res.positions), offsetY);
+    const { positions, offsetY } = groundRenderPositions(bodyPositions, manifest.renderVertexCount);
+    const joints = flattenJoints(boneNames, computeJoints(rig, bodyPositions), offsetY);
     const result: AvatarSolveResult = {
       positions,
       joints,
@@ -94,8 +120,19 @@ const api: AvatarWorkerApi = {
       unreachable: res.unreachable,
       estimatedMassKg: res.estimatedMassKg,
       solveMs,
+      ...(faced.report !== undefined ? { faceFit: faced.report } : {}),
     };
     return Comlink.transfer(result, [positions.buffer, joints.buffer]);
+  },
+
+  async setFaceLandmarks(landmarks: Float32Array, imageWidth: number, imageHeight: number): Promise<void> {
+    if (!solver) throw new Error('avatar worker: setFaceLandmarks() before init()');
+    faceMap ??= await fetchJson<FaceMapDef>(`${baseUrl}face-map.json`);
+    face.set({ faceMap, landmarks, imageWidth, imageHeight });
+  },
+
+  clearFace(): void {
+    face.clear();
   },
 };
 
