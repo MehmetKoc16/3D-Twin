@@ -58,6 +58,36 @@ export interface GarmentTemplateDef {
   baseColor: string;
 }
 
+export type BodyPartCategory = 'eyes' | 'eyebrows' | 'eyelashes' | 'hair';
+
+/**
+ * Proxy-bound body parts (same binding format as garments). One entry of
+ * `apps/web/public/assets/parts/index.json`
+ * (`{ version: 1, parts: BodyPartDef[], defaults: Partial<Record<BodyPartCategory, string>> }`).
+ */
+export interface BodyPartDef {
+  id: string;
+  category: BodyPartCategory;
+  label: { tr: string; en: string };
+  license: GarmentLicense;
+  attribution?: string;
+  source?: string;
+  /** Unskinned mesh (.glb), same frame as garment meshes. */
+  mesh: string;
+  binding: string;
+  scaleRefs?: GarmentScaleRefs;
+  deleteVerts?: string;
+  material: {
+    alphaMode: 'OPAQUE' | 'MASK' | 'BLEND';
+    alphaCutoff?: number;
+    doubleSided: boolean;
+    /** Colour can be changed at runtime (hair/eyebrow colour, iris colour). */
+    tintable: boolean;
+  };
+  /** Eyes only: iris region in the eye texture's UV space, for recolouring the iris. */
+  irisUv?: { center: [number, number]; radius: number };
+}
+
 /** A product the user entered from an online store. */
 export interface StoreItemDef {
   id: string;
