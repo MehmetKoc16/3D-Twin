@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildWeldMap } from '../avatar/meshMath';
-import { coveredBodyVertices, filterBodyIndex, hiddenVertexMask, parseDeleteVerts } from './bodyHide';
+import {
+  coveredBodyVertices,
+  filterBodyIndex,
+  hiddenVertexMask,
+  parseDeleteVerts,
+} from './bodyHide';
 
 // Two quads (4 triangles) over 6 vertices; vertex 6 is a UV-seam copy of vertex 1.
 const positions = [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 2, 0, 0, 2, 1, 0, 1, 0, 0];
@@ -60,7 +65,10 @@ describe('parseDeleteVerts', () => {
 });
 
 /** A flat "body" sheet (z = 0, normals +z) made of unit quads split in two triangles, x in [0, n). */
-function sheet(n: number, z: (x: number) => number): { positions: number[]; index: number[]; normals: number[] } {
+function sheet(
+  n: number,
+  z: (x: number) => number,
+): { positions: number[]; index: number[]; normals: number[] } {
   const positions: number[] = [];
   const index: number[] = [];
   const normals: number[] = [];
@@ -83,7 +91,10 @@ describe('coveredBodyVertices', () => {
   it('covers the body vertices under the garment footprint and none beside it', () => {
     // garment sheet 5 mm above the body, only over x in [0, 5]
     const garment = sheet(5, () => 0.005);
-    const covered = coveredBodyVertices(body.positions, count, garment.positions, garment.index, { cellM: 2, bandM: 0.015 });
+    const covered = coveredBodyVertices(body.positions, count, garment.positions, garment.index, {
+      cellM: 2,
+      bandM: 0.015,
+    });
     for (let v = 0; v < count; v++) {
       if (xOf(v) <= 4) expect(covered[v], `x=${xOf(v)}`).toBe(1);
       if (xOf(v) >= 6) expect(covered[v], `x=${xOf(v)}`).toBe(0);
@@ -97,11 +108,24 @@ describe('coveredBodyVertices', () => {
   it('covers a body bump that pokes through the fabric, but not a surface far behind or in front', () => {
     const bump = sheet(10, (x) => (x >= 4 && x <= 6 ? 0.006 : 0)); // body pokes 1 mm above a garment at z = 0.005
     const garment = sheet(10, () => 0.005);
-    const under = coveredBodyVertices(bump.positions, count, garment.positions, garment.index, { cellM: 2, bandM: 0.015 });
+    const under = coveredBodyVertices(bump.positions, count, garment.positions, garment.index, {
+      cellM: 2,
+      bandM: 0.015,
+    });
     expect(under.every((v) => v === 1)).toBe(true);
     const far = sheet(10, () => 0.2);
-    expect(coveredBodyVertices(body.positions, count, far.positions, far.index, { cellM: 2, bandM: 0.015 }).every((v) => v === 0)).toBe(true);
+    expect(
+      coveredBodyVertices(body.positions, count, far.positions, far.index, {
+        cellM: 2,
+        bandM: 0.015,
+      }).every((v) => v === 0),
+    ).toBe(true);
     const behind = sheet(10, () => -0.2);
-    expect(coveredBodyVertices(body.positions, count, behind.positions, behind.index, { cellM: 2, bandM: 0.015 }).every((v) => v === 0)).toBe(true);
+    expect(
+      coveredBodyVertices(body.positions, count, behind.positions, behind.index, {
+        cellM: 2,
+        bandM: 0.015,
+      }).every((v) => v === 0),
+    ).toBe(true);
   });
 });

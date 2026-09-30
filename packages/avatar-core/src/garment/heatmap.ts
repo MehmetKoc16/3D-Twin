@@ -1,5 +1,5 @@
 import type { GarmentBinding } from './binding';
-import { centroidAt, sectionCentroids } from './centroid';
+import { GarmentSections } from './centroid';
 
 /** Signed radial clearance from the bound body point; negative values indicate penetration. */
 export function garmentClearance(
@@ -7,10 +7,10 @@ export function garmentClearance(
   binding: GarmentBinding,
   bodyPositions: ArrayLike<number>,
   out: Float32Array,
+  sections: GarmentSections = new GarmentSections(bodyPositions),
 ): void {
   if (garmentPositions.length < binding.count * 3 || out.length < binding.count)
     throw new Error('garment clearance: position buffer too short');
-  const bins = sectionCentroids(bodyPositions);
   for (let v = 0; v < binding.count; v++) {
     const o = v * 3;
     let bx = 0,
@@ -23,7 +23,7 @@ export function garmentClearance(
       by += w * bodyPositions[p + 1]!;
       bz += w * bodyPositions[p + 2]!;
     }
-    const [cx, cz] = centroidAt(bins, by);
+    const { x: cx, z: cz } = sections.centroidAt(by, bx, bz);
     const dx = bx - cx,
       dz = bz - cz;
     const length = Math.hypot(dx, dz);

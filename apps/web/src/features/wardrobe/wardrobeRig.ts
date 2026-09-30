@@ -1,5 +1,12 @@
 import { BufferAttribute } from 'three';
-import type { GarmentCategory, GarmentTemplateDef, MeasuresDef, StoreItemDef } from '@dt/avatar-core';
+import {
+  createGarmentSections,
+  type GarmentCategory,
+  type GarmentSections,
+  type GarmentTemplateDef,
+  type MeasuresDef,
+  type StoreItemDef,
+} from '@dt/avatar-core';
 import { useWardrobeStore } from '../../store/wardrobeStore';
 import type { AvatarAssets } from '../avatar/avatarAssets';
 import type { SolveEnvelope } from '../../workers/avatarClient';
@@ -14,6 +21,8 @@ const FIT_ORDER: readonly GarmentCategory[] = ['shoes', 'bottom', 'top'];
 
 interface LastSolve {
   body: Float32Array;
+  joints: Float32Array;
+  sections: GarmentSections;
   achievedCm: SolveEnvelope['result']['achievedCm'];
 }
 
@@ -74,7 +83,12 @@ export class WardrobeRig {
 
   /** Called by the avatar after each solve was applied to the body geometry and skeleton. */
   onSolve(envelope: SolveEnvelope): void {
-    this.last = { body: envelope.result.positions, achievedCm: envelope.result.achievedCm };
+    this.last = {
+      body: envelope.result.positions,
+      joints: envelope.result.joints,
+      sections: createGarmentSections(envelope.result.positions),
+      achievedCm: envelope.result.achievedCm,
+    };
     this.planes = this.measures ? bodyPlanes(this.measures, this.last.body) : undefined;
     this.refreshAll();
   }
@@ -131,7 +145,11 @@ export class WardrobeRig {
     this.refreshAll();
   }
 
-  private async create(category: GarmentCategory, item: StoreItemDef, template: GarmentTemplateDef): Promise<void> {
+  private async create(
+    category: GarmentCategory,
+    item: StoreItemDef,
+    template: GarmentTemplateDef,
+  ): Promise<void> {
     try {
       const runtime = await this.runtimeFor(template);
       if (this.disposed || this.pending.get(category) !== item.id) return;
@@ -140,7 +158,12 @@ export class WardrobeRig {
       const latest = current.items.find((i) => i.id === item.id);
       if (!latest || current.worn[category] !== item.id) return;
       this.instances.get(category)?.dispose();
-      const instance = new GarmentInstance(runtime, latest, this.assets.skeleton, this.assets.mesh.bindMatrix);
+      const instance = new GarmentInstance(
+        runtime,
+        latest,
+        this.assets.skeleton,
+        this.assets.mesh.bindMatrix,
+      );
       this.assets.scene.add(instance.mesh);
       this.instances.set(category, instance);
       this.updateBodyIndex();
@@ -184,6 +207,8 @@ export class WardrobeRig {
         instance.syncBind(this.assets.mesh.bindMatrix);
         instance.update({
           body: last.body,
+          joints: last.joints,
+          sections: last.sections,
           achievedCm: last.achievedCm,
           planes: this.planes,
           heatmap: this.heatmap,
@@ -221,8 +246,13 @@ export class WardrobeRig {
    * full index when nothing is worn.
    */
   private updateBodyIndex(): void {
-    const parts = [...this.instances.values()].filter((i) => i.runtime.deleteVerts.length > 0 || i.coverage !== null);
-    const key = parts.map((i) => `${i.template.id}${i.coverage ? '+' : ''}`).sort().join('|');
+    const parts = [...this.instances.values()].filter(
+      (i) => i.runtime.deleteVerts.length > 0 || i.coverage !== null,
+    );
+    const key = parts
+      .map((i) => `${i.template.id}${i.coverage ? '+' : ''}`)
+      .sort()
+      .join('|');
     if (key === this.hiddenKey) return;
     this.hiddenKey = key;
     const geometry = this.assets.mesh.geometry;
@@ -238,7 +268,9 @@ export class WardrobeRig {
     );
     for (const part of parts) part.coverage?.forEach((v, i) => (mask[i] = mask[i]! | v));
     const filtered = filterBodyIndex(this.assets.indices, mask);
-    geometry.setIndex(filtered === this.assets.indices ? this.originalIndex : new BufferAttribute(filtered, 1));
+    geometry.setIndex(
+      filtered === this.assets.indices ? this.originalIndex : new BufferAttribute(filtered, 1),
+    );
   }
 
   dispose(): void {

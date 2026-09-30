@@ -21,7 +21,10 @@ function LicenseBadge({ template }: { template: GarmentTemplateDef }) {
     <span
       data-testid={`license-${template.id}`}
       tabIndex={0}
-      title={t('wardrobe.catalog.licenseTitle', { license: t(`wardrobe.license.${template.license}`) }) + (template.attribution ? `\n${template.attribution}` : '')}
+      title={
+        t('wardrobe.catalog.licenseTitle', { license: t(`wardrobe.license.${template.license}`) }) +
+        (template.attribution ? `\n${template.attribution}` : '')
+      }
       className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide focus-visible:outline-2 focus-visible:outline-teal-400 ${free ? 'bg-emerald-400/20 text-emerald-200' : 'bg-amber-400/20 text-amber-100'}`}
     >
       {t(`wardrobe.license.${template.license}`)}
@@ -30,30 +33,58 @@ function LicenseBadge({ template }: { template: GarmentTemplateDef }) {
 }
 
 function ColorDot({ color }: { color: string }) {
-  return <span aria-hidden="true" className="inline-block size-3.5 shrink-0 rounded-full border border-white/30" style={{ backgroundColor: color }} />;
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block size-3.5 shrink-0 rounded-full border border-white/30"
+      style={{ backgroundColor: color }}
+    />
+  );
 }
 
-function WornCard({ category, item, template }: { category: GarmentCategory; item: StoreItemDef; template: GarmentTemplateDef }) {
+function WornCard({
+  category,
+  item,
+  template,
+}: {
+  category: GarmentCategory;
+  item: StoreItemDef;
+  template: GarmentTemplateDef;
+}) {
   const { t, i18n } = useTranslation();
   const language = i18n.language === 'en' ? 'en' : 'tr';
   const takeOff = useWardrobeStore((state) => state.takeOff);
   const selectSize = useWardrobeStore((state) => state.selectSize);
   return (
-    <li data-testid={`worn-${category}`} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+    <li
+      data-testid={`worn-${category}`}
+      className="rounded-xl border border-white/10 bg-white/[0.03] p-3"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-wider text-slate-400">{t(`wardrobe.categories.${category}`)}</p>
+          <p className="text-[11px] uppercase tracking-wider text-slate-400">
+            {t(`wardrobe.categories.${category}`)}
+          </p>
           <p className="flex items-center gap-2 truncate text-sm font-medium">
             <ColorDot color={item.color} />
             <span className="truncate">{item.name}</span>
           </p>
           <p className="text-[11px] text-slate-500">{template.label[language]}</p>
         </div>
-        <button type="button" data-testid={`take-off-${category}`} onClick={() => takeOff(category)} className={buttonClass}>
+        <button
+          type="button"
+          data-testid={`take-off-${category}`}
+          onClick={() => takeOff(category)}
+          className={buttonClass}
+        >
           {t('wardrobe.worn.takeOff')}
         </button>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5" role="group" aria-label={t('wardrobe.worn.size')}>
+      <div
+        className="mt-3 flex flex-wrap items-center gap-1.5"
+        role="group"
+        aria-label={t('wardrobe.worn.size')}
+      >
         <span className="mr-1 text-xs text-slate-400">{t('wardrobe.worn.size')}</span>
         {item.sizes.map((size) => (
           <button
@@ -91,7 +122,11 @@ function ItemRow({
   const deleteItem = useWardrobeStore((state) => state.deleteItem);
   const [confirming, setConfirming] = useState(false);
   return (
-    <li data-testid={`item-${item.id}`} data-name={item.name} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+    <li
+      data-testid={`item-${item.id}`}
+      data-name={item.name}
+      className="rounded-xl border border-white/10 bg-white/[0.03] p-3"
+    >
       <div className="flex items-center gap-2">
         <ColorDot color={item.color} />
         <div className="min-w-0 flex-1">
@@ -105,11 +140,21 @@ function ItemRow({
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {template &&
           (worn ? (
-            <button type="button" data-testid={`unwear-${item.id}`} onClick={() => takeOff(template.category)} className={buttonClass}>
+            <button
+              type="button"
+              data-testid={`unwear-${item.id}`}
+              onClick={() => takeOff(template.category)}
+              className={buttonClass}
+            >
               {t('wardrobe.items.takeOff')}
             </button>
           ) : (
-            <button type="button" data-testid={`wear-${item.id}`} onClick={() => wear(item.id)} className={primaryClass}>
+            <button
+              type="button"
+              data-testid={`wear-${item.id}`}
+              onClick={() => wear(item.id)}
+              className={primaryClass}
+            >
               {t('wardrobe.items.wear')}
             </button>
           ))}
@@ -117,9 +162,18 @@ function ItemRow({
           {t('wardrobe.items.edit')}
         </button>
         {confirming ? (
-          <span className="flex items-center gap-1.5 text-xs text-slate-300" role="group" aria-label={t('wardrobe.items.confirmDelete')}>
+          <span
+            className="flex items-center gap-1.5 text-xs text-slate-300"
+            role="group"
+            aria-label={t('wardrobe.items.confirmDelete')}
+          >
             {t('wardrobe.items.confirmDelete')}
-            <button type="button" data-testid={`delete-confirm-${item.id}`} onClick={() => void deleteItem(item.id)} className="rounded-lg border border-red-400/60 bg-red-500/20 px-2.5 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/30 focus-visible:outline-2 focus-visible:outline-red-300">
+            <button
+              type="button"
+              data-testid={`delete-confirm-${item.id}`}
+              onClick={() => void deleteItem(item.id)}
+              className="rounded-lg border border-red-400/60 bg-red-500/20 px-2.5 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/30 focus-visible:outline-2 focus-visible:outline-red-300"
+            >
               {t('wardrobe.items.yes')}
             </button>
             <button type="button" onClick={() => setConfirming(false)} className={buttonClass}>
@@ -127,7 +181,12 @@ function ItemRow({
             </button>
           </span>
         ) : (
-          <button type="button" data-testid={`delete-${item.id}`} onClick={() => setConfirming(true)} className={`${buttonClass} text-red-200`}>
+          <button
+            type="button"
+            data-testid={`delete-${item.id}`}
+            onClick={() => setConfirming(true)}
+            className={`${buttonClass} text-red-200`}
+          >
             {t('wardrobe.items.delete')}
           </button>
         )}
@@ -155,7 +214,8 @@ export function WardrobePanel() {
     void hydrate();
   }, [hydrate]);
 
-  const templateOf = (id: string): GarmentTemplateDef | undefined => templates.find((x) => x.id === id);
+  const templateOf = (id: string): GarmentTemplateDef | undefined =>
+    templates.find((x) => x.id === id);
   const wornEntries = CATEGORIES.flatMap((category) => {
     const item = items.find((i) => i.id === worn[category]);
     const template = item ? templateOf(item.templateId) : undefined;
@@ -173,7 +233,11 @@ export function WardrobePanel() {
   };
 
   return (
-    <section data-testid="wardrobe-panel" className="flex flex-col gap-5" aria-labelledby="wardrobe-title">
+    <section
+      data-testid="wardrobe-panel"
+      className="flex flex-col gap-5"
+      aria-labelledby="wardrobe-title"
+    >
       <header>
         <h2 id="wardrobe-title" className="text-lg font-semibold">
           {t('wardrobe.title')}
@@ -182,11 +246,19 @@ export function WardrobePanel() {
       </header>
 
       {(catalogStatus === 'error' || (catalogStatus === 'ready' && templates.length === 0)) && (
-        <p role="alert" data-testid="wardrobe-load-error" className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">
+        <p
+          role="alert"
+          data-testid="wardrobe-load-error"
+          className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100"
+        >
           {t('wardrobe.loadError')}
         </p>
       )}
-      {catalogStatus === 'loading' && <p role="status" className="text-sm text-slate-400">{t('wardrobe.loading')}</p>}
+      {catalogStatus === 'loading' && (
+        <p role="status" className="text-sm text-slate-400">
+          {t('wardrobe.loading')}
+        </p>
+      )}
 
       <div>
         <h3 className={sectionTitle}>{t('wardrobe.worn.title')}</h3>
@@ -213,9 +285,17 @@ export function WardrobePanel() {
             </label>
             {heatmap && <HeatmapLegend />}
             {worn.shoes && (
-              <div data-testid="shoes-hint" className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-sky-400/30 bg-sky-400/10 p-2.5 text-xs text-sky-100">
+              <div
+                data-testid="shoes-hint"
+                className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-sky-400/30 bg-sky-400/10 p-2.5 text-xs text-sky-100"
+              >
                 <span className="min-w-0 flex-1">{t('wardrobe.shoesHint')}</span>
-                <button type="button" data-testid="focus-feet" onClick={() => requestFocus('feet')} className={buttonClass}>
+                <button
+                  type="button"
+                  data-testid="focus-feet"
+                  onClick={() => requestFocus('feet')}
+                  className={buttonClass}
+                >
                   {t('wardrobe.focusFeet')}
                 </button>
               </div>
@@ -273,17 +353,32 @@ export function WardrobePanel() {
         <p className="mt-1 text-xs text-slate-500">{t('wardrobe.catalog.description')}</p>
         <ul data-testid="catalog" className="mt-2 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
           {templates.map((template) => (
-            <li key={template.id} data-testid={`template-${template.id}`} className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <li
+              key={template.id}
+              data-testid={`template-${template.id}`}
+              className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3"
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-medium">{template.label[language]}</span>
                 <LicenseBadge template={template} />
               </div>
-              <p className="text-[11px] text-slate-500">{t(`wardrobe.categories.${template.category}`)}</p>
+              <p className="text-[11px] text-slate-500">
+                {t(`wardrobe.categories.${template.category}`)}
+              </p>
               <details className="text-[11px] text-slate-400">
-                <summary className="cursor-pointer focus-visible:outline-2 focus-visible:outline-teal-400">{t('wardrobe.catalog.attribution')}</summary>
-                <p className="mt-1 break-words leading-relaxed">{template.attribution ?? t('wardrobe.catalog.noAttribution')}</p>
+                <summary className="cursor-pointer focus-visible:outline-2 focus-visible:outline-teal-400">
+                  {t('wardrobe.catalog.attribution')}
+                </summary>
+                <p className="mt-1 break-words leading-relaxed">
+                  {template.attribution ?? t('wardrobe.catalog.noAttribution')}
+                </p>
               </details>
-              <button type="button" data-testid={`use-template-${template.id}`} onClick={() => openForm(template.id)} className={`${buttonClass} mt-auto`}>
+              <button
+                type="button"
+                data-testid={`use-template-${template.id}`}
+                onClick={() => openForm(template.id)}
+                className={`${buttonClass} mt-auto`}
+              >
                 {t('wardrobe.catalog.use')}
               </button>
             </li>

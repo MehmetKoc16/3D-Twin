@@ -1,5 +1,5 @@
 import type { GarmentBinding } from './binding';
-import { centroidAt, sectionCentroids } from './centroid';
+import { GarmentSections } from './centroid';
 
 export interface GradeRing {
   planeY: number;
@@ -8,7 +8,7 @@ export interface GradeRing {
 
 /**
  * Circular-section approximation: a circumference change Δc shifts each vertex by Δc / 2π
- * along the horizontal ray from its bound body point's section centroid. Rings interpolate
+ * along the horizontal ray from its bound body point's limb-section centroid. Rings interpolate
  * linearly by body height and hold their end values outside the given range. The offset is
  * clamped to leave at least 2 mm of projected clearance; this does not resolve mesh collisions.
  */
@@ -18,13 +18,13 @@ export function gradeGarment(
   bodyPositions: ArrayLike<number>,
   rings: GradeRing[],
   out: Float32Array,
+  sections: GarmentSections = new GarmentSections(bodyPositions),
 ): void {
   if (restPositions.length < binding.count * 3 || out.length < binding.count * 3)
     throw new Error('garment grade: position buffer too short');
   const sorted = [...rings].sort((a, b) => a.planeY - b.planeY);
   if (sorted.some((r) => !Number.isFinite(r.planeY) || !Number.isFinite(r.deltaCircumferenceM)))
     throw new Error('garment grade: invalid ring');
-  const bins = sectionCentroids(bodyPositions);
   for (let v = 0; v < binding.count; v++) {
     const o = v * 3;
     let bx = 0,
@@ -37,7 +37,7 @@ export function gradeGarment(
       by += w * bodyPositions[p + 1]!;
       bz += w * bodyPositions[p + 2]!;
     }
-    const [cx, cz] = centroidAt(bins, by);
+    const { x: cx, z: cz } = sections.centroidAt(by, bx, bz);
     let dx = bx - cx,
       dz = bz - cz;
     let radius = Math.hypot(dx, dz);

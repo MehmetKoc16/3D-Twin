@@ -1,25 +1,24 @@
 import {
   bodyMeasuresForGarment,
-  garmentClearance,
-  gradeGarment,
-  type GarmentBinding,
   type GarmentMeasureId,
   type GarmentTemplateDef,
   type GradeRing,
   type MeasureId,
   type MeasuresDef,
   type StoreItemDef,
+  type LengthGradeSpec,
+  type Vec3,
 } from '@dt/avatar-core';
 import { GIRTH_MEASURES } from './chartModel';
 
-/** Pure garment update helpers (no three.js): planes, grade rings and the leg-aware grade / clearance passes. */
+/** Pure garment update helpers (no three.js): planes and grade rings. */
 
 type Measures = Partial<Record<GarmentMeasureId, number>>;
 
 /** Heights (m, grounded body frame) of the measure planes used to place grade rings. */
 export interface BodyPlanes {
   planeY: Partial<Record<GarmentMeasureId, number>>;
-  /** Height of the crotch: below it the two legs are treated separately. */
+  /** Height of the crotch for trouser length grading. */
   crotchY?: number;
 }
 
@@ -87,122 +86,84 @@ export function bodyCmFromSolve(achievedCm: Partial<Record<MeasureId, number>>):
   return bodyMeasuresForGarment(achievedCm);
 }
 
-const FAR_Y = -1000;
-
-/** Scratch buffers of the leg-aware passes (grown on demand, reused between solves). */
-export class SplitScratch {
-  private masked = new Float32Array(0);
-  private sideOut = new Float32Array(0);
-  private choices = new Int8Array(0);
-
-  maskedBody(length: number): Float32Array {
-    if (this.masked.length < length) this.masked = new Float32Array(length);
-    return this.masked.subarray(0, length);
+/** Chart-length passes in the solved rest frame. Long sleeves use shoulder and wrist joints. */
+export function buildLengthGrades(
+  item: StoreItemDef,
+  template: GarmentTemplateDef,
+  achievedCm: Partial<Record<MeasureId, number>>,
+  planes: BodyPlanes | undefined,
+  rest: ArrayLike<number>,
+  joint: (name: string) => Vec3 | undefined,
+): LengthGradeSpec[] {
+  const size = item.sizes.indexOf(item.selectedSize);
+  if (size < 0 || template.category === 'shoes') return [];
+  const specs: LengthGradeSpec[] = [];
+  const hemHeights: number[] = [];
+  for (let i = 1; i < rest.length; i += 3) {
+    if (template.category === 'top' && Math.abs(rest[i - 1]!) > 0.2) continue;
+    hemHeights.push(rest[i]!);
   }
-
-  choiceBuffer(length: number): Int8Array {
-    if (this.choices.length < length) this.choices = new Int8Array(length);
-    return this.choices.subarray(0, length);
-  }
-
-  outBuffer(length: number): Float32Array {
-    if (this.sideOut.length < length) this.sideOut = new Float32Array(length);
-    return this.sideOut.subarray(0, length);
-  }
-}
-
-function sideOfX(x: number): 1 | -1 {
-  return x >= 0 ? 1 : -1;
-}
-
-/**
- * The section-centroid model of avatar-core pools both legs at one height, so a vertex on the inner side of a thigh
- * would be pushed into the leg. Below the crotch this runs `run` once per leg on a body copy that keeps only that
- * leg's vertices in the height bins, and takes each garment vertex from the run of the leg it is bound to (vertices
- * bound across the midline, or above the crotch, come from the plain run). `stride` is 3 for positions, 1 for scalars.
- */
-export function runLegAware(opts: {
-  binding: GarmentBinding;
-  body: Float32Array;
-  crotchY: number | undefined;
-  stride: 1 | 3;
-  out: Float32Array;
-  scratch: SplitScratch;
-  run: (body: Float32Array, out: Float32Array) => void;
-}): void {
-  const { binding, body, crotchY, stride, out, scratch, run } = opts;
-  run(body, out);
-  if (crotchY === undefined) return;
-  const size = binding.count * stride;
-  const sides: (1 | -1)[] = [1, -1];
-  // decide, per garment vertex, which run to use: 0 = plain, otherwise the leg side
-  const choice = scratch.choiceBuffer(binding.count);
-  choice.fill(0);
-  for (let v = 0; v < binding.count; v++) {
-    const o = v * 3;
-    let by = 0;
-    let side: 1 | -1 | 0 = 0;
-    let consistent = true;
-    for (let j = 0; j < 3; j++) {
-      const p = binding.indices[o + j]! * 3;
-      by += binding.weights[o + j]! * body[p + 1]!;
-      const s = sideOfX(body[p]!);
-      if (side === 0) side = s;
-      else if (side !== s) consistent = false;
+  if (hemHeights.length === 0) return specs;
+  hemHeights.sort((a, b) => a - b);
+  // The lowest vertex can be a single seam tip. Use the lower hem band so the edge moves together.
+  const hemY = hemHeights[Math.floor(hemHeights.length * 0.1)]!;
+  const waistY = planes?.planeY.waist;
+  const lengthChart = item.chart.length?.[size];
+  if (template.category === 'top') {
+    if (lengthChart !== undefined && waistY !== undefined && hemY < waistY - 0.01) {
+      // No torso-length body measure exists; scale the template length with the solved body height.
+      const referenceCm =
+        (template.nativeMeasures.length ?? lengthChart) * ((achievedCm.height ?? 165.9) / 165.9);
+      specs.push({ chartCm: lengthChart, referenceCm, anchor: [0, waistY, 0], hem: [0, hemY, 0] });
     }
-    if (consistent && side !== 0 && by < crotchY) choice[v] = side;
-  }
-  for (const side of sides) {
-    if (!choice.includes(side)) continue;
-    const masked = scratch.maskedBody(body.length);
-    masked.set(body);
-    for (let i = 1; i < body.length; i += 3) {
-      if (body[i]! < crotchY && sideOfX(body[i - 1]!) !== side) masked[i] = FAR_Y;
+    if (template.kind === 'longsleeve' || template.kind === 'sweatshirt') {
+      const sleeveChart = item.chart.sleeve?.[size];
+      const armLength = achievedCm.armLength;
+      if (sleeveChart !== undefined && armLength !== undefined) {
+        for (const [suffix, side] of [
+          ['l', 1],
+          ['r', -1],
+        ] as const) {
+          const shoulder = joint(`upperarm_${suffix}`);
+          const wrist = joint(`hand_${suffix}`);
+          if (!shoulder || !wrist) continue;
+          specs.push({
+            chartCm: sleeveChart,
+            referenceCm: armLength + (template.defaultEase.sleeve ?? 0),
+            anchor: shoulder,
+            hem: wrist,
+            side,
+            minAbsX: Math.abs(shoulder[0]) * 0.8,
+          });
+        }
+      }
     }
-    const sideOut = scratch.outBuffer(size);
-    run(masked, sideOut);
-    for (let v = 0; v < binding.count; v++) {
-      if (choice[v] !== side) continue;
-      for (let k = 0; k < stride; k++) out[v * stride + k] = sideOut[v * stride + k]!;
+  } else {
+    const inseamChart = item.chart.inseam?.[size];
+    const inseam = achievedCm.inseam;
+    if (inseamChart !== undefined && inseam !== undefined && planes?.crotchY !== undefined) {
+      specs.push({
+        chartCm: inseamChart,
+        referenceCm: inseam + (template.defaultEase.inseam ?? 0),
+        anchor: [0, planes.crotchY, 0],
+        hem: [0, hemY, 0],
+        floorY: 0,
+      });
+    } else if (lengthChart !== undefined && waistY !== undefined) {
+      const referenceCm =
+        inseam === undefined
+          ? (template.nativeMeasures.length ?? lengthChart)
+          : inseam +
+            (template.nativeMeasures.length ?? lengthChart) -
+            (template.nativeMeasures.inseam ?? inseam);
+      specs.push({
+        chartCm: lengthChart,
+        referenceCm,
+        anchor: [0, waistY, 0],
+        hem: [0, hemY, 0],
+        floorY: 0,
+      });
     }
   }
-}
-
-export function gradeGarmentLegAware(
-  restPositions: ArrayLike<number>,
-  binding: GarmentBinding,
-  body: Float32Array,
-  rings: GradeRing[],
-  crotchY: number | undefined,
-  out: Float32Array,
-  scratch: SplitScratch,
-): void {
-  runLegAware({
-    binding,
-    body,
-    crotchY,
-    stride: 3,
-    out,
-    scratch,
-    run: (b, o) => gradeGarment(restPositions, binding, b, rings, o),
-  });
-}
-
-export function clearanceLegAware(
-  garmentPositions: ArrayLike<number>,
-  binding: GarmentBinding,
-  body: Float32Array,
-  crotchY: number | undefined,
-  out: Float32Array,
-  scratch: SplitScratch,
-): void {
-  runLegAware({
-    binding,
-    body,
-    crotchY,
-    stride: 1,
-    out,
-    scratch,
-    run: (b, o) => garmentClearance(garmentPositions, binding, b, o),
-  });
+  return specs;
 }

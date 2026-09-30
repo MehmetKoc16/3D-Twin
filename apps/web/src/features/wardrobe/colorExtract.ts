@@ -16,7 +16,13 @@ const SAMPLE_LIMIT = 6000;
 const BACKGROUND_DISTANCE = 32;
 
 function toHex(rgb: readonly [number, number, number]): string {
-  return `#${rgb.map((c) => Math.max(0, Math.min(255, Math.round(c))).toString(16).padStart(2, '0')).join('')}`;
+  return `#${rgb
+    .map((c) =>
+      Math.max(0, Math.min(255, Math.round(c)))
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
 }
 
 function distance2(a: ArrayLike<number>, b: ArrayLike<number>): number {
@@ -34,7 +40,11 @@ function chroma(rgb: ArrayLike<number>): number {
 }
 
 /** Mean colour of the outermost ring of pixels: the background of a typical product shot. */
-function borderColor(data: ArrayLike<number>, width: number, height: number): [number, number, number] {
+function borderColor(
+  data: ArrayLike<number>,
+  width: number,
+  height: number,
+): [number, number, number] {
   let r = 0;
   let g = 0;
   let b = 0;
@@ -71,7 +81,8 @@ export function dominantColors(
   const k = Math.max(1, Math.min(8, options.k ?? 4));
   const total = width * height;
   if (total <= 0 || data.length < total * 4) return [];
-  const background = options.dropBackground === false ? undefined : borderColor(data, width, height);
+  const background =
+    options.dropBackground === false ? undefined : borderColor(data, width, height);
   const stride = Math.max(1, Math.floor(total / SAMPLE_LIMIT));
 
   const collect = (skipBackground: boolean): number[][] => {
@@ -80,7 +91,12 @@ export function dominantColors(
       const o = p * 4;
       if (data[o + 3]! < 128) continue;
       const rgb = [data[o]!, data[o + 1]!, data[o + 2]!];
-      if (skipBackground && background && distance2(rgb, background) < BACKGROUND_DISTANCE * BACKGROUND_DISTANCE) continue;
+      if (
+        skipBackground &&
+        background &&
+        distance2(rgb, background) < BACKGROUND_DISTANCE * BACKGROUND_DISTANCE
+      )
+        continue;
       points.push(rgb);
     }
     return points;
@@ -106,7 +122,8 @@ export function dominantColors(
     let best = points[0]!;
     let bestDistance = -1;
     for (const p of points) {
-      const nearest = c === 0 ? distance2(p, seed) : Math.min(...centers.map((center) => distance2(p, center)));
+      const nearest =
+        c === 0 ? distance2(p, seed) : Math.min(...centers.map((center) => distance2(p, center)));
       if (nearest > bestDistance) {
         bestDistance = nearest;
         best = p;
@@ -168,7 +185,8 @@ const ANALYSIS_SIZE = 96;
 
 /** Decodes a local image on a small canvas and returns its swatches. Nothing is uploaded or stored. */
 export async function swatchesFromImageFile(file: Blob): Promise<string[]> {
-  if (!file.type.startsWith('image/') || file.size > MAX_COLOR_IMAGE_BYTES) throw new Error('unsupported image');
+  if (!file.type.startsWith('image/') || file.size > MAX_COLOR_IMAGE_BYTES)
+    throw new Error('unsupported image');
   const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
   try {
     const scale = Math.min(1, ANALYSIS_SIZE / Math.max(bitmap.width, bitmap.height));

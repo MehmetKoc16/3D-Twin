@@ -1,6 +1,11 @@
 import { Mesh, MeshStandardMaterial, type BufferAttribute, type Object3D } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { garmentSkinWeights, parseGarmentBinding, type GarmentBinding, type GarmentTemplateDef } from '@dt/avatar-core';
+import {
+  garmentSkinWeights,
+  parseGarmentBinding,
+  type GarmentBinding,
+  type GarmentTemplateDef,
+} from '@dt/avatar-core';
 import { buildWeldMap, type WeldMap } from '../avatar/meshMath';
 import { parseDeleteVerts } from './bodyHide';
 
@@ -46,7 +51,8 @@ export async function loadTemplateRuntime(
   body: BodySkinData,
   baseUrl: string,
 ): Promise<TemplateRuntime> {
-  if (!def.binding) throw new Error(`garment ${def.id}: rigid (unbound) templates are not supported`);
+  if (!def.binding)
+    throw new Error(`garment ${def.id}: rigid (unbound) templates are not supported`);
   const [gltf, bindingBuffer, deleteBuffer] = await Promise.all([
     new GLTFLoader().loadAsync(`${baseUrl}${def.mesh}`),
     fetchBuffer(`${baseUrl}${def.binding}`),
@@ -58,7 +64,9 @@ export async function loadTemplateRuntime(
   const vertexCount = position.count;
   const binding = parseGarmentBinding(bindingBuffer, body.renderVertexCount);
   if (binding.count !== vertexCount) {
-    throw new Error(`garment ${def.id}: binding has ${binding.count} vertices, the mesh ${vertexCount}`);
+    throw new Error(
+      `garment ${def.id}: binding has ${binding.count} vertices, the mesh ${vertexCount}`,
+    );
   }
   const indexAttribute = mesh.geometry.getIndex();
   const index = indexAttribute
@@ -67,7 +75,9 @@ export async function loadTemplateRuntime(
   const { skinIndices, skinWeights } = garmentSkinWeights(binding, body.skinIndex, body.skinWeight);
   const source = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
   const material =
-    source instanceof MeshStandardMaterial ? source : new MeshStandardMaterial({ color: def.baseColor, roughness: 0.85 });
+    source instanceof MeshStandardMaterial
+      ? source
+      : new MeshStandardMaterial({ color: def.baseColor, roughness: 0.85 });
   return {
     def,
     vertexCount,

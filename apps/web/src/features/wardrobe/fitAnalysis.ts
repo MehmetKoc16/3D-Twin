@@ -46,7 +46,13 @@ export function isInfoOnly(template: GarmentTemplateDef, id: GarmentMeasureId): 
   return id === 'sleeve' && (template.defaultEase.sleeve ?? 0) < -15;
 }
 
-const SEVERITY: Record<FitVerdict, number> = { regular: 0, snug: 1, loose: 2, oversized: 3, tight: 4 };
+const SEVERITY: Record<FitVerdict, number> = {
+  regular: 0,
+  snug: 1,
+  loose: 2,
+  oversized: 3,
+  tight: 4,
+};
 
 /** Sort key: worst regions first in the UI. */
 export function verdictSeverity(verdict: FitVerdict): number {

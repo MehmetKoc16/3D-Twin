@@ -33,7 +33,8 @@ export function pushOutside(
   const band = options.bandM ?? 0.03;
   const margin = options.marginM ?? 0.006;
   const cell = options.cellM ?? 0.03;
-  const key = (ix: number, iy: number, iz: number): number => ((ix + 1024) * 2048 + (iy + 1024)) * 2048 + (iz + 1024);
+  const key = (ix: number, iy: number, iz: number): number =>
+    ((ix + 1024) * 2048 + (iy + 1024)) * 2048 + (iz + 1024);
   let moved = 0;
   const shiftX = new Float32Array(vertexCount);
   const shiftY = new Float32Array(vertexCount);
@@ -103,7 +104,9 @@ export function pushOutside(
       const px = positions[v * 3]!;
       const py = positions[v * 3 + 1]!;
       const pz = positions[v * 3 + 2]!;
-      const list = grid.get(key(Math.floor(px / cell), Math.floor(py / cell), Math.floor(pz / cell)));
+      const list = grid.get(
+        key(Math.floor(px / cell), Math.floor(py / cell), Math.floor(pz / cell)),
+      );
       if (!list) continue;
       for (const t of list) {
         const nx = normals[t * 3]!;

@@ -100,8 +100,7 @@ export interface ValidationIssue {
 }
 
 export type DraftResult =
-  | { ok: true; item: StoreItemDef }
-  | { ok: false; issues: ValidationIssue[] };
+  { ok: true; item: StoreItemDef } | { ok: false; issues: ValidationIssue[] };
 
 /** Accepts "96", "96.5" and "96,5"; anything else (including empty text) is undefined. */
 export function parseCm(text: string | undefined): number | undefined {
@@ -163,7 +162,10 @@ export function itemToDraft(item: StoreItemDef, template: GarmentTemplateDef): C
   if (template.category === 'shoes') {
     const row = item.chart.footLength ?? [];
     const derived = item.sizes.map((label) => shoeInnerLengthCm(label));
-    if (item.sizes.length > 0 && derived.every((v, i) => v !== undefined && Math.abs(v - (row[i] ?? Infinity)) < 0.06)) {
+    if (
+      item.sizes.length > 0 &&
+      derived.every((v, i) => v !== undefined && Math.abs(v - (row[i] ?? Infinity)) < 0.06)
+    ) {
       shoeMode = 'eu';
     }
   }
@@ -224,7 +226,11 @@ export function renameSize(draft: ChartDraft, index: number, label: string): Cha
   const previous = draft.sizes[index];
   if (previous === undefined) return draft;
   const sizes = draft.sizes.map((s, i) => (i === index ? label : s));
-  return { ...draft, sizes, selectedSize: draft.selectedSize === previous ? label : draft.selectedSize };
+  return {
+    ...draft,
+    sizes,
+    selectedSize: draft.selectedSize === previous ? label : draft.selectedSize,
+  };
 }
 
 function isValidUrl(text: string): boolean {
@@ -250,7 +256,8 @@ export function draftToItem(
   const issues: ValidationIssue[] = [];
   const name = draft.name.trim();
   if (name.length === 0) issues.push({ code: 'nameRequired' });
-  else if (name.length > MAX_NAME_LENGTH) issues.push({ code: 'nameTooLong', params: { max: MAX_NAME_LENGTH } });
+  else if (name.length > MAX_NAME_LENGTH)
+    issues.push({ code: 'nameTooLong', params: { max: MAX_NAME_LENGTH } });
   const url = draft.storeUrl.trim();
   if (url.length > 0 && !isValidUrl(url)) issues.push({ code: 'urlInvalid' });
   if (!template) {
@@ -268,7 +275,8 @@ export function draftToItem(
     else if (seen.has(label.toLowerCase())) issues.push({ code: 'duplicateSize', size: label });
     seen.add(label.toLowerCase());
   });
-  if (labels.length > 0 && !labels.includes(draft.selectedSize.trim())) issues.push({ code: 'selectedSizeMissing' });
+  if (labels.length > 0 && !labels.includes(draft.selectedSize.trim()))
+    issues.push({ code: 'selectedSizeMissing' });
 
   const chart: StoreItemDef['chart'] = {};
   const shoeEu = template.category === 'shoes' && draft.shoeMode === 'eu';
@@ -278,7 +286,8 @@ export function draftToItem(
     if (measure === 'footLength' && shoeEu) {
       cells = labels.map((label) => {
         const value = shoeInnerLengthCm(label);
-        if (value === undefined && label.length > 0) issues.push({ code: 'euSizeInvalid', size: label });
+        if (value === undefined && label.length > 0)
+          issues.push({ code: 'euSizeInvalid', size: label });
         return value === undefined ? undefined : String(value);
       });
     } else {

@@ -46,8 +46,20 @@
     "regionLabel": "{{measure}}: {{ease}} ease, {{verdict}}"
   },
   "verdict": {
-    "fit": { "tight": "Tight", "snug": "Snug", "regular": "Comfortable", "loose": "Loose", "oversized": "Oversized" },
-    "length": { "tight": "Short", "snug": "Slightly short", "regular": "Right", "loose": "Slightly long", "oversized": "Very long" }
+    "fit": {
+      "tight": "Tight",
+      "snug": "Snug",
+      "regular": "Comfortable",
+      "loose": "Loose",
+      "oversized": "Oversized"
+    },
+    "length": {
+      "tight": "Short",
+      "snug": "Slightly short",
+      "regular": "Right",
+      "loose": "Slightly long",
+      "oversized": "Very long"
+    }
   },
   "heatmap": {
     "toggle": "Fit heatmap",

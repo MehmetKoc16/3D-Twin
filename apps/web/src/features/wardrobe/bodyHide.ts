@@ -54,7 +54,8 @@ export function filterBodyIndex(indices: Uint32Array, hidden: Uint8Array): Uint3
 
 /** Parses a `.delete.bin` (little-endian uint32 list). */
 export function parseDeleteVerts(buffer: ArrayBuffer): Uint32Array {
-  if (buffer.byteLength % 4 !== 0) throw new Error('garment delete list: byte length must be a multiple of 4');
+  if (buffer.byteLength % 4 !== 0)
+    throw new Error('garment delete list: byte length must be a multiple of 4');
   const view = new DataView(buffer);
   const out = new Uint32Array(buffer.byteLength / 4);
   for (let i = 0; i < out.length; i++) out[i] = view.getUint32(i * 4, true);
@@ -88,10 +89,15 @@ export function coveredBodyVertices(
 ): Uint8Array {
   const band = options.bandM ?? 0.02;
   const cell = options.cellM ?? 0.03;
-  const key = (ix: number, iy: number, iz: number): number => ((ix + 1024) * 2048 + (iy + 1024)) * 2048 + (iz + 1024);
+  const key = (ix: number, iy: number, iz: number): number =>
+    ((ix + 1024) * 2048 + (iy + 1024)) * 2048 + (iz + 1024);
   const grid = new Map<number, number[]>();
   for (let v = 0; v < vertexCount; v++) {
-    const k = key(Math.floor(body[v * 3]! / cell), Math.floor(body[v * 3 + 1]! / cell), Math.floor(body[v * 3 + 2]! / cell));
+    const k = key(
+      Math.floor(body[v * 3]! / cell),
+      Math.floor(body[v * 3 + 1]! / cell),
+      Math.floor(body[v * 3 + 2]! / cell),
+    );
     const list = grid.get(k);
     if (list) list.push(v);
     else grid.set(k, [v]);

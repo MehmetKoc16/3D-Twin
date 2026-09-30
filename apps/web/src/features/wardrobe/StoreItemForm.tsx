@@ -43,7 +43,8 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
   const language = i18n.language === 'en' ? 'en' : 'tr';
   const fileInput = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<ChartDraft>(() => {
-    const template = templates.find((x) => x.id === (editing?.templateId ?? initialTemplateId)) ?? templates[0];
+    const template =
+      templates.find((x) => x.id === (editing?.templateId ?? initialTemplateId)) ?? templates[0];
     if (!template) throw new Error('wardrobe form opened without templates');
     return editing ? itemToDraft(editing, template) : createDraft(template);
   });
@@ -61,7 +62,9 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
   const invalidCells = new Set(
     issues.filter((i) => i.measure && i.size !== undefined).map((i) => `${i.measure}|${i.size}`),
   );
-  const invalidRows = new Set(issues.filter((i) => i.measure && i.size === undefined).map((i) => i.measure));
+  const invalidRows = new Set(
+    issues.filter((i) => i.measure && i.size === undefined).map((i) => i.measure),
+  );
 
   const update = (next: ChartDraft): void => {
     setDraft(next);
@@ -74,7 +77,11 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
     // a different kind has different rows: start a fresh chart but keep name, link and colour choices
     const fresh = createDraft(next);
     const keepChart = template && next.kind === template.kind;
-    update(keepChart ? { ...draft, templateId: id } : { ...fresh, name: draft.name, storeUrl: draft.storeUrl, color: next.baseColor });
+    update(
+      keepChart
+        ? { ...draft, templateId: id }
+        : { ...fresh, name: draft.name, storeUrl: draft.storeUrl, color: next.baseColor },
+    );
   };
 
   const pickPhoto = async (file: File | undefined): Promise<void> => {
@@ -122,7 +129,9 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
       }}
       className="rounded-xl border border-teal-400/30 bg-slate-900/60 p-4"
     >
-      <h3 className="text-sm font-semibold text-teal-200">{t(editing ? 'wardrobe.form.editTitle' : 'wardrobe.form.addTitle')}</h3>
+      <h3 className="text-sm font-semibold text-teal-200">
+        {t(editing ? 'wardrobe.form.editTitle' : 'wardrobe.form.addTitle')}
+      </h3>
 
       <label className="mt-3 block text-xs text-slate-300">
         {t('wardrobe.form.name')}
@@ -149,7 +158,9 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
           onChange={(event) => update({ ...draft, storeUrl: event.target.value })}
           className={`${inputClass} mt-1`}
         />
-        <span className="mt-1 block text-[11px] text-slate-500">{t('wardrobe.form.storeUrlHelp')}</span>
+        <span className="mt-1 block text-[11px] text-slate-500">
+          {t('wardrobe.form.storeUrlHelp')}
+        </span>
       </label>
 
       <label className="mt-3 block text-xs text-slate-300">
@@ -189,7 +200,12 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
             onChange={(event) => update({ ...draft, color: event.target.value })}
             className={`${inputClass} w-24 font-mono`}
           />
-          <button type="button" data-testid="form-color-photo" className={buttonClass} onClick={() => fileInput.current?.click()}>
+          <button
+            type="button"
+            data-testid="form-color-photo"
+            className={buttonClass}
+            onClick={() => fileInput.current?.click()}
+          >
             {t('wardrobe.form.pickFromPhoto')}
           </button>
           <input
@@ -208,7 +224,11 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
         </div>
         <p className="mt-1 text-[11px] text-slate-500">{t('wardrobe.form.photoPrivacy')}</p>
         {swatches.length > 0 && (
-          <div className="mt-2 flex items-center gap-2" role="group" aria-label={t('wardrobe.form.swatches')}>
+          <div
+            className="mt-2 flex items-center gap-2"
+            role="group"
+            aria-label={t('wardrobe.form.swatches')}
+          >
             {swatches.map((hex) => (
               <button
                 key={hex}
@@ -231,11 +251,17 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
       </fieldset>
 
       <fieldset className="mt-4">
-        <legend className="text-xs font-bold uppercase tracking-[0.14em] text-teal-300">{t('wardrobe.form.chart')}</legend>
+        <legend className="text-xs font-bold uppercase tracking-[0.14em] text-teal-300">
+          {t('wardrobe.form.chart')}
+        </legend>
         <p className="mt-1 text-[11px] text-slate-500">{t('wardrobe.form.chartHelp')}</p>
 
         {isShoe && (
-          <div className="mt-2 text-xs text-slate-300" role="radiogroup" aria-label={t('wardrobe.form.shoeMode')}>
+          <div
+            className="mt-2 text-xs text-slate-300"
+            role="radiogroup"
+            aria-label={t('wardrobe.form.shoeMode')}
+          >
             {(['eu', 'cm'] as ShoeMode[]).map((mode) => (
               <label key={mode} className="mb-1 flex items-center gap-2">
                 <input
@@ -290,7 +316,12 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
                 <tr key={id}>
                   <th scope="row" className="text-left font-medium text-slate-300">
                     {rowLabel(id)}
-                    {required.includes(id) && <span aria-hidden="true" className="text-teal-300"> *</span>}
+                    {required.includes(id) && (
+                      <span aria-hidden="true" className="text-teal-300">
+                        {' '}
+                        *
+                      </span>
+                    )}
                   </th>
                   {draft.sizes.map((size, index) => {
                     const native = template?.nativeMeasures[id];
@@ -305,8 +336,12 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
                           readOnly={readonlyCell}
                           placeholder={native === undefined ? '' : String(Math.round(native))}
                           aria-label={t('wardrobe.form.cell', { measure: rowLabel(id), size })}
-                          aria-invalid={invalidCells.has(`${id}|${size.trim()}`) || invalidRows.has(id)}
-                          onChange={(event) => update(setCell(draft, id, index, event.target.value))}
+                          aria-invalid={
+                            invalidCells.has(`${id}|${size.trim()}`) || invalidRows.has(id)
+                          }
+                          onChange={(event) =>
+                            update(setCell(draft, id, index, event.target.value))
+                          }
                           className={`${inputClass} px-1.5 text-center ${readonlyCell ? 'opacity-70' : ''}`}
                         />
                       </td>
@@ -383,7 +418,11 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
       </fieldset>
 
       {issues.length > 0 && (
-        <div role="alert" data-testid="form-errors" className="mt-4 rounded-lg border border-red-400/40 bg-red-500/10 p-3 text-xs text-red-100">
+        <div
+          role="alert"
+          data-testid="form-errors"
+          className="mt-4 rounded-lg border border-red-400/40 bg-red-500/10 p-3 text-xs text-red-100"
+        >
           <p className="font-semibold">{t('wardrobe.form.problems')}</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             {issues.map((issue, index) => (
@@ -397,7 +436,12 @@ export function StoreItemForm({ templates, initialTemplateId, editing, onSave, o
         <button type="submit" data-testid="form-save" className={primaryClass}>
           {t('wardrobe.form.save')}
         </button>
-        <button type="button" data-testid="form-save-wear" className={buttonClass} onClick={() => submit(true)}>
+        <button
+          type="button"
+          data-testid="form-save-wear"
+          className={buttonClass}
+          onClick={() => submit(true)}
+        >
           {t('wardrobe.form.saveAndWear')}
         </button>
         <button type="button" data-testid="form-cancel" className={buttonClass} onClick={onCancel}>

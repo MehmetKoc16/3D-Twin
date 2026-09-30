@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { dominantColor, dominantColors } from './colorExtract';
 
-function image(width: number, height: number, pixel: (x: number, y: number) => [number, number, number, number]): Uint8ClampedArray {
+function image(
+  width: number,
+  height: number,
+  pixel: (x: number, y: number) => [number, number, number, number],
+): Uint8ClampedArray {
   const data = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) data.set(pixel(x, y), (y * width + x) * 4);
@@ -25,12 +29,16 @@ describe('dominantColor', () => {
 
   it('ignores a white studio background around the garment', () => {
     // 40x40 white photo with a 20x20 navy square in the middle
-    const data = image(40, 40, (x, y) => (x >= 10 && x < 30 && y >= 10 && y < 30 ? [20, 40, 120, 255] : [255, 255, 255, 255]));
+    const data = image(40, 40, (x, y) =>
+      x >= 10 && x < 30 && y >= 10 && y < 30 ? [20, 40, 120, 255] : [255, 255, 255, 255],
+    );
     expectNear(dominantColor(data, 40, 40), [20, 40, 120]);
   });
 
   it('ignores a grey background just as well', () => {
-    const data = image(40, 40, (x, y) => (x >= 12 && x < 28 && y >= 8 && y < 32 ? [180, 40, 30, 255] : [190, 190, 190, 255]));
+    const data = image(40, 40, (x, y) =>
+      x >= 12 && x < 28 && y >= 8 && y < 32 ? [180, 40, 30, 255] : [190, 190, 190, 255],
+    );
     expectNear(dominantColor(data, 40, 40), [180, 40, 30]);
   });
 

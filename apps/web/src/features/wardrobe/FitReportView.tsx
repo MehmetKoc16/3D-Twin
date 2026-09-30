@@ -1,13 +1,25 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FitVerdict, GarmentMeasureId, GarmentTemplateDef, StoreItemDef } from '@dt/avatar-core';
+import type {
+  FitVerdict,
+  GarmentMeasureId,
+  GarmentTemplateDef,
+  StoreItemDef,
+} from '@dt/avatar-core';
 import { useSolveStore } from '../../store/solveStore';
 import { useWardrobeStore } from '../../store/wardrobeStore';
 import { measuresForKind } from './chartModel';
-import { analyzeItemFit, formatEase, isInfoOnly, isLengthMeasure, VERDICT_STYLE } from './fitAnalysis';
+import {
+  analyzeItemFit,
+  formatEase,
+  isInfoOnly,
+  isLengthMeasure,
+  VERDICT_STYLE,
+} from './fitAnalysis';
 import './i18n';
 
-const chipBase = 'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium';
+const chipBase =
+  'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium';
 
 type Translate = ReturnType<typeof useTranslation>['t'];
 
@@ -16,11 +28,20 @@ function verdictText(t: Translate, id: GarmentMeasureId, verdict: FitVerdict): s
 }
 
 /** Verdict chips per region, the overall verdict and the recommended size for the selected size of one item. */
-export function FitReportView({ item, template }: { item: StoreItemDef; template: GarmentTemplateDef }) {
+export function FitReportView({
+  item,
+  template,
+}: {
+  item: StoreItemDef;
+  template: GarmentTemplateDef;
+}) {
   const { t } = useTranslation();
   const achievedCm = useSolveStore((state) => state.achievedCm);
   const selectSize = useWardrobeStore((state) => state.selectSize);
-  const report = useMemo(() => analyzeItemFit(item, template, achievedCm), [item, template, achievedCm]);
+  const report = useMemo(
+    () => analyzeItemFit(item, template, achievedCm),
+    [item, template, achievedCm],
+  );
   if (!report) return null;
 
   const order = measuresForKind(template.kind);
@@ -29,9 +50,15 @@ export function FitReportView({ item, template }: { item: StoreItemDef; template
   const recommended = report.recommendedSize;
 
   return (
-    <div data-testid={`fit-report-${template.category}`} data-size={report.size} className="mt-3 rounded-xl border border-white/10 bg-slate-950/40 p-3">
+    <div
+      data-testid={`fit-report-${template.category}`}
+      data-size={report.size}
+      className="mt-3 rounded-xl border border-white/10 bg-slate-950/40 p-3"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="text-xs font-bold uppercase tracking-[0.14em] text-slate-300">{t('wardrobe.fit.title')}</h4>
+        <h4 className="text-xs font-bold uppercase tracking-[0.14em] text-slate-300">
+          {t('wardrobe.fit.title')}
+        </h4>
         <span
           data-testid="fit-overall"
           data-verdict={report.overall}
@@ -45,25 +72,39 @@ export function FitReportView({ item, template }: { item: StoreItemDef; template
         {regions.map((region) => {
           const info = isInfoOnly(template, region.id);
           const name = t(`wardrobe.measure.${region.id}`);
-          const value = info ? `${Math.round(region.garmentCm * 10) / 10} cm` : formatEase(region.easeCm);
+          const value = info
+            ? `${Math.round(region.garmentCm * 10) / 10} cm`
+            : formatEase(region.easeCm);
           return (
             <li
               key={region.id}
               data-testid={`fit-region-${region.id}`}
               data-verdict={info ? 'info' : region.verdict}
               title={
-                info ? undefined : t('wardrobe.fit.regionLabel', { measure: name, ease: formatEase(region.easeCm), verdict: verdictText(t, region.id, region.verdict) })
+                info
+                  ? undefined
+                  : t('wardrobe.fit.regionLabel', {
+                      measure: name,
+                      ease: formatEase(region.easeCm),
+                      verdict: verdictText(t, region.id, region.verdict),
+                    })
               }
               className={`${chipBase} ${info ? 'border-white/20 bg-white/5 text-slate-300' : VERDICT_STYLE[region.verdict]}`}
             >
               <span>{name}</span>
               <span className="tabular-nums">{value}</span>
-              {!info && <span className="font-semibold">{verdictText(t, region.id, region.verdict)}</span>}
+              {!info && (
+                <span className="font-semibold">{verdictText(t, region.id, region.verdict)}</span>
+              )}
             </li>
           );
         })}
       </ul>
-      {hasReference && <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{t('wardrobe.fit.lengthNote')}</p>}
+      {hasReference && (
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+          {t('wardrobe.fit.lengthNote')}
+        </p>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
         {recommended ? (

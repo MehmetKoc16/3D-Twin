@@ -12,6 +12,11 @@ import {
 import {
   bindGarment,
   clearanceToColor,
+  garmentClearance,
+  gradeGarment,
+  gradeGarmentLength,
+  type GarmentSections,
+  type Vec3,
   type GarmentTemplateDef,
   type MeasureId,
   type StoreItemDef,
@@ -22,9 +27,7 @@ import { pushOutside, type Surface } from './garmentCollide';
 import {
   bodyCmFromSolve,
   buildGradeRings,
-  clearanceLegAware,
-  gradeGarmentLegAware,
-  SplitScratch,
+  buildLengthGrades,
   type BodyPlanes,
 } from './garmentGrading';
 import type { TemplateRuntime } from './templateLoader';
@@ -35,6 +38,8 @@ const MAX_RECOLOR_FACTOR = 12;
 export interface GarmentUpdateContext {
   /** Grounded solved render positions (3 floats per render vertex). */
   body: Float32Array;
+  joints: Float32Array;
+  sections: GarmentSections;
   achievedCm: Partial<Record<MeasureId, number>>;
   planes: BodyPlanes | undefined;
   heatmap: boolean;
@@ -49,7 +54,8 @@ export interface GarmentUpdateContext {
 export function recolorFactor(itemHex: string, baseHex: string): [number, number, number] {
   const item = new Color(itemHex);
   const base = new Color(baseHex);
-  const factor = (i: number, b: number): number => Math.min(MAX_RECOLOR_FACTOR, i / Math.max(b, 0.02));
+  const factor = (i: number, b: number): number =>
+    Math.min(MAX_RECOLOR_FACTOR, i / Math.max(b, 0.02));
   return [factor(item.r, base.r), factor(item.g, base.g), factor(item.b, base.b)];
 }
 
@@ -64,7 +70,6 @@ export class GarmentInstance {
   private readonly clearance: Float32Array;
   private readonly colors: Float32Array;
   private readonly normalScratch: Float32Array;
-  private readonly scratch = new SplitScratch();
   private readonly rgb = new Float32Array(3);
   private readonly bound: Float32Array;
   private readonly indexArray: Uint32Array;
@@ -92,10 +97,18 @@ export class GarmentInstance {
     this.normalScratch = new Float32Array(runtime.weld.groupCount * 3);
     this.bound = new Float32Array(n * 3);
 
-    this.geometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(n * 3), 3).setUsage(DynamicDrawUsage));
-    this.geometry.setAttribute('normal', new Float32BufferAttribute(new Float32Array(n * 3), 3).setUsage(DynamicDrawUsage));
+    this.geometry.setAttribute(
+      'position',
+      new Float32BufferAttribute(new Float32Array(n * 3), 3).setUsage(DynamicDrawUsage),
+    );
+    this.geometry.setAttribute(
+      'normal',
+      new Float32BufferAttribute(new Float32Array(n * 3), 3).setUsage(DynamicDrawUsage),
+    );
     this.geometry.setAttribute('uv', new Float32BufferAttribute(runtime.uv, 2));
-    const colorAttribute = new Float32BufferAttribute(new Float32Array(n * 3), 3).setUsage(DynamicDrawUsage);
+    const colorAttribute = new Float32BufferAttribute(new Float32Array(n * 3), 3).setUsage(
+      DynamicDrawUsage,
+    );
     this.colors = colorAttribute.array as Float32Array; // the attribute copies its input: write into its own array
     this.geometry.setAttribute('color', colorAttribute);
     this.geometry.setAttribute('skinIndex', new BufferAttribute(runtime.skinIndices, 4));
@@ -135,6 +148,8 @@ export class GarmentInstance {
 
   /** Swaps the item definition (size, chart or colour changed); the caller re-runs `update`. */
   setItem(item: StoreItemDef): void {
+    if (item.selectedSize !== this.item.selectedSize || item.chart !== this.item.chart)
+      this.coverage = null;
     this.item = item;
     this.applyColor();
   }
@@ -157,13 +172,21 @@ export class GarmentInstance {
 
   /** Re-fits the garment to the solved body: proxy binding, size grading, normals, optional clearance colours. */
   update(ctx: GarmentUpdateContext): void {
-    const { runtime, item, rest, graded, scratch } = this;
+    const { runtime, item, rest, graded } = this;
     const def = runtime.def;
     bindGarment(runtime.binding, def.scaleRefs, ctx.body, rest);
-    this.coverage ??= coveredBodyVertices(ctx.body, ctx.body.length / 3, rest, runtime.index);
-    const rings = ctx.planes ? buildGradeRings(item, def, bodyCmFromSolve(ctx.achievedCm), ctx.planes) : [];
-    const crotchY = def.category === 'top' ? undefined : ctx.planes?.crotchY;
-    gradeGarmentLegAware(rest, runtime.binding, ctx.body, rings, crotchY, graded, scratch);
+    const rings = ctx.planes
+      ? buildGradeRings(item, def, bodyCmFromSolve(ctx.achievedCm), ctx.planes)
+      : [];
+    gradeGarment(rest, runtime.binding, ctx.body, rings, graded, ctx.sections);
+    const joint = (name: string): Vec3 | undefined => {
+      const index = this.mesh.skeleton.bones.findIndex((bone) => bone.name === name);
+      if (index < 0 || index * 6 + 2 >= ctx.joints.length) return undefined;
+      return [ctx.joints[index * 6]!, ctx.joints[index * 6 + 1]!, ctx.joints[index * 6 + 2]!];
+    };
+    for (const spec of buildLengthGrades(item, def, ctx.achievedCm, ctx.planes, rest, joint))
+      gradeGarmentLength(graded, runtime.binding, ctx.body, spec, graded);
+    this.coverage ??= coveredBodyVertices(ctx.body, ctx.body.length / 3, graded, runtime.index);
     this.updateBound(ctx.body);
     if (ctx.lowers.length > 0) pushOutside(graded, runtime.vertexCount, ctx.lowers);
 
@@ -176,12 +199,18 @@ export class GarmentInstance {
       this.soleLift = Math.max(0, -lowest);
     }
     const normal = this.geometry.getAttribute('normal');
-    computeWeldedNormals(graded, runtime.index, runtime.weld, normal.array as Float32Array, this.normalScratch);
+    computeWeldedNormals(
+      graded,
+      runtime.index,
+      runtime.weld,
+      normal.array as Float32Array,
+      this.normalScratch,
+    );
     normal.needsUpdate = true;
 
     this.setHeatmap(ctx.heatmap);
     if (ctx.heatmap) {
-      clearanceLegAware(graded, runtime.binding, ctx.body, crotchY, this.clearance, scratch);
+      garmentClearance(graded, runtime.binding, ctx.body, this.clearance, ctx.sections);
       const rgb = this.rgb;
       for (let v = 0; v < runtime.vertexCount; v++) {
         clearanceToColor(this.clearance[v]!, rgb);
@@ -219,7 +248,13 @@ export class GarmentInstance {
       this.hiddenByOuter = false;
       return;
     }
-    const covered = coveredBodyVertices(this.graded, this.runtime.vertexCount, outer.positions, outer.index, { bandM: 0.02 });
+    const covered = coveredBodyVertices(
+      this.graded,
+      this.runtime.vertexCount,
+      outer.positions,
+      outer.index,
+      { bandM: 0.02 },
+    );
     const source = this.runtime.index;
     let kept = 0;
     for (let t = 0; t < source.length; t += 3) {

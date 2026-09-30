@@ -5,7 +5,9 @@ import type { ValidationIssue } from './chartModel';
 
 function keys(value: unknown, prefix = ''): string[] {
   if (typeof value !== 'object' || value === null) return [prefix];
-  return Object.entries(value).flatMap(([key, child]) => keys(child, prefix ? `${prefix}.${key}` : key));
+  return Object.entries(value).flatMap(([key, child]) =>
+    keys(child, prefix ? `${prefix}.${key}` : key),
+  );
 }
 
 describe('wardrobe locales', () => {
@@ -43,11 +45,22 @@ describe('wardrobe locales', () => {
 
   it('names every garment measure and verdict in both languages', () => {
     for (const locale of [tr, en]) {
-      for (const id of ['chest', 'waist', 'hip', 'length', 'sleeve', 'shoulder', 'inseam', 'thigh', 'footLength']) {
+      for (const id of [
+        'chest',
+        'waist',
+        'hip',
+        'length',
+        'sleeve',
+        'shoulder',
+        'inseam',
+        'thigh',
+        'footLength',
+      ]) {
         expect((locale.measure as Record<string, string>)[id], id).toBeTruthy();
       }
       for (const group of [locale.verdict.fit, locale.verdict.length] as Record<string, string>[]) {
-        for (const verdict of ['tight', 'snug', 'regular', 'loose', 'oversized']) expect(group[verdict], verdict).toBeTruthy();
+        for (const verdict of ['tight', 'snug', 'regular', 'loose', 'oversized'])
+          expect(group[verdict], verdict).toBeTruthy();
       }
     }
   });

@@ -55,7 +55,9 @@ describe('analyzeItemFit', () => {
     expect(sleeve.easeCm).toBeCloseTo(-8, 6);
     expect(isLengthMeasure('sleeve')).toBe(true);
     expect(isInfoOnly(tshirt, 'sleeve')).toBe(true); // short sleeve: information only, no verdict chip
-    expect(isInfoOnly({ ...tshirt, defaultEase: { ...tshirt.defaultEase, sleeve: -1 } }, 'sleeve')).toBe(false);
+    expect(
+      isInfoOnly({ ...tshirt, defaultEase: { ...tshirt.defaultEase, sleeve: -1 } }, 'sleeve'),
+    ).toBe(false);
     expect(report.overall).toBe('regular'); // the sleeve never drives the overall verdict
   });
 

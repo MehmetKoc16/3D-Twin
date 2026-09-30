@@ -15,7 +15,9 @@ import {
   type ChartDraft,
 } from './chartModel';
 
-function template(partial: Partial<GarmentTemplateDef> & Pick<GarmentTemplateDef, 'id' | 'kind' | 'category'>): GarmentTemplateDef {
+function template(
+  partial: Partial<GarmentTemplateDef> & Pick<GarmentTemplateDef, 'id' | 'kind' | 'category'>,
+): GarmentTemplateDef {
   return {
     label: { tr: partial.id, en: partial.id },
     license: 'CC0-1.0',
@@ -61,7 +63,11 @@ describe('draftToItem', () => {
   const base = createDraft(tshirt);
 
   it('builds a StoreItemDef from a valid chart', () => {
-    const draft = filled(base, { chest: ['92', '98', '104'], waist: ['84', '90', '96'], length: ['66', '68', '70'] });
+    const draft = filled(base, {
+      chest: ['92', '98', '104'],
+      waist: ['84', '90', '96'],
+      length: ['66', '68', '70'],
+    });
     const result = draftToItem(draft, tshirt, 'id-1');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -77,7 +83,10 @@ describe('draftToItem', () => {
   });
 
   it('doubles girths (only) when measured flat', () => {
-    const draft = { ...filled(base, { chest: ['46', '49', '52'], length: ['66', '68', '70'] }), flat: true };
+    const draft = {
+      ...filled(base, { chest: ['46', '49', '52'], length: ['66', '68', '70'] }),
+      flat: true,
+    };
     const result = draftToItem(draft, tshirt);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -87,7 +96,10 @@ describe('draftToItem', () => {
 
   it('range-checks after the flat doubling', () => {
     // 46 flat -> 92 cm is fine, but 46 typed as a full chest (60..200) is not
-    const flat = draftToItem({ ...filled(base, { chest: ['46', '49', '52'] }), flat: true }, tshirt);
+    const flat = draftToItem(
+      { ...filled(base, { chest: ['46', '49', '52'] }), flat: true },
+      tshirt,
+    );
     const full = draftToItem(filled(base, { chest: ['46', '49', '52'] }), tshirt);
     expect(flat.ok).toBe(true);
     expect(full.ok).toBe(false);
@@ -111,32 +123,62 @@ describe('draftToItem', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     const codes = result.issues.map((i) => i.code);
-    expect(codes).toEqual(expect.arrayContaining(['nameRequired', 'urlInvalid', 'colorInvalid', 'invalidNumber', 'incompleteRow']));
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        'nameRequired',
+        'urlInvalid',
+        'colorInvalid',
+        'invalidNumber',
+        'incompleteRow',
+      ]),
+    );
   });
 
   it('requires the main girth row', () => {
     const result = draftToItem(filled(base, { length: ['66', '68', '70'] }), tshirt);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.issues).toContainEqual({ code: 'missingRequired', measure: 'chest' });
-    const bottoms = draftToItem({ ...createDraft(pants), name: 'x', chart: { hip: ['96', '100', '104'] } }, pants);
+    if (!result.ok)
+      expect(result.issues).toContainEqual({ code: 'missingRequired', measure: 'chest' });
+    const bottoms = draftToItem(
+      { ...createDraft(pants), name: 'x', chart: { hip: ['96', '100', '104'] } },
+      pants,
+    );
     expect(bottoms.ok).toBe(false);
   });
 
   it('rejects unsorted rows, duplicate / empty sizes and a missing selection', () => {
     const decreasing = draftToItem(filled(base, { chest: ['104', '98', '92'] }), tshirt);
-    expect(decreasing.ok === false && decreasing.issues.map((i) => i.code)).toContain('notIncreasing');
+    expect(decreasing.ok === false && decreasing.issues.map((i) => i.code)).toContain(
+      'notIncreasing',
+    );
 
-    const duplicate = draftToItem({ ...filled(base, { chest: ['92', '98', '104'] }), sizes: ['S', 's', ''] }, tshirt);
-    expect(duplicate.ok === false && duplicate.issues.map((i) => i.code)).toEqual(expect.arrayContaining(['duplicateSize', 'emptySize']));
+    const duplicate = draftToItem(
+      { ...filled(base, { chest: ['92', '98', '104'] }), sizes: ['S', 's', ''] },
+      tshirt,
+    );
+    expect(duplicate.ok === false && duplicate.issues.map((i) => i.code)).toEqual(
+      expect.arrayContaining(['duplicateSize', 'emptySize']),
+    );
 
-    const selection = draftToItem({ ...filled(base, { chest: ['92', '98', '104'] }), selectedSize: 'XL' }, tshirt);
-    expect(selection.ok === false && selection.issues.map((i) => i.code)).toContain('selectedSizeMissing');
+    const selection = draftToItem(
+      { ...filled(base, { chest: ['92', '98', '104'] }), selectedSize: 'XL' },
+      tshirt,
+    );
+    expect(selection.ok === false && selection.issues.map((i) => i.code)).toContain(
+      'selectedSizeMissing',
+    );
   });
 
   it('accepts http(s) store links only', () => {
-    const ok = draftToItem({ ...filled(base, { chest: ['92', '98', '104'] }), storeUrl: 'https://shop.example/tee' }, tshirt);
+    const ok = draftToItem(
+      { ...filled(base, { chest: ['92', '98', '104'] }), storeUrl: 'https://shop.example/tee' },
+      tshirt,
+    );
     expect(ok.ok && ok.item.storeUrl).toBe('https://shop.example/tee');
-    const bad = draftToItem({ ...filled(base, { chest: ['92', '98', '104'] }), storeUrl: 'javascript:alert(1)' }, tshirt);
+    const bad = draftToItem(
+      { ...filled(base, { chest: ['92', '98', '104'] }), storeUrl: 'javascript:alert(1)' },
+      tshirt,
+    );
     expect(bad.ok).toBe(false);
   });
 
@@ -156,7 +198,10 @@ describe('shoes', () => {
     expect(shoeInnerLengthCm('S')).toBeUndefined();
     expect(shoeInnerLengthCm('60')).toBeUndefined();
     expect(euRow(['41', '42'])).toHaveLength(2);
-    const result = draftToItem({ ...base, sizes: ['41', '42', '43'], selectedSize: '42' }, sneakers);
+    const result = draftToItem(
+      { ...base, sizes: ['41', '42', '43'], selectedSize: '42' },
+      sneakers,
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const row = result.item.chart.footLength ?? [];
@@ -169,7 +214,13 @@ describe('shoes', () => {
     const bad = draftToItem({ ...base, sizes: ['S', 'M'], selectedSize: 'S' }, sneakers);
     expect(bad.ok === false && bad.issues.map((i) => i.code)).toContain('euSizeInvalid');
     const typed = draftToItem(
-      { ...base, shoeMode: 'cm', sizes: ['S', 'M'], selectedSize: 'S', chart: { footLength: ['26,5', '27.5'] } },
+      {
+        ...base,
+        shoeMode: 'cm',
+        sizes: ['S', 'M'],
+        selectedSize: 'S',
+        chart: { footLength: ['26,5', '27.5'] },
+      },
       sneakers,
     );
     expect(typed.ok && typed.item.chart.footLength).toEqual([26.5, 27.5]);
@@ -202,7 +253,11 @@ describe('editing helpers', () => {
   });
 
   it('round-trips an item through a draft', () => {
-    const result = draftToItem(filled(base, { chest: ['92', '98', '104'], sleeve: ['20', '21', '22'] }), tshirt, 'x');
+    const result = draftToItem(
+      filled(base, { chest: ['92', '98', '104'], sleeve: ['20', '21', '22'] }),
+      tshirt,
+      'x',
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const back = draftToItem(itemToDraft(result.item, tshirt), tshirt, 'x');

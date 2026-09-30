@@ -46,8 +46,20 @@
     "regionLabel": "{{measure}}: {{ease}} pay, {{verdict}}"
   },
   "verdict": {
-    "fit": { "tight": "Dar", "snug": "Tam", "regular": "Rahat", "loose": "Bol", "oversized": "Çok bol" },
-    "length": { "tight": "Kısa", "snug": "Hafif kısa", "regular": "Uygun", "loose": "Hafif uzun", "oversized": "Çok uzun" }
+    "fit": {
+      "tight": "Dar",
+      "snug": "Tam",
+      "regular": "Rahat",
+      "loose": "Bol",
+      "oversized": "Çok bol"
+    },
+    "length": {
+      "tight": "Kısa",
+      "snug": "Hafif kısa",
+      "regular": "Uygun",
+      "loose": "Hafif uzun",
+      "oversized": "Çok uzun"
+    }
   },
   "heatmap": {
     "toggle": "Uyum ısı haritası",
