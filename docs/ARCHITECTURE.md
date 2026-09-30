@@ -287,6 +287,38 @@ Details that are not obvious:
   `defaultEase`), and the sleeve of a short-sleeve template is shown as information only.
 - Privacy. Store URLs are stored as text and never fetched; a product photo is decoded on a canvas for its colour only.
 
+### Appearance / body parts (Wave 3e)
+
+```text
+public/assets/parts/index.json (BodyPartDef[], defaults)  + <id>.glb  <id>.bind.bin  [<id>.delete.bin]     ADR 0008
+        |  loadPartsIndex (validatePartsIndex)             IndexedDB `appearance:*` (hair, brows, eye colour, skin)
+        v
+PartsRig (created by Avatar after the WardrobeRig, disposed before it; Avatar forwards every solve)
+  per mounted part: PartInstance = SkinnedMesh on the avatar's Skeleton (same binding format as garments)
+    once per part: glb index + UV, parseGarmentBinding, garmentSkinWeights from the body's skin attributes
+    after EVERY solve (also the ones that carry the fitted face-shape modifiers): bindGarment(+computeScale from the
+      scale refs) on the solved, grounded render positions -> welded normals -> upload
+  defaults: eyes, eyebrows-default, eyelashes-default; hair only when chosen (bald = no mesh)
+  materials: hair / brows / lashes are MASK -> opaque pass, alphaToCoverage (Canvas has MSAA), no sorting;
+    eyes OPAQUE + single-sided; brows / lashes get a small polygon offset over the skin
+  body triangles: eye-socket cavity (+ tousled-hair scalp) delete lists are hidden through a `setIndex` hook on the
+    body geometry: whatever index the wardrobe assigns is filtered by the parts' mask, so both compose
+Appearance store: hairId / hairColor / eyebrowId / eyebrowColor (null = follow hair) / eyeColor
+```
+
+- Tint. Hair and brow textures are neutral grey + alpha; the material colour is `picked / meanLinear(texture)` (mean of
+  the covered texels, computed once per part), so a picked colour reads true on average whatever the texture's grey level.
+- Iris. `irisRecolor.ts` copies the eye texture to a canvas once and rewrites the pixels inside `irisUv` as
+  `colour * luminance / referenceLuminance` (reference = mean of the iris ring, so the average is the chosen colour), a
+  smooth fade at the rim (0.97 - 1.12 x radius); the grey iris keeps its fibre detail, the pupil stays dark and the
+  sclera is untouched. `CanvasTexture`, `flipY = false`, sRGB.
+- From the photo. `features/face/photoColors.ts` reads the selfie (up to 2048 px, in the browser) at the iris landmarks
+  468 - 477 of both eyes: median colour of the iris ring without pupil, upper-lid shadow and the darkest / brightest
+  15 % luminance tails; the brow colour is the darkest 15 % of small windows around the brow contour landmarks. Offered
+  as "eye colour from photo" and "hair and brow colour from photo" buttons; nothing is applied automatically.
+- Persistence. `appearance:<field>` keys in IndexedDB (try / catch); values the user changed before the stored ones
+  arrived win.
+
 ## File ownership by wave
 
 | Wave | Work                                                                    | Owner (executor)            | Files                                                                  |

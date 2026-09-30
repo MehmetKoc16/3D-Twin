@@ -6,6 +6,7 @@ import type { BodyParams, MeasureId, ShoeSystem } from '@dt/avatar-core';
 import { skinTones, useAppearanceStore } from '../../store/appearanceStore';
 import { useBodyStore, isBodyParams } from '../../store/bodyStore';
 import { useFaceStore } from '../../store/faceStore';
+import { PartsAppearance } from './AppearanceControls';
 import { useSolveStore } from '../../store/solveStore';
 
 const FacePanel = lazy(() => import('../face/FacePanel').then((module) => ({ default: module.FacePanel })));
@@ -147,6 +148,7 @@ function AppearanceSection() {
       <span className="inline-block size-4 rounded-full border border-white/30" style={{ backgroundColor: faceToneHex }} aria-hidden="true" />
       {t('appearance.useFaceTone')}
     </label>}
+    <PartsAppearance />
   </section>;
 }
 

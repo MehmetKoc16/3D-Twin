@@ -11,6 +11,7 @@ import { applySolveResult } from './applySolve';
 import { loadAvatarAssets, type AvatarAssets } from './avatarAssets';
 import { resolveSkinHex } from './skinComposite';
 import { SkinMap } from './SkinMap';
+import { PartsRig } from './parts/partsRig';
 import { WardrobeRig } from '../wardrobe/wardrobeRig';
 
 function setMap(assets: AvatarAssets, map: CanvasTexture | null): void {
@@ -61,6 +62,7 @@ export function Avatar() {
   if (failure !== null) throw new Error(failure);
 
   useEffect(() => {
+    void useAppearanceStore.getState().hydrate(); // restores hair / eye / brow choices, skin tone and mode
     let alive = true;
     loadAvatarAssets().then(
       (loaded) => {
@@ -76,9 +78,13 @@ export function Avatar() {
   useEffect(() => {
     if (!assets) return;
     const rig = new WardrobeRig(assets); // worn garments: mounted on the shared skeleton, re-fitted after each solve
+    // Body parts (eyes, brows, lashes, hair). Created after the wardrobe rig and disposed before it: it hooks the body
+    // geometry's setIndex to compose its own hidden triangles with the wardrobe's.
+    const parts = new PartsRig(assets);
     const off = assets.onSolve((envelope) => {
       applySolveResult(assets, envelope);
       rig.onSolve(envelope);
+      parts.onSolve(envelope);
       const runtime = useAvatarRuntimeStore.getState();
       if (runtime.skeleton !== assets.skeleton) runtime.setSkeleton(assets.skeleton);
       runtime.bumpRestVersion();
@@ -101,6 +107,7 @@ export function Avatar() {
     return () => {
       off();
       unsubscribe();
+      parts.dispose();
       rig.dispose();
     };
   }, [assets]);
