@@ -49,6 +49,11 @@ venv/
 # ---- Asset pipeline cache (downloaded raw MakeHuman/Anny data) ----
 tools/asset-pipeline/.cache/
 
+# ---- twin-lab spike lab (cloned third-party repos, model weights and run outputs stay local) ----
+tools/twin-lab/**/.cache/
+tools/twin-lab/**/weights/
+tools/twin-lab/**/outputs/
+
 # ---- PERSONAL DATA (never commit) ----
 user-data/
 uploads/

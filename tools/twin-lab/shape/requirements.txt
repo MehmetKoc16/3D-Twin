@@ -1,0 +1,26 @@
+# Shape-generation lab dependencies (Python 3.12, Windows/Linux).
+#
+# PyTorch is installed separately with CUDA wheels (see README.md):
+#   pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128
+#
+# Only the *shape* part of Hunyuan3D-2 is used (hy3dgen.shapegen). The texture/paint model, custom_rasterizer and
+# differentiable_renderer (CUDA extensions) are NOT needed and NOT installed.
+
+numpy
+scipy
+pillow
+opencv-python
+trimesh
+networkx
+fast-simplification   # quadric decimation (replaces pymeshlab)
+einops
+omegaconf
+pyyaml
+tqdm
+huggingface_hub
+safetensors
+accelerate
+transformers
+diffusers
+rembg
+onnxruntime            # CPU build on purpose: keeps the 6 GB of VRAM for the shape model
