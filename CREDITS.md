@@ -46,3 +46,23 @@ CC0 (credited as a courtesy, no attribution required):
   "Pants_Wool" (`toigo_wool_pants`) and "MJ-Shoes" (`toigo_mj_cloth_shoes`) by **MRT** (MargaretToigo), packs
   `shirts01`, `pants01`, `shoes01`.
 - "hero_boots_2" (`culturalibre_hero_boots_2`) by **culturalibre**, pack `shoes01`.
+
+## Body parts (eyes, eyebrows, eyelashes, hair)
+
+The body parts (`apps/web/public/assets/parts/`) are MakeHuman CC0 assets: the **MakeHuman system assets** (pack
+`makehuman_system_assets_cc0`, "makehuman_system", explicitly released as CC0 in September 2020) and two hair styles from
+the MakeHuman community pack `hair01_cc0`. As for the garments, the licence of each item was checked from its own
+`.mhclo` header AND the pack json (never from the pack name alone: several items of `hair01_cc0` are AGPL or CC BY and
+were not used). Each item was re-fitted to a parametric body through the MHCLO binding (the eyes and the eyelashes were
+re-bound from MakeHuman's helper geometry to body vertices), its texture was downscaled and converted to a grey +
+alpha map, and it was converted to glTF. Pinned per-file SHA-256 hashes are in `tools/asset-pipeline/config.py`
+(`PART_ASSETS`); the full credit text per item is in `apps/web/public/assets/parts/index.json` (`attribution`).
+
+CC0 (credited as a courtesy, no attribution required):
+
+- "High-poly eyes" (`high-poly` mesh, `grey` eye material `grey_eye.png`), "Eyebrow 001 / 006 / 009" (`eyebrow001`,
+  `eyebrow006`, `eyebrow009`), "Eyelashes 01" (`eyelashes01`), "Short hair 02" (`short02`), "Bob 02" (`bob02`),
+  "Long hair 01" (`long01`) and "Ponytail 01" (`ponytail01`) by the **MakeHuman project** (`makehuman_system`,
+  MakeHuman system assets).
+- "Hair 05" (`culturalibre_hair_05`) by **culturalibre**, pack `hair01`.
+- "Inverted bob" (`toigo_inverted_bob`, golden blond texture) by **MRT** (MargaretToigo), pack `hair01`.

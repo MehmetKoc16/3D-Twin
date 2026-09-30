@@ -50,6 +50,10 @@ from `tools/asset-pipeline`. The glTF test uses the Khronos validator when `npm`
 | `writers.py`     | JSON writers (stable key order)                                                                        |
 | `mhclo.py`       | MHCLO / garment OBJ / MHMAT parsers, licence classification, reconstruction reference                  |
 | `garments.py`    | garment templates -> `apps/web/public/assets/garments/` (glb, bind.bin, delete.bin, index.json), ADR 0007 |
+| `mh_morph.py`    | float64 morph model on ALL 19158 MakeHuman vertices (helper geometry included), for re-binding + tests |
+| `parts.py`       | body parts (eyes, eyebrows, eyelashes, hair) -> `apps/web/public/assets/parts/`, ADR 0008              |
+| `parts_tex.py`   | part textures: premultiplied downscale, colour bleed, neutral grey + alpha map, coverage alpha cutoff  |
+| `parts_debug.py` | textured z-buffered debug renders (`.cache/debug/parts_*.png`)                                         |
 
 ## Outputs
 
@@ -114,3 +118,13 @@ per template `<id>.glb`, `<id>.bind.bin`, optional `<id>.delete.bin`) and debug 
 (front | side, z-buffered, body triangles under `delete_verts` hidden). Sources are single files of the MakeHuman
 community asset packs (`config.GARMENT_ASSETS`, sha256-pinned, fetched by HTTP range into `.cache/garments/`,
 about 16 MB). See `docs/adr/0007-garment-templates.md`. Needs Pillow (`requirements.txt`).
+
+## Body parts (Wave 3d)
+
+`build.py` also writes `apps/web/public/assets/parts/` (`index.json` = `{ version: 1, parts: BodyPartDef[], defaults:
+{ eyes, eyebrows, eyelashes } }`, per part `<id>.glb`, `<id>.bind.bin`, optional `<id>.delete.bin`) and the debug renders
+`.cache/debug/parts_head_front.png`, `parts_head_side.png`, `parts_face_closeup.png`, `parts_eyes_extremes.png` and
+`parts_<hair id>.png` (front | side). Sources: single files of the MakeHuman system asset pack and `hair01_cc0`
+(`config.PART_ASSETS`, sha256-pinned, range-fetched into `.cache/parts/`, about 25 MB), all CC0. Eyes, eyelashes and the
+long / ponytail hair are authored against helper vertices that are not in the runtime index space; they are re-bound to
+body triangles over 48 sample bodies. See `docs/adr/0008-body-parts.md`.

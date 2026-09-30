@@ -11,7 +11,7 @@ import hashlib
 import urllib.request
 
 from config import (
-    CACHE_DIR, GARMENT_ASSETS, GARMENT_CACHE, GARMENT_PACK_URL, MEDIAPIPE, SOURCES,
+    CACHE_DIR, GARMENT_ASSETS, GARMENT_CACHE, GARMENT_PACK_URL, MEDIAPIPE, PART_ASSETS, PART_CACHE, PART_PACK_URL, SOURCES,
 )
 
 REQUIRED_FILES = {
@@ -185,12 +185,71 @@ def ensure_garments_present() -> None:
             raise RuntimeError(f"garment asset {gid} missing or not at the pinned sha256; run without --no-fetch")
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Body-part assets (MakeHuman system assets pack): same mechanism, members keyed by their path in the zip.
+# ---------------------------------------------------------------------------------------------------------------
+
+
+def part_dir(pid: str) -> Path:
+    return PART_CACHE / pid
+
+
+def _pack_dir(pack: str) -> str:
+    """`makehuman_system_assets_cc0` -> `makehuman_system_assets` (the folder of the pack on the server)."""
+    return pack.rsplit("_", 1)[0]
+
+
+def _part_names(pid: str) -> dict[str, str]:
+    """Cached file name -> sha256 of one part, including the pack json under the key `pack.json`."""
+    a = PART_ASSETS[pid]
+    return {**{Path(m).name: h for m, h in a["files"].items()}, "pack.json": a["packJson"]}
+
+
+def _part_ok(pid: str) -> bool:
+    d = part_dir(pid)
+    return all(
+        (d / n).exists() and hashlib.sha256((d / n).read_bytes()).hexdigest() == h
+        for n, h in _part_names(pid).items()
+    )
+
+
+def fetch_parts() -> None:
+    import zipfile
+
+    zips: dict[str, zipfile.ZipFile] = {}
+    for pid, a in PART_ASSETS.items():
+        if _part_ok(pid):
+            continue
+        pack = a["pack"]
+        if pack not in zips:
+            print(f"[fetch] parts: opening {pack}.zip (range reads)")
+            zips[pack] = zipfile.ZipFile(_HttpRangeFile(PART_PACK_URL.format(name=_pack_dir(pack), pack=pack)))  # type: ignore[arg-type]
+        zf = zips[pack]
+        d = part_dir(pid)
+        d.mkdir(parents=True, exist_ok=True)
+        wanted = {**a["files"], f"packs/{_pack_dir(pack)}.json": a["packJson"]}
+        for member, digest in wanted.items():
+            data = zf.read(member)
+            got = hashlib.sha256(data).hexdigest()
+            if got != digest:
+                raise RuntimeError(f"{pid}: {member} sha256 {got} != pinned {digest}")
+            (d / ("pack.json" if member.startswith("packs/") else Path(member).name)).write_bytes(data)
+        print(f"[fetch] parts: {pid} ok")
+
+
+def ensure_parts_present() -> None:
+    for pid in PART_ASSETS:
+        if not _part_ok(pid):
+            raise RuntimeError(f"part asset {pid} missing or not at the pinned sha256; run without --no-fetch")
+
+
 def fetch_all() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     for key in SOURCES:
         fetch_source(key)
     fetch_mediapipe()
     fetch_garments()
+    fetch_parts()
 
 
 def ensure_present() -> None:
@@ -205,6 +264,7 @@ def ensure_present() -> None:
         if not _mediapipe_ok(rel):
             raise RuntimeError(f"mediapipe file {rel} missing or not at the pinned sha256; run without --no-fetch")
     ensure_garments_present()
+    ensure_parts_present()
 
 
 if __name__ == "__main__":

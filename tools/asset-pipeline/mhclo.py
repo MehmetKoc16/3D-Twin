@@ -50,6 +50,7 @@ def parse_mhclo(text: str) -> Mhclo:
     off: list[tuple[float, float, float]] = []
     deletes: list[int] = []
     mode = "header"
+    block = ""  # last data block opened (`verts` / `delete`); some files put header keys (`material`) inside it
     for raw in text.splitlines():
         line = raw.strip()
         if not line:
@@ -60,12 +61,14 @@ def parse_mhclo(text: str) -> Mhclo:
         tok = line.split()
         if mode in ("verts", "delete") and not (tok[0][0].isdigit() or tok[0] == "-"):
             mode = "header"
+        elif mode == "header" and block and (tok[0][0].isdigit() or tok[0] == "-"):
+            mode = block  # data lines resume after an interleaved header key (e.g. `verts 0` ... `material x` ... rows)
         if mode == "header":
             key = tok[0]
             if key == "verts":
-                mode = "verts"
+                mode = block = "verts"
             elif key == "delete_verts":
-                mode = "delete"
+                mode = block = "delete"
             elif key in ("x_scale", "y_scale", "z_scale"):
                 scale[key[0]] = (int(tok[1]), int(tok[2]), float(tok[3]))
             elif key == "tag":

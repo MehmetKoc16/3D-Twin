@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "parts": [
+    {
+      "id": "eyes-default",
+      "category": "eyes",
+      "label": {
+        "tr": "G\u00f6zler",
+        "en": "Eyes"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"High-poly eyes (grey iris)\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) eyes/high-poly/high-poly.mhclo sha256:b183cfe37120ab726f9b3f2ea6cd3a64c44ce7b4bd91a77c841cf70c04f83a0d",
+      "mesh": "eyes-default.glb",
+      "binding": "eyes-default.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.16482],
+        "y": [835, 942, 0.27213],
+        "z": [1033, 5782, 0.22795]
+      },
+      "deleteVerts": "eyes-default.delete.bin",
+      "material": {
+        "alphaMode": "OPAQUE",
+        "doubleSided": false,
+        "tintable": true
+      },
+      "irisUv": {
+        "center": [0.4904, 0.4937],
+        "radius": 0.2041
+      }
+    },
+    {
+      "id": "eyebrows-default",
+      "category": "eyebrows",
+      "label": {
+        "tr": "Ka\u015f (do\u011fal)",
+        "en": "Eyebrows (natural)"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Eyebrow 001\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) eyebrows/eyebrow001/eyebrow001.mhclo sha256:54c8892c2ba577f4152d779ce1f20f7cd323beb8cbd9cb701796165c221b4f5b",
+      "mesh": "eyebrows-default.glb",
+      "binding": "eyebrows-default.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1416],
+        "y": [835, 942, 0.23073],
+        "z": [1033, 5782, 0.19231]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.45,
+        "doubleSided": true,
+        "tintable": true
+      }
+    },
+    {
+      "id": "eyebrows-thick",
+      "category": "eyebrows",
+      "label": {
+        "tr": "Ka\u015f (g\u00fcr)",
+        "en": "Eyebrows (thick)"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Eyebrow 009\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) eyebrows/eyebrow009/eyebrow009.mhclo sha256:14819547ba73a98baac1f6eb445e19c22010d2ea30b8a15ee0ca8767c0f3e509",
+      "mesh": "eyebrows-thick.glb",
+      "binding": "eyebrows-thick.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1416],
+        "y": [835, 942, 0.23073],
+        "z": [1033, 5782, 0.19231]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.5,
+        "doubleSided": true,
+        "tintable": true
+      }
+    },
+    {
+      "id": "eyebrows-thin",
+      "category": "eyebrows",
+      "label": {
+        "tr": "Ka\u015f (ince)",
+        "en": "Eyebrows (thin)"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Eyebrow 006\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) eyebrows/eyebrow006/eyebrow006.mhclo sha256:3f14073a558605d78deb25b195c6db8c4ef1310ec5f3f230094b01f8cabd01ad",
+      "mesh": "eyebrows-thin.glb",
+      "binding": "eyebrows-thin.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1416],
+        "y": [835, 942, 0.23073],
+        "z": [1033, 5782, 0.19231]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.4,
+        "doubleSided": true,
+        "tintable": true
+      }
+    },
+    {
+      "id": "eyelashes-default",
+      "category": "eyelashes",
+      "label": {
+        "tr": "Kirpikler",
+        "en": "Eyelashes"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Eyelashes 01\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) eyelashes/eyelashes01/eyelashes01.mhclo sha256:5a86b29c15649273d723084954b7fa7bf199112571d4f58539b46734d397ee6b",
+      "mesh": "eyelashes-default.glb",
+      "binding": "eyelashes-default.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.148],
+        "y": [835, 942, 0.23298],
+        "z": [1033, 5782, 0.19221]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.5,
+        "doubleSided": true,
+        "tintable": false
+      }
+    },
+    {
+      "id": "hair-short",
+      "category": "hair",
+      "label": {
+        "tr": "K\u0131sa sa\u00e7",
+        "en": "Short hair"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Short hair 02 (male)\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) hair/short02/short02.mhclo sha256:625736cdb73e6d094df6e5a2df18f371781f1d2cd37b0ae15795c5d7051c3ec2",
+      "mesh": "hair-short.glb",
+      "binding": "hair-short.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1434],
+        "y": [835, 942, 0.24098],
+        "z": [1033, 5782, 0.20001]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.5,
+        "doubleSided": true,
+        "tintable": true
+      }
+    },
+    {
+      "id": "hair-tousled",
+      "category": "hair",
+      "label": {
+        "tr": "Da\u011f\u0131n\u0131k sa\u00e7",
+        "en": "Tousled hair"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Hair 05\" by culturalibre, MakeHuman community assets (https://www.makehumancommunity.org/node/2445), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack hair01_cc0 (https://files2.makehumancommunity.org/asset_packs/hair01/hair01_cc0.zip) hair/culturalibre_hair_05/culturalibre_hair_05.mhclo sha256:e3888a94ebb84bc37b73cefb3af7045bc674a8c3d92ff8e910e75c283a234078",
+      "mesh": "hair-tousled.glb",
+      "binding": "hair-tousled.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1434],
+        "y": [835, 942, 0.24098],
+        "z": [1033, 5782, 0.20001]
+      },
+      "deleteVerts": "hair-tousled.delete.bin",
+      "material": {
+        "alphaMode": "OPAQUE",
+        "doubleSided": true,
+        "tintable": true
+      }
+    },
+    {
+      "id": "hair-bob",
+      "category": "hair",
+      "label": {
+        "tr": "Kak\u00fclli k\u00fct sa\u00e7",
+        "en": "Bob with fringe"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Bob 02 (female)\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) hair/bob02/bob02.mhclo sha256:a48dcf87c6a618f9c6e90fcb00eed07cd59ab024d8d994606fa1b070da515b96",
+      "mesh": "hair-bob.glb",
+      "binding": "hair-bob.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1398],
+        "y": [835, 942, 0.22048],
+        "z": [1033, 5782, 0.18461]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.45,
+        "doubleSided": true,
+        "tintable": true
+      }
+    },
+    {
+      "id": "hair-medium",
+      "category": "hair",
+      "label": {
+        "tr": "Orta boy sa\u00e7",
+        "en": "Medium hair"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Inverted bob\" by MRT (MargaretToigo), MakeHuman community assets (https://www.makehumancommunity.org/node/1673), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack hair01_cc0 (https://files2.makehumancommunity.org/asset_packs/hair01/hair01_cc0.zip) hair/toigo_inverted_bob/toigo_inverted_bob.mhclo sha256:af32890eb389dd536afcb8f6cd5cbf1f57fd42be6a7c1ab2bcb56e0b383473c5",
+      "mesh": "hair-medium.glb",
+      "binding": "hair-medium.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1398],
+        "y": [835, 942, 0.22028],
+        "z": [1033, 5782, 0.18441]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.55,
+        "doubleSided": true,
+        "tintable": true
+      }
+    },
+    {
+      "id": "hair-long",
+      "category": "hair",
+      "label": {
+        "tr": "Uzun sa\u00e7",
+        "en": "Long hair"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Long hair 01 (female)\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) hair/long01/long01.mhclo sha256:94ecbebfd834da2cbee2ce90b730972590eb22a252ecd9592038ea736e063646",
+      "mesh": "hair-long.glb",
+      "binding": "hair-long.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1398],
+        "y": [835, 942, 0.22048],
+        "z": [1033, 5782, 0.18461]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.6,
+        "doubleSided": true,
+        "tintable": true
+      }
+    },
+    {
+      "id": "hair-ponytail",
+      "category": "hair",
+      "label": {
+        "tr": "At kuyru\u011fu",
+        "en": "Ponytail"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Ponytail 01 (female)\" by the MakeHuman project (makehuman_system), MakeHuman community assets (https://www.makehumancommunity.org), CC0 1.0 (public domain dedication). Changes: bound to a parametric body through the MHCLO binding, texture downscaled/converted, converted to glTF.",
+      "source": "MakeHuman community assets pack makehuman_system_assets_cc0 (https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) hair/ponytail01/ponytail01.mhclo sha256:97fc50b12bcb3b1c7b33edddd8d427a2604ffb06fe79b31132bf47f82d7afbac",
+      "mesh": "hair-ponytail.glb",
+      "binding": "hair-ponytail.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1398],
+        "y": [835, 942, 0.22048],
+        "z": [1033, 5782, 0.18461]
+      },
+      "material": {
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.5,
+        "doubleSided": true,
+        "tintable": true
+      }
+    }
+  ],
+  "defaults": {
+    "eyes": "eyes-default",
+    "eyebrows": "eyebrows-default",
+    "eyelashes": "eyelashes-default"
+  }
+}

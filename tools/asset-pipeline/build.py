@@ -1,7 +1,8 @@
 """Asset pipeline entry point:  python tools/asset-pipeline/build.py [--out DIR] [--no-fetch] [--check]
 
 Raw MakeHuman + MPFB2 CC0 data (pinned commits, .cache/) -> base.glb, morphs.bin, manifest.json, rig.json,
-measures.json, face-map.json in apps/web/public/assets/body/.
+measures.json, face-map.json in apps/web/public/assets/body/, the garment templates in ../garments/ and the body parts
+(eyes, eyebrows, eyelashes, hair) in ../parts/.
 """
 
 from __future__ import annotations
@@ -16,7 +17,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from config import DEFAULT_GARMENTS_DIR, DEFAULT_OUT_DIR, OUTPUT_FILES, RIG_NAME, SOURCES, VENV_DIR  # noqa: E402
+from config import (  # noqa: E402
+    DEFAULT_GARMENTS_DIR, DEFAULT_OUT_DIR, DEFAULT_PARTS_DIR, OUTPUT_FILES, RIG_NAME, SOURCES, VENV_DIR,
+)
 
 REQUIRED_MODULES = ("numpy", "pygltflib", "PIL")
 
@@ -61,7 +64,12 @@ def garments_dir_for(out_dir: Path) -> Path:
     return DEFAULT_GARMENTS_DIR if out_dir.resolve() == DEFAULT_OUT_DIR.resolve() else out_dir / "garments"
 
 
-def build_all(out_dir: Path, verbose: bool = True, garments_dir: Path | None = None) -> dict:
+def parts_dir_for(out_dir: Path) -> Path:
+    """Default parts dir for the default body dir; `<out>/parts` for any other (temp / test) output dir."""
+    return DEFAULT_PARTS_DIR if out_dir.resolve() == DEFAULT_OUT_DIR.resolve() else out_dir / "parts"
+
+
+def build_all(out_dir: Path, verbose: bool = True, garments_dir: Path | None = None, parts_dir: Path | None = None) -> dict:
     import numpy as np
 
     import face_map as face_map_mod
@@ -69,7 +77,9 @@ def build_all(out_dir: Path, verbose: bool = True, garments_dir: Path | None = N
     import gltf_writer
     import macro
     import measures as measures_mod
+    import mh_morph
     import mh_obj
+    import parts as parts_mod
     import rig as rig_mod
     import targets as targets_mod
     import weights as weights_mod
@@ -200,8 +210,16 @@ def build_all(out_dir: Path, verbose: bool = True, garments_dir: Path | None = N
     if verbose:
         garments_mod.write_debug_images(mesh, neutral, gdir, CACHE_DIR / "debug")
 
+    # --- body parts: eyes, eyebrows, eyelashes, hair (neutral body frame, some re-bound from helper geometry) ------
+    pdir = parts_dir if parts_dir is not None else parts_dir_for(out_dir)
+    morph = mh_morph.MhMorpher(mesh, packer, catalog)
+    part_details = parts_mod.build_parts(mesh, neutral, morph, offset_y, pdir, verbose=verbose)
+    if verbose:
+        parts_mod.write_debug_images(part_details["_ctx"], pdir, CACHE_DIR / "debug")
+
     hashes = {f: sha256(out_dir / f) for f in OUTPUT_FILES}
     hashes.update({f"garments/{n}": sha256(gdir / n) for n in garments_mod.garment_files(gdir)})
+    hashes.update({f"parts/{n}": sha256(pdir / n) for n in parts_mod.part_files(pdir)})
     if verbose:
         total = 0
         for f in OUTPUT_FILES:
@@ -233,8 +251,14 @@ def main() -> int:
             fresh = build_all(Path(tmp), verbose=False)
         bad = []
         gdir = garments_dir_for(args.out)
+        pdir = parts_dir_for(args.out)
         for f, digest in fresh.items():
-            existing = gdir / f[len("garments/"):] if f.startswith("garments/") else args.out / f
+            if f.startswith("garments/"):
+                existing = gdir / f[len("garments/"):]
+            elif f.startswith("parts/"):
+                existing = pdir / f[len("parts/"):]
+            else:
+                existing = args.out / f
             if not existing.exists() or sha256(existing) != digest:
                 bad.append(f)
         if bad:

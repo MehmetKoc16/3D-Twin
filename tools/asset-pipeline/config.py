@@ -119,6 +119,128 @@ GARMENT_ASSETS = {
     }, "packJson": "f59c2d5151aee4b2e9a807eb0050bce080013dc79b7d21757bbda34931bac77b"},
 }
 
+# ---------------------------------------------------------------------------------------------------------------
+# Body parts (eyes, eyebrows, eyelashes, hair): MakeHuman system assets (CC0), same mechanism as the garments.
+# `files`: member path inside the pack zip -> sha256 (cached flat by file name in `.cache/parts/<id>/`).
+# `packJson`: sha256 of `packs/<pack dir>.json`. Licence of each item = its own `.mhclo` line AND the pack json (ADR 0008).
+# ---------------------------------------------------------------------------------------------------------------
+PART_PACK_URL = GARMENT_PACK_URL
+PART_CACHE = CACHE_DIR / "parts"
+DEFAULT_PARTS_DIR = REPO_ROOT / "apps" / "web" / "public" / "assets" / "parts"
+PART_TEXTURE_MAX = {"eyes": 512, "eyebrows": 512, "eyelashes": 512, "hair": 1024}  # px, longest side
+PART_ASSETS: dict[str, dict] = {
+    "eyes-default": {"pack": "makehuman_system_assets_cc0", "files": {
+        "eyes/high-poly/high-poly.mhclo":
+            "b183cfe37120ab726f9b3f2ea6cd3a64c44ce7b4bd91a77c841cf70c04f83a0d",
+        "eyes/high-poly/high-poly.obj":
+            "da2493215b708a344c33dc72f2a9a5b8fa985dcc5a70ad3b208995cf871da8e1",
+        "eyes/materials/grey.mhmat":
+            "65c536157ef0550b2f8461a9526c726707533dc7cfe8a65abb9b9db0b4e6b25e",
+        "eyes/materials/grey_eye.png":
+            "ecb05613126036a3d017880fabbd570501c5f14032c186462d8f6e2d719f6c4f",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+    "eyebrows-default": {"pack": "makehuman_system_assets_cc0", "files": {
+        "eyebrows/eyebrow001/eyebrow001.mhclo":
+            "54c8892c2ba577f4152d779ce1f20f7cd323beb8cbd9cb701796165c221b4f5b",
+        "eyebrows/eyebrow001/eyebrow001.obj":
+            "88b13146395133f3901715e11706cdfd293e5d6087ad7c5e01efe1485a26b513",
+        "eyebrows/eyebrow001/eyebrow001.mhmat":
+            "976e5f4f1d3922d7a11c6e2db233f8b4584b068d00619d5749687e81c92d61fc",
+        "eyebrows/eyebrow001/eyebrow001.png":
+            "9940f7d0b1b223709a19b05156ba6f6e9e4dbdbced02d7574f4d51d72c58967b",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+    "eyebrows-thick": {"pack": "makehuman_system_assets_cc0", "files": {
+        "eyebrows/eyebrow009/eyebrow009.mhclo":
+            "14819547ba73a98baac1f6eb445e19c22010d2ea30b8a15ee0ca8767c0f3e509",
+        "eyebrows/eyebrow009/eyebrow009.obj":
+            "037a2edb3252e1fe4a57e63dcb1598916609fd0339f2b453b2f71e9c4cbd481c",
+        "eyebrows/eyebrow009/eyebrow009.mhmat":
+            "53eca588d5de9378b60f22153d212485e1c76ea907ffc8f5f97b6ca824fe55b0",
+        "eyebrows/eyebrow009/eyebrow009.png":
+            "4d33c85718ca5accf44625652daf0ae6e8cc007ed8138280e4d95601717910c3",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+    "eyebrows-thin": {"pack": "makehuman_system_assets_cc0", "files": {
+        "eyebrows/eyebrow006/eyebrow006.mhclo":
+            "3f14073a558605d78deb25b195c6db8c4ef1310ec5f3f230094b01f8cabd01ad",
+        "eyebrows/eyebrow006/eyebrow006.obj":
+            "7e3963bde6bc23a629eb78a9f83d050e247a5b1d370885afa0a92dede192cdb1",
+        "eyebrows/eyebrow006/eyebrow006.mhmat":
+            "0df50e6595ffdfcd485ba1f3d00f26b341dddb2c8e0df2c31fb72dd141b0df40",
+        "eyebrows/eyebrow006/eyebrow006.png":
+            "1f6d34d722ef18e73494e62f2c7f1a933ff58ce75d01fd34de21d178d5afe4d8",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+    "eyelashes-default": {"pack": "makehuman_system_assets_cc0", "files": {
+        "eyelashes/eyelashes01/eyelashes01.mhclo":
+            "5a86b29c15649273d723084954b7fa7bf199112571d4f58539b46734d397ee6b",
+        "eyelashes/eyelashes01/eyelashes01.obj":
+            "f78f5b93fea1946fcae103d32c4f082dd9612a1ec2e7e2f90b03ebe59b0baf20",
+        "eyelashes/eyelashes01/eyelashes01.mhmat":
+            "8029c99d94f3d87a1e81825fad6b90eec773ae6955a5b2592222ef237377e190",
+        "eyelashes/eyelashes01/eyelashes01.png":
+            "4b69c0fff2648874460e9caf80c31413c444218a5c50afebc425aeaa65484a35",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+    "hair-short": {"pack": "makehuman_system_assets_cc0", "files": {
+        "hair/short02/short02.mhclo":
+            "625736cdb73e6d094df6e5a2df18f371781f1d2cd37b0ae15795c5d7051c3ec2",
+        "hair/short02/short02.obj":
+            "48f979114adfa712165a69cc55c45a70831af1fb3cba8e2a89120f0c87407b64",
+        "hair/short02/short02.mhmat":
+            "2ed04c8aad9c1a35d858ca72091525d32b1da3b61b5a031634dd528fd8530f6d",
+        "hair/short02/short02_diffuse.png":
+            "47fe33831a3929567c733356dd66243116e05df2ace1f884ddca0080b728229f",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+    "hair-tousled": {"pack": "hair01_cc0", "files": {
+        "hair/culturalibre_hair_05/culturalibre_hair_05.mhclo":
+            "e3888a94ebb84bc37b73cefb3af7045bc674a8c3d92ff8e910e75c283a234078",
+        "hair/culturalibre_hair_05/hair_05.obj":
+            "7f710a92a7c47a318bf83c66a381aecaccf7d992f77681fd4c287d0c3b209cf9",
+        "hair/culturalibre_hair_05/hair_05.mhmat":
+            "bd786b142ba4e2eeab426f7ea12f61bd96f3c4a5b1d6012983373be72800159a",
+        "hair/culturalibre_hair_05/hair_05.png":
+            "3e03935cd03bb8f34a72bf53810d9cdd74634c3a0e4d121f6866d118eda3ecfe",
+    }, "packJson": "b1f3c32a877cf7fb681ed54d28715d53a4d9660656ae063c6a50229181830de7"},
+    "hair-bob": {"pack": "makehuman_system_assets_cc0", "files": {
+        "hair/bob02/bob02.mhclo":
+            "a48dcf87c6a618f9c6e90fcb00eed07cd59ab024d8d994606fa1b070da515b96",
+        "hair/bob02/bob02.obj":
+            "30d44038836d786364eb4134a9259cf93ca0c707f883861b0135ebfb149caa08",
+        "hair/bob02/bob02.mhmat":
+            "32c1712308159f4f5b3775a633352070245bf1ea8b6f837ab4f4ba82b5e9fccd",
+        "hair/bob02/bob02_diffuse.png":
+            "38c88e6f71631356591f09b1f17a1bb5a99c3bb095b1a29003f1dc3d3e839b0d",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+    "hair-medium": {"pack": "hair01_cc0", "files": {
+        "hair/toigo_inverted_bob/toigo_inverted_bob.mhclo":
+            "af32890eb389dd536afcb8f6cd5cbf1f57fd42be6a7c1ab2bcb56e0b383473c5",
+        "hair/toigo_inverted_bob/bob_inverted.obj":
+            "a6b7c685b8558b9983cb8a883ebacf0272a238931ca20482671fe5da64a31c10",
+        "hair/toigo_inverted_bob/bob_inverted.mhmat":
+            "ad2abc59a0e16f2c2ac08b5210df83b6322f85a10183f95a7b68b96b53218033",
+        "hair/toigo_inverted_bob/GoldenBlondHair.png":
+            "0d839379f85e757aa8d5cd92281efe830beba1e34f1ffd93954eac704d729378",
+    }, "packJson": "b1f3c32a877cf7fb681ed54d28715d53a4d9660656ae063c6a50229181830de7"},
+    "hair-long": {"pack": "makehuman_system_assets_cc0", "files": {
+        "hair/long01/long01.mhclo":
+            "94ecbebfd834da2cbee2ce90b730972590eb22a252ecd9592038ea736e063646",
+        "hair/long01/long01.obj":
+            "7f1d6dadbdf9e96435251955d6657e77ea5433c9bc7c85a5c5f5e4eae0cb9a8c",
+        "hair/long01/long01.mhmat":
+            "74ec88267e679d316f8037a074511ffc887b27e198ea381d0ae4a3f180f96760",
+        "hair/long01/long01_diffuse.png":
+            "e8dc25d90f8f62467e8630420e1240a400d070054fb7c3f1d3f7bf3e457d6c2c",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+    "hair-ponytail": {"pack": "makehuman_system_assets_cc0", "files": {
+        "hair/ponytail01/ponytail01.mhclo":
+            "97fc50b12bcb3b1c7b33edddd8d427a2604ffb06fe79b31132bf47f82d7afbac",
+        "hair/ponytail01/ponytail01.obj":
+            "d9f5fe96fbedbc8006220d87aad0e4a33d15286eb6b21f5929661cdc490ebf5a",
+        "hair/ponytail01/ponytail01.mhmat":
+            "b145f5a7c9606859ad523f5113482a1cf989cf0e26dccc2ea95c377cb1c2557f",
+        "hair/ponytail01/ponytail01_diffuse.png":
+            "dcb364300cac06ce8bef91b2f7c0970baf310898bbdd06b0c6b884ee9306eb97",
+    }, "packJson": "e86f1572432cfd062f372adddba4eb7c2e2e31280e96c29291a970320e0a5df0"},
+}
+
 MH_DATA = SOURCES["mh"]["dir"] / "makehuman" / "data"
 MPFB_DATA = SOURCES["mpfb2"]["dir"] / "src" / "mpfb" / "data"
 

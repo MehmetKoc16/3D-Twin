@@ -140,11 +140,16 @@ def write_static_glb(
     texture_mime: str,
     base_color: list[float],
     alpha_mask: bool = False,
+    *,
+    alpha_cutoff: float | None = None,
+    double_sided: bool = True,
+    roughness: float = 0.85,
 ) -> None:
-    """Unskinned single-mesh glb (garments): POSITION, NORMAL, TEXCOORD_0, one PBR material, optional embedded image.
+    """Unskinned single-mesh glb (garments, body parts): POSITION, NORMAL, TEXCOORD_0, one PBR material, optional image.
 
     The base colour texture is sRGB (glTF default for baseColorTexture); `base_color` is the linear factor (white when a
-    texture is present). Double sided because garments are open surfaces (sleeve/leg openings, collars).
+    texture is present). Double sided by default because garments are open surfaces (sleeve/leg openings, collars).
+    `alpha_mask` selects alphaMode MASK (cutoff `alpha_cutoff`, default 0.5) instead of OPAQUE.
     """
     R = positions.shape[0]
     pos = np.ascontiguousarray(positions, dtype="<f4")
@@ -175,7 +180,7 @@ def write_static_glb(
             acc.max = [float(x) for x in pos.max(axis=0)]
         g.accessors.append(acc)
         acc_index[bname] = len(g.accessors) - 1
-    pbr = gl.PbrMetallicRoughness(baseColorFactor=list(base_color), metallicFactor=0.0, roughnessFactor=0.85)
+    pbr = gl.PbrMetallicRoughness(baseColorFactor=list(base_color), metallicFactor=0.0, roughnessFactor=roughness)
     if texture is not None:
         while len(data) % 4:
             data.append(0)
@@ -190,8 +195,8 @@ def write_static_glb(
     g.buffers.append(gl.Buffer(byteLength=len(data)))
     g.materials.append(
         gl.Material(
-            name=name, pbrMetallicRoughness=pbr, doubleSided=True, alphaMode="MASK" if alpha_mask else "OPAQUE",
-            alphaCutoff=0.5 if alpha_mask else None,
+            name=name, pbrMetallicRoughness=pbr, doubleSided=double_sided, alphaMode="MASK" if alpha_mask else "OPAQUE",
+            alphaCutoff=(0.5 if alpha_cutoff is None else alpha_cutoff) if alpha_mask else None,
         )
     )
     g.meshes.append(
