@@ -77,6 +77,56 @@ describe('buildLengthGrades', () => {
   });
 });
 
+describe('buildLengthGrades hem rules', () => {
+  const tee: GarmentTemplateDef = {
+    ...template,
+    nativeMeasures: { ...template.nativeMeasures, length: 45 },
+  };
+  const sized: StoreItemDef = { ...item, chart: { ...item.chart, length: [68, 70, 72] } };
+  const rest = [0, 1.1, 0, 0, 0.9, 0, 0, 0.8, 0];
+  const planes = { planeY: { waist: 1, chest: 1.3 } };
+  const none = (): undefined => undefined;
+
+  it('anchors the hem stretch at the chest plane so the change is spread over the torso', () => {
+    const specs = buildLengthGrades(sized, tee, { height: 165.9 }, planes, rest, none);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.anchor[1]).toBeCloseTo(1.3, 6);
+    expect(specs[0]!.chartCm - specs[0]!.referenceCm).toBeCloseTo(25);
+    // without a chest plane the waist is the anchor
+    const waistOnly = buildLengthGrades(
+      sized,
+      tee,
+      { height: 165.9 },
+      { planeY: { waist: 1 } },
+      rest,
+      none,
+    );
+    expect(waistOnly[0]!.anchor[1]).toBeCloseTo(1, 6);
+  });
+
+  it('skips the hem pass of a tucked top (its hem stays inside the trousers) but keeps the sleeves', () => {
+    expect(
+      buildLengthGrades(sized, tee, { height: 165.9 }, planes, rest, none, { tuckedHem: true }),
+    ).toEqual([]);
+    const long: GarmentTemplateDef = {
+      ...tee,
+      kind: 'longsleeve',
+      defaultEase: { ...tee.defaultEase, sleeve: -1 },
+    };
+    const withSleeve: StoreItemDef = { ...sized, chart: { ...sized.chart, sleeve: [58, 60, 62] } };
+    const specs = buildLengthGrades(
+      withSleeve,
+      long,
+      { height: 165.9, armLength: 58 },
+      planes,
+      rest,
+      (name) => [name.endsWith('_l') ? 0.3 : -0.3, 1.3, 0],
+      { tuckedHem: true },
+    );
+    expect(specs.map((s) => s.side)).toEqual([1, -1]);
+  });
+});
+
 describe('buildGradeRings', () => {
   const planes = { planeY: { chest: 1.3, waist: 1.0 } };
 

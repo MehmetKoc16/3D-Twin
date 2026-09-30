@@ -10,11 +10,8 @@ import {
   type Skeleton,
 } from 'three';
 import {
-  bindGarment,
   clearanceToColor,
   garmentClearance,
-  gradeGarment,
-  gradeGarmentLength,
   type GarmentSections,
   type Vec3,
   type GarmentTemplateDef,
@@ -23,13 +20,8 @@ import {
 } from '@dt/avatar-core';
 import { computeWeldedNormals } from '../avatar/meshMath';
 import { coveredBodyVertices } from './bodyHide';
-import { pushOutside, type Surface } from './garmentCollide';
-import {
-  bodyCmFromSolve,
-  buildGradeRings,
-  buildLengthGrades,
-  type BodyPlanes,
-} from './garmentGrading';
+import { pushInside, pushOutside, type Surface } from './garmentCollide';
+import { boundBodyPoints, fitToChart, type BodyPlanes } from './garmentGrading';
 import type { TemplateRuntime } from './templateLoader';
 
 /** Largest recolour factor of the (grey) template texture, so near-black textures do not blow up. */
@@ -45,6 +37,8 @@ export interface GarmentUpdateContext {
   heatmap: boolean;
   /** Inner garments this one is worn over (shoes under trousers, trousers under a jumper). */
   lowers: readonly Surface[];
+  /** A tucked top worn with a bottom: the chart's hem length is not applied (the hem stays inside the trousers). */
+  tuckedHem?: boolean;
 }
 
 /**
@@ -80,6 +74,9 @@ export class GarmentInstance {
   soleLift = 0;
   /** Body vertices under this garment's footprint (one byte per render vertex), computed once at the first fit. */
   coverage: Uint8Array | null = null;
+  /** Incremented whenever `coverage` is recomputed, so the body index is rebuilt. */
+  coverageEpoch = 0;
+  private hemTucked = false;
   item: StoreItemDef;
 
   constructor(
@@ -170,25 +167,58 @@ export class GarmentInstance {
     this.mesh.bindMatrixInverse.copy(bindMatrix).invert();
   }
 
-  /** Re-fits the garment to the solved body: proxy binding, size grading, normals, optional clearance colours. */
-  update(ctx: GarmentUpdateContext): void {
+  /**
+   * Re-fits the garment to the solved body: proxy binding, size grading, layering, normals, optional clearance
+   * colours. `tuckInto` is the outer layer a tucked top disappears into (the trousers that were fitted after `fit`).
+   */
+  update(ctx: GarmentUpdateContext, tuckInto?: Surface): void {
+    this.fit(ctx);
+    this.commit(ctx, tuckInto);
+  }
+
+  /** First half of `update`: the graded and layered vertex positions (nothing is uploaded yet). */
+  fit(ctx: GarmentUpdateContext): void {
     const { runtime, item, rest, graded } = this;
     const def = runtime.def;
-    bindGarment(runtime.binding, def.scaleRefs, ctx.body, rest);
-    const rings = ctx.planes
-      ? buildGradeRings(item, def, bodyCmFromSolve(ctx.achievedCm), ctx.planes)
-      : [];
-    gradeGarment(rest, runtime.binding, ctx.body, rings, graded, ctx.sections);
     const joint = (name: string): Vec3 | undefined => {
       const index = this.mesh.skeleton.bones.findIndex((bone) => bone.name === name);
       if (index < 0 || index * 6 + 2 >= ctx.joints.length) return undefined;
       return [ctx.joints[index * 6]!, ctx.joints[index * 6 + 1]!, ctx.joints[index * 6 + 2]!];
     };
-    for (const spec of buildLengthGrades(item, def, ctx.achievedCm, ctx.planes, rest, joint))
-      gradeGarmentLength(graded, runtime.binding, ctx.body, spec, graded);
-    this.coverage ??= coveredBodyVertices(ctx.body, ctx.body.length / 3, graded, runtime.index);
+    fitToChart(
+      {
+        def,
+        item,
+        binding: runtime.binding,
+        body: ctx.body,
+        sections: ctx.sections,
+        achievedCm: ctx.achievedCm,
+        planes: ctx.planes,
+        joint,
+        tuckedHem: ctx.tuckedHem ?? false,
+      },
+      rest,
+      graded,
+    );
+    const tucked = ctx.tuckedHem ?? false;
+    if (tucked !== this.hemTucked) {
+      // the hem moved (chart length applied or skipped): the body under the old footprint no longer matches
+      this.hemTucked = tucked;
+      this.coverage = null;
+    }
+    if (this.coverage === null) {
+      this.coverage = coveredBodyVertices(ctx.body, ctx.body.length / 3, graded, runtime.index);
+      this.coverageEpoch++;
+    }
     this.updateBound(ctx.body);
     if (ctx.lowers.length > 0) pushOutside(graded, runtime.vertexCount, ctx.lowers);
+  }
+
+  /** Second half of `update`: optionally tucks the hem into the outer layer, then uploads positions and normals. */
+  commit(ctx: GarmentUpdateContext, tuckInto?: Surface): void {
+    const { runtime, graded } = this;
+    const def = runtime.def;
+    if (tuckInto) pushInside(graded, runtime.vertexCount, [tuckInto]);
 
     const position = this.geometry.getAttribute('position');
     (position.array as Float32Array).set(graded);
@@ -224,15 +254,7 @@ export class GarmentInstance {
 
   /** The body point every garment vertex is bound to (its offset from it points away from the body). */
   private updateBound(body: Float32Array): void {
-    const { indices, weights } = this.runtime.binding;
-    for (let v = 0; v < this.runtime.vertexCount; v++) {
-      for (let k = 0; k < 3; k++) {
-        this.bound[v * 3 + k] =
-          weights[v * 3]! * body[indices[v * 3]! * 3 + k]! +
-          weights[v * 3 + 1]! * body[indices[v * 3 + 1]! * 3 + k]! +
-          weights[v * 3 + 2]! * body[indices[v * 3 + 2]! * 3 + k]!;
-      }
-    }
+    boundBodyPoints(this.runtime.binding, body, this.bound);
   }
 
   /**

@@ -12,12 +12,16 @@ import type { AvatarAssets } from '../avatar/avatarAssets';
 import type { SolveEnvelope } from '../../workers/avatarClient';
 import { filterBodyIndex, hiddenVertexMask } from './bodyHide';
 import type { Surface } from './garmentCollide';
-import { GarmentInstance } from './garmentInstance';
+import { GarmentInstance, type GarmentUpdateContext } from './garmentInstance';
+import { isTuckedTop } from './garmentStyle';
 import { bodyPlanes, type BodyPlanes } from './garmentGrading';
 import { loadTemplateRuntime, type TemplateRuntime } from './templateLoader';
 
 const CATEGORIES: readonly GarmentCategory[] = ['top', 'bottom', 'shoes'];
+/** Inner layers first: shoes, trousers over the shoes, then the top over the trousers. */
 const FIT_ORDER: readonly GarmentCategory[] = ['shoes', 'bottom', 'top'];
+/** A tucked top is inner to the trousers: it is fitted before them and they are pushed out of it. */
+const FIT_ORDER_TUCKED: readonly GarmentCategory[] = ['shoes', 'top', 'bottom'];
 
 interface LastSolve {
   body: Float32Array;
@@ -181,13 +185,24 @@ export class WardrobeRig {
     this.applySoleLift();
   }
 
-  /** Inner garments an item is layered over: trousers over shoes; a top over trousers of a lower layer number. */
+  /** A tucked top (e.g. the tucked t-shirt) is worn together with a bottom: the bottom's waist is the outer layer. */
+  private tuckedTop(): GarmentInstance | undefined {
+    const top = this.instances.get('top');
+    return top && this.instances.has('bottom') && isTuckedTop(top.template) ? top : undefined;
+  }
+
+  /**
+   * Inner garments an item is layered over: trousers over shoes and over a tucked top; an untucked top over trousers
+   * of a lower layer number.
+   */
   private lowersOf(category: GarmentCategory, instance: GarmentInstance): Surface[] {
     if (category === 'bottom') {
       const shoes = this.instances.get('shoes');
-      return shoes ? [shoes.surface()] : [];
+      const tucked = this.tuckedTop();
+      return [...(shoes ? [shoes.surface()] : []), ...(tucked ? [tucked.surface()] : [])];
     }
     if (category === 'top') {
+      if (this.tuckedTop()) return [];
       const bottom = this.instances.get('bottom');
       return bottom && bottom.template.layer < instance.template.layer ? [bottom.surface()] : [];
     }
@@ -198,32 +213,63 @@ export class WardrobeRig {
     const last = this.last;
     if (!last) return;
     let coverageReady = false;
-    // inner layers first: shoes, then trousers (over the shoes), then the top (over the trousers if it is a higher layer)
-    for (const category of FIT_ORDER) {
-      const instance = this.instances.get(category);
-      if (!instance) continue;
+    const tucked = this.tuckedTop();
+    // inner layers first: shoes, then trousers (over the shoes), then the top (over the trousers if it is a higher
+    // layer); a tucked top goes before the trousers, which then lie over it
+    const contextFor = (
+      category: GarmentCategory,
+      instance: GarmentInstance,
+    ): GarmentUpdateContext => ({
+      body: last.body,
+      joints: last.joints,
+      sections: last.sections,
+      achievedCm: last.achievedCm,
+      planes: this.planes,
+      heatmap: this.heatmap,
+      lowers: this.lowersOf(category, instance),
+      tuckedHem: tucked !== undefined && category === 'top',
+    });
+    const guarded = (
+      category: GarmentCategory,
+      instance: GarmentInstance,
+      run: () => void,
+    ): void => {
       try {
-        const hadCoverage = instance.coverage !== null;
-        instance.syncBind(this.assets.mesh.bindMatrix);
-        instance.update({
-          body: last.body,
-          joints: last.joints,
-          sections: last.sections,
-          achievedCm: last.achievedCm,
-          planes: this.planes,
-          heatmap: this.heatmap,
-          lowers: this.lowersOf(category, instance),
-        });
-        if (!hadCoverage) coverageReady = true;
+        run();
       } catch (error) {
         console.error(`Could not fit garment ${instance.template.id}`, error);
         this.remove(category);
         useWardrobeStore.getState().takeOff(category);
       }
+    };
+    for (const category of tucked ? FIT_ORDER_TUCKED : FIT_ORDER) {
+      const instance = this.instances.get(category);
+      if (!instance) continue;
+      guarded(category, instance, () => {
+        const epoch = instance.coverageEpoch;
+        instance.syncBind(this.assets.mesh.bindMatrix);
+        const context = contextFor(category, instance);
+        // a tucked top is only fitted here; it is uploaded once the trousers over it are in place
+        if (tucked && category === 'top') instance.fit(context);
+        else instance.update(context);
+        if (instance.coverageEpoch !== epoch) coverageReady = true;
+      });
+    }
+    if (tucked && this.instances.get('top') === tucked) {
+      guarded('top', tucked, () =>
+        tucked.commit(contextFor('top', tucked), this.instances.get('bottom')?.surface()),
+      );
     }
     const top = this.instances.get('top');
     const bottom = this.instances.get('bottom');
-    bottom?.hideUnder(top && top.template.layer > bottom.template.layer ? top.surface() : null);
+    if (tucked && top && bottom) {
+      // tucked: the trousers' waistband is the outer layer, the top's triangles behind it are dropped
+      top.hideUnder(bottom.surface());
+      bottom.hideUnder(null);
+    } else {
+      top?.hideUnder(null);
+      bottom?.hideUnder(top && top.template.layer > bottom.template.layer ? top.surface() : null);
+    }
     if (coverageReady) this.updateBodyIndex();
     this.applySoleLift();
   }
@@ -250,7 +296,7 @@ export class WardrobeRig {
       (i) => i.runtime.deleteVerts.length > 0 || i.coverage !== null,
     );
     const key = parts
-      .map((i) => `${i.template.id}${i.coverage ? '+' : ''}`)
+      .map((i) => `${i.template.id}${i.coverage ? `+${i.coverageEpoch}` : ''}`)
       .sort()
       .join('|');
     if (key === this.hiddenKey) return;

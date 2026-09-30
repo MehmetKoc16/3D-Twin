@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pushOutside, type Surface } from './garmentCollide';
+import { pushInside, pushOutside, type Surface } from './garmentCollide';
 
 /** An inner "trouser" sheet: z = 0 plane over x, y in [0, 1], the body lies behind it (z < 0). */
 function innerSheet(flipWinding = false): Surface {
@@ -42,5 +42,15 @@ describe('pushOutside', () => {
     expect(p[2]).toBeCloseTo(0.006, 6);
     expect(p[5]).toBeCloseTo(0.02, 6);
     expect(p[8]).toBeCloseTo(0.006, 6);
+  });
+});
+
+describe('pushInside', () => {
+  it('moves a vertex in front of the inner surface (or less than the margin behind it) to the margin behind it', () => {
+    const p = Float32Array.from([0.5, 0.5, 0.02, 0.4, 0.4, -0.002, 0.6, 0.6, -0.05]);
+    expect(pushInside(p, 3, [innerSheet()])).toBe(2);
+    expect(p[2]).toBeCloseTo(-0.006, 6);
+    expect(p[5]).toBeCloseTo(-0.006, 6);
+    expect(p[8]).toBeCloseTo(-0.05, 6); // already well behind
   });
 });

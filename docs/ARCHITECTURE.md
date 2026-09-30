@@ -246,6 +246,7 @@ WardrobeRig (created by Avatar; Avatar forwards every solve after the body geome
       bindGarment -> buildGradeRings (chart[size] - (body + template defaultEase) at the chest / waist / hip / thigh
       planes taken from measures.json loops) -> gradeGarment (leg-aware below the crotch) -> pushOutside (layering)
       -> welded normals -> [heatmap: garmentClearance -> clearanceToColor vertex colours]
+    fit order: shoes, bottom, top - but a TUCKED top is fitted before the bottom (see "Tucked and untucked tops")
   body: delete lists + body vertices under each garment's footprint are hidden (index rebuilt when the worn set changes)
   shoes: the avatar (scene) is lifted so the lowest sole vertex stands at y = 0
 Fit report (React, no worker): analyzeItemFit = analyzeFit on solveStore.achievedCm; chips per region, overall,
@@ -260,8 +261,24 @@ Details that are not obvious:
   the legs; below the crotch the pass is run once per leg on a body copy that keeps only that leg in the bins.
 - Poke-through. MakeHuman delete lists leave islands (navel); body vertices that project into a garment triangle
   (within 2 cm, prism test) are hidden too, a triangle is dropped only if all three vertices are hidden, so no hole
-  opens at a hem. A jumper (layer 2) over trousers (layer 1): its vertices are pushed out of the trousers and the
-  trousers' triangles under its footprint are hidden; trousers are pushed out of shoes.
+  opens at a hem. Layering (`garmentCollide.ts`): `pushOutside` moves the vertices of an outer garment out of the inner
+  one (up to 5 passes, because a push along one triangle's normal can end inside a neighbouring triangle of a curved
+  surface); `pushInside` is its mirror. The inner garment's triangles under the outer one's footprint are hidden.
+  Trousers are pushed out of shoes.
+- Tucked and untucked tops. `garmentStyle.ts` keeps a per-template style (the catalogue does not carry it):
+  `tshirt` (`toigo_basic_tucked_t-shirt`, authored with its hem at the waist, inside the trousers) is `tucked`, every
+  other top is `untucked`. Untucked top (sweater): unchanged rule - a top of a higher `layer` than the worn bottom is
+  the outer layer (its vertices are pushed out of the trousers, the trousers' triangles under it are hidden), its hem
+  is length-graded from the chart. Tucked top worn WITH a bottom: the bottom's waistband is the outer layer, whatever
+  the layer numbers say. The top is fitted first, its chart-length pass is skipped (the chart's garment length
+  describes a free-hanging hem, the tucked template ends at the waist; sleeve passes still run), then the bottom is
+  fitted and pushed out of the top, then the top's hem is tucked (`pushInside`) into the bottom and the top triangles
+  behind the bottom are hidden. A tucked top worn ALONE behaves like any top: the hem is length-graded from the chart.
+- Length grading (`gradeGarmentLength`). The hem shift is a linear ramp from the anchor plane to the hem plane, so the
+  ramp must be long: a top is anchored at the CHEST plane (waist only if no chest plane exists), not at the waist.
+  The first version anchored at the waist, 3-8 cm above the hem, and squeezed a 15 cm change into that span: rows near
+  the hem were stretched ~5x, giving a ragged, jagged hem (max edge stretch is now ~1.8x, tested). The hem band itself
+  moves rigidly (everything below the 10th-percentile height gets the full shift), so its shape is preserved.
 - Colour. Templates carry a neutral grey texture whose mean is `baseColor`; the material colour is
   `item / baseColor` per linear channel, so the default shows the texture unchanged and a picked colour keeps the
   fabric detail.

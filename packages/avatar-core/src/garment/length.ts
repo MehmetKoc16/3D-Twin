@@ -7,7 +7,9 @@ import type { GarmentBinding } from './binding';
  * zero at the anchor plane, full at the hem plane, linearly interpolated between. `side` and
  * `minAbsX` restrict a sleeve pass to one arm. Run separate passes for left and right sleeves.
  * The chart difference is limited to ±15 cm; when `floorY` is set, downward displacement is
- * further limited so no affected vertex crosses the floor. This is a longitudinal stretch model,
+ * further limited so no affected vertex crosses the floor. Choose `anchor` well above the hem: the whole change is
+ * squeezed into the anchor-to-hem span, so a short span over-stretches (and jags) the rows near the hem.
+ * This is a longitudinal stretch model,
  * not a cloth simulation or a seam-aware pattern resize.
  */
 export interface LengthGradeSpec {

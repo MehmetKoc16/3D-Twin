@@ -1,5 +1,10 @@
 import {
+  bindGarment,
   bodyMeasuresForGarment,
+  gradeGarment,
+  gradeGarmentLength,
+  type GarmentBinding,
+  type GarmentSections,
   type GarmentMeasureId,
   type GarmentTemplateDef,
   type GradeRing,
@@ -86,7 +91,19 @@ export function bodyCmFromSolve(achievedCm: Partial<Record<MeasureId, number>>):
   return bodyMeasuresForGarment(achievedCm);
 }
 
-/** Chart-length passes in the solved rest frame. Long sleeves use shoulder and wrist joints. */
+export interface LengthGradeOptions {
+  /**
+   * The top is tucked into a worn bottom: its hem is hidden inside the trousers, so the chart's garment length (which
+   * describes a free-hanging hem) does not apply and the hem pass is skipped. Sleeve passes still run.
+   */
+  tuckedHem?: boolean;
+}
+
+/**
+ * Chart-length passes in the solved rest frame. Long sleeves use shoulder and wrist joints. The hem of a top is
+ * stretched from the chest plane (not the waist): the shift is spread over the whole torso, so a lengthened hem keeps
+ * the mesh spacing of its rows instead of squeezing the change into the few centimetres between waist and hem.
+ */
 export function buildLengthGrades(
   item: StoreItemDef,
   template: GarmentTemplateDef,
@@ -94,6 +111,7 @@ export function buildLengthGrades(
   planes: BodyPlanes | undefined,
   rest: ArrayLike<number>,
   joint: (name: string) => Vec3 | undefined,
+  options: LengthGradeOptions = {},
 ): LengthGradeSpec[] {
   const size = item.sizes.indexOf(item.selectedSize);
   if (size < 0 || template.category === 'shoes') return [];
@@ -110,11 +128,23 @@ export function buildLengthGrades(
   const waistY = planes?.planeY.waist;
   const lengthChart = item.chart.length?.[size];
   if (template.category === 'top') {
-    if (lengthChart !== undefined && waistY !== undefined && hemY < waistY - 0.01) {
+    if (
+      !options.tuckedHem &&
+      lengthChart !== undefined &&
+      waistY !== undefined &&
+      hemY < waistY - 0.01
+    ) {
       // No torso-length body measure exists; scale the template length with the solved body height.
       const referenceCm =
         (template.nativeMeasures.length ?? lengthChart) * ((achievedCm.height ?? 165.9) / 165.9);
-      specs.push({ chartCm: lengthChart, referenceCm, anchor: [0, waistY, 0], hem: [0, hemY, 0] });
+      const chestY = planes?.planeY.chest;
+      const anchorY = chestY !== undefined && chestY > waistY ? chestY : waistY;
+      specs.push({
+        chartCm: lengthChart,
+        referenceCm,
+        anchor: [0, anchorY, 0],
+        hem: [0, hemY, 0],
+      });
     }
     if (template.kind === 'longsleeve' || template.kind === 'sweatshirt') {
       const sleeveChart = item.chart.sleeve?.[size];
@@ -166,4 +196,48 @@ export function buildLengthGrades(
     }
   }
   return specs;
+}
+
+export interface ChartFitInput {
+  def: GarmentTemplateDef;
+  item: StoreItemDef;
+  binding: GarmentBinding;
+  /** Grounded solved render positions of the body. */
+  body: ArrayLike<number>;
+  sections: GarmentSections;
+  achievedCm: Partial<Record<MeasureId, number>>;
+  planes: BodyPlanes | undefined;
+  joint: (name: string) => Vec3 | undefined;
+  tuckedHem?: boolean;
+}
+
+/**
+ * The garment's shape for one chart size on the solved body, before layering: proxy binding (`rest`), girth grading
+ * (per-limb sections) and the chart-length passes (`graded`). Both buffers hold 3 floats per garment vertex.
+ */
+export function fitToChart(input: ChartFitInput, rest: Float32Array, graded: Float32Array): void {
+  const { def, item, binding, body, sections, achievedCm, planes } = input;
+  bindGarment(binding, def.scaleRefs, body, rest);
+  const rings = planes ? buildGradeRings(item, def, bodyCmFromSolve(achievedCm), planes) : [];
+  gradeGarment(rest, binding, body, rings, graded, sections);
+  const options: LengthGradeOptions = { tuckedHem: input.tuckedHem ?? false };
+  for (const spec of buildLengthGrades(item, def, achievedCm, planes, rest, input.joint, options))
+    gradeGarmentLength(graded, binding, body, spec, graded);
+}
+
+/** The body point every garment vertex is bound to (3 floats per vertex): the garment lies outside of it. */
+export function boundBodyPoints(
+  binding: GarmentBinding,
+  body: ArrayLike<number>,
+  out: Float32Array,
+): void {
+  const { indices, weights } = binding;
+  for (let v = 0; v < binding.count; v++) {
+    for (let k = 0; k < 3; k++) {
+      out[v * 3 + k] =
+        weights[v * 3]! * body[indices[v * 3]! * 3 + k]! +
+        weights[v * 3 + 1]! * body[indices[v * 3 + 1]! * 3 + k]! +
+        weights[v * 3 + 2]! * body[indices[v * 3 + 2]! * 3 + k]!;
+    }
+  }
 }
