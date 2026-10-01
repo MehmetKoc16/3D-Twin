@@ -35,6 +35,12 @@ POSE_SIGMA = {  # prior std-dev (rad) of each bone's local rotation
     "thigh_l": 0.3, "thigh_r": 0.3, "calf_l": 0.25, "calf_r": 0.25, "foot_l": 0.2, "foot_r": 0.2,
 }  # fmt: skip
 MACRO_FIT = ["gender", "muscle", "weight", "height"]
+# The point-to-nearest-point data term cannot see height (surfaces slide tangentially), so without a constraint the
+# macro/modifier solve drifts to a body several cm shorter than the scan. The fitted body's head-top to sole height is
+# therefore tied to the scan's height minus what hair adds above the skull; the scan's lowest point (sole of the shoe)
+# is the body's sole, so only the hair is subtracted here. twin_export.CLOTHING_ALLOWANCE_CM["height"] covers hair + sole.
+HAIR_M = 0.015
+HEIGHT_WEIGHT = 5.0  # weight of the height row, as a fraction of the summed correspondence weights
 
 
 @dataclass
@@ -111,6 +117,7 @@ class Fitter:
         bot = self.pts[:, 1].min()
         # height macro by bisection so the template height matches the scan (ignores hair and pose)
         target_h = top - bot
+        self.target_body_h = target_h - HAIR_M
 
         def height(hv: float) -> float:
             mc = dict(self.macro)
@@ -121,7 +128,7 @@ class Fitter:
         lo, hi = 0.0, 1.0
         for _ in range(24):
             mid = 0.5 * (lo + hi)
-            if height(mid) < target_h * 0.985:  # scan usually includes some hair
+            if height(mid) < self.target_body_h:
                 lo = mid
             else:
                 hi = mid
@@ -286,10 +293,16 @@ class Fitter:
             ntot = Aall.shape[2]
             r = (tgt - mp) * sw_
             Aw = (Aall * sw_[:, :, None]).reshape(-1, ntot)
+            # height row: (top vertex y - sole vertex y) of the rest body equals the target body height
+            it, ib = int(np.argmax(mp[:, 1])), int(np.argmin(mp[:, 1]))
+            sh = np.sqrt(HEIGHT_WEIGHT * float(np.sum(w)))
+            Ah = (Aall[it, 1, :] - Aall[ib, 1, :]) * sh
+            rh = (self.target_body_h - (mp[it, 1] - mp[ib, 1])) * sh
+            Aw = np.vstack([Aw, Ah[None, :]])
             AtA = Aw.T @ Aw
             diag = np.concatenate([np.full(ncols, ridge), np.full(len(mvars), ridge * 0.02)]) * np.trace(AtA[:ncols, :ncols]) / ncols
             H = AtA + np.diag(diag)
-            g = Aw.T @ r.reshape(-1)
+            g = Aw.T @ np.concatenate([r.reshape(-1), [rh]])
             L = np.linalg.cholesky(H)
             rhs = np.linalg.solve(L, g)
             ub = np.concatenate([self.zmax, np.full(len(mvars), 3.0)])
@@ -297,6 +310,8 @@ class Fitter:
             self.z = res.x[:ncols]
             for (k, sgn), a in zip(mvars, res.x[ncols:]):
                 self.macro[k] = float(np.clip(self.macro[k] + sgn * h * a, 0.0, 1.0))
+        bp = self.shape_positions()[: m.nr]
+        log(f"  body height {bp[:, 1].max() - bp[:, 1].min():.3f} m (target {self.target_body_h:.3f})")
         mask = w > 0
         self.stats["shape_rms_cm"] = float(np.sqrt(np.sum(w * d**2) / max(np.sum(w), 1e-9)) * 100)
         self.stats["shape_coverage"] = float(mask.mean())
@@ -310,7 +325,7 @@ class Fitter:
         for gi, (gate, ridge) in enumerate(schedule):
             pos = self.shape_positions()
             self.update_pose(pos, gate)
-            self.update_shape(gate, ridge, macro_iters=2 if gi < 5 else 1)
+            self.update_shape(gate, ridge, macro_iters=2)
             pos = self.shape_positions()
             vp = self.posed_vertices(pos)
             d, _ = self.tree.query(vp)
