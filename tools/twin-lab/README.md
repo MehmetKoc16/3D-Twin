@@ -26,6 +26,84 @@ Local-only artefacts (venvs, cloned third-party repos, model weights, run output
    user outputs anywhere in the repo outside `user-data/` or a git-ignored `outputs/` folder.
 5. No face processing outside the local machine (same rule as the web app: `AGENTS.md`, "Privacy rule").
 
+## Usage: one-command pipeline and single-file bundle
+
+Run from the repository root (the launcher itself needs only the Python standard library):
+
+```powershell
+python tools/twin-lab/run_all.py --input-dir user-data/twin --out-dir user-data/twin/out --height-cm 178
+python tools/twin-lab/run_all.py --dry-run
+python tools/twin-lab/run_all.py --from-stage texture --to-stage bundle --force
+# Package existing rig outputs without rerunning reconstruction:
+python tools/twin-lab/run_all.py --from-stage bundle
+```
+
+The order is **shape -> texture -> refine (when installed) -> rig -> bundle**. Each stage uses
+its own `<stage>/.venv/Scripts/python.exe` on Windows or `<stage>/.venv/bin/python` on Unix.
+Set up shape, texture and rig using their instructions above / their READMEs. Bundle uses
+`bundle/.venv` when present, otherwise `rig/.venv`. Install its pinned dependencies once:
+
+```powershell
+tools/twin-lab/rig/.venv/Scripts/python.exe -m pip install -r tools/twin-lab/bundle/requirements.txt
+```
+
+Alternatively create `tools/twin-lab/bundle/.venv` and install the same requirements there.
+For tests in that environment, also install `pytest==9.1.1`. The rig environment
+already includes pytest; when using it for bundle dependencies, run:
+
+```powershell
+tools/twin-lab/rig/.venv/Scripts/python.exe -m pytest tools/twin-lab/bundle/tests -p no:cacheprovider
+```
+
+`front.png` is required. Existing `back.png`, `left.png`, and `right.png` beside it are
+passed automatically to shape (`--variant auto` selects multi-view) and texture. Outputs
+are placed under `<out-dir>/{shape,texture,refine,rig}/`, followed by `<out-dir>/twin.glb`.
+Refine is optional: when `refine/refine.py` exists, its expected CLI is
+`refine/.venv/Scripts/python.exe refine/refine.py --in <textured.glb> --out <refined.glb>`.
+It must preserve embedded texture/UVs and write the specified GLB. When absent, rig
+receives `texture/textured.glb`. See the refine stage's own README when installed.
+
+`--from-stage` / `--to-stage` select an inclusive range from `shape`, `texture`, `refine`,
+`rig`, `bundle`; earlier-stage inputs must already exist. `--dry-run` prints commands
+without running stages, creating files, or requiring their environments. `--force`
+rebuilds the selected stages. Otherwise a stage is skipped when all required outputs
+are newer than all inputs and local stage code; `<out-dir>/logs/<stage>.state.json`
+also detects changed commands/settings (including height and available views) after
+the first managed run. Pre-existing outputs without a state file use timestamp checks;
+shape also checks the height and view set recorded in its `meta.json`.
+An upstream rebuild causes downstream selected stages to rerun. Failed stages invalidate
+their state and stop the pipeline. Per-stage logs are overwritten at
+`<out-dir>/logs/<stage>.log`; the terminal shows stage labels and elapsed times.
+Personal inputs and all their outputs must remain under `user-data/`.
+
+The bundler can also run directly:
+
+```powershell
+tools/twin-lab/rig/.venv/Scripts/python.exe tools/twin-lab/bundle/write_twin_glb.py --rigged user-data/twin/out/rig/rigged.glb --twin user-data/twin/out/rig/twin.json --mh2twin user-data/twin/out/rig/mh2twin.bin --out user-data/twin/out/twin.glb --shape Hunyuan3D-2 --license "Tencent Hunyuan 3D 2.0 Community License"
+```
+
+Optional `--texture <image>` overrides only skin-colour sampling; the GLB's embedded
+baseColor texture remains unchanged. Without it, sampling uses that embedded texture.
+The colour is the per-channel median of distinct texels at vertices whose
+`lowerarm_l` or `lowerarm_r` weight exceeds 0.5, with glTF's top-left UV origin and
+sampler wrapping. Transparent texels, luminance <=20 / >=235, and the remaining
+5th/95th percentile luminance tails are excluded. No usable samples is an error.
+Direct invocation defaults provenance shape/license to `unspecified`; set them for
+your actual source. The full pipeline records Hunyuan provenance and its community
+license; bundling does not change that license's local-use restrictions described below.
+
+The single-file contract is `asset.extras.dtTwin` with `version: 1`, the full input
+`twin` object, `skinToneHex`, `provenance {shape, license, createdAt}`, and
+`mh2twin {bufferView, count, componentType: "uint32"}`. The mapping buffer view is
+four-byte aligned inside the GLB BIN chunk, contains exactly `count * 4` bytes of
+little-endian uint32 data, and has no accessor or GPU target. The web loader must
+read it using that buffer view's byte offset **relative to the BIN chunk**, not the
+whole file, and use the embedded twin object instead of following its legacy
+`glb` / `mapping.file` names. Mesh, skeleton, texture, unknown extensions and other
+extras are preserved. A single skinned primitive matching `rig.json` is required.
+The writer re-reads and validates the completed bundle before atomically replacing
+the destination. Its CLI reports only file size and validation status.
+
 ## Shape stage (`shape/`)
 
 Pipeline: background removal (rembg `u2net_human_seg`, Apache-2.0) -> **Hunyuan3D-2mini** (0.6 B, fits 6 GB) shape
@@ -188,3 +266,21 @@ person, same pose, same A-pose, same framing height); pass them as `--front/--le
   into the neck; Hunyuan geometry stays a low-frequency proxy.
 - Fix the fit mismatch at the silhouette by warping the photo onto the mesh silhouette (2D flow) before texture baking.
 - UVs are not created here (texture stage: xatlas or similar).
+
+## Shape on Colab (licence-clean)
+
+The user-operated [TRELLIS.2 Colab notebook](colab/trellis2_shape.ipynb) targets Colab Pro
+**L4 (24 GB)** or preferably **A100**, with a top parameter cell and **Runtime → Run all**.
+T4 (16 GB) is unsupported. Microsoft's code/4B weights are MIT; research found that its
+required DINOv3 encoder has separate custom terms, so the complete pipeline cannot be
+called permissive-only. The notebook requires acknowledging that caveat, replaces BRIA's
+noncommercial background remover and avoids NVIDIA's noncommercial PBR exporter.
+See [setup, licences and limitations](colab/README.md) before running.
+
+Only front conditions the shape; optional back/left/right views get camera fits. The
+download contains `mesh.glb`, `meta.json` and cutouts/masks in our existing convention.
+Save them under `user-data/twin/out/shape/` and use [check_meta.py](colab/check_meta.py)
+to validate them. This requested Colab workflow is an explicit exception to the local-only
+privacy rules above: you upload images yourself to Google's session VM; no Drive is mounted,
+and automatic cleanup removes uploaded images and derived outputs after download transfer.
+Disconnect and delete the runtime afterwards. Colab inference has not been tested here.
