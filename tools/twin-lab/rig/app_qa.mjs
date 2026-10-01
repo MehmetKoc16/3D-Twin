@@ -1,9 +1,10 @@
 // Visual QA of a twin package inside the web app (poses, zoom presets, wardrobe over the twin), with Playwright.
 //
 //   npm run dev -w @dt/web            # in another terminal (http://localhost:5173)
-//   node tools/twin-lab/rig/app_qa.mjs <twinDir> <outDir> [--tag=twin] [--url=http://localhost:5173] [--no-wardrobe] [--standin]
+//   node tools/twin-lab/rig/app_qa.mjs <twinDir> <outDir> [--tag=twin] [--url=http://localhost:5173] [--no-wardrobe] [--standin] [--legacy]
 //
-// <twinDir> holds rigged.glb, twin.json (+ mh2twin.bin). PRIVACY: for a real person keep <twinDir> and <outDir> under
+// Prefer ../twin.glb or twin.glb; --legacy picks rigged.glb, twin.json (+ mh2twin.bin) instead.
+// PRIVACY: for a real person keep <twinDir> and <outDir> under
 // user-data/ (git-ignored), e.g. user-data/twin/out/rig -> user-data/twin/out/app. The files are handed to the app's
 // file input like a user pick; nothing is uploaded (the script fails if the page makes a POST / PUT request).
 import { existsSync, mkdirSync } from 'node:fs';
@@ -28,7 +29,9 @@ const flags = Object.fromEntries(
 );
 const [twinDir, outDir] = positional;
 if (!twinDir || !outDir)
-  throw new Error('usage: app_qa.mjs <twinDir> <outDir> [--tag=twin] [--url=...] [--no-wardrobe]');
+  throw new Error(
+    'usage: app_qa.mjs <twinDir> <outDir> [--tag=twin] [--url=...] [--no-wardrobe] [--legacy]',
+  );
 // The screenshots show the twin's likeness: like shape/generate.py, refuse to write them anywhere in the repo outside
 // user-data/ or a git-ignored .cache / outputs folder, unless the twin is the non-personal stand-in (--standin).
 const outRel = path.relative(repo, path.resolve(outDir));
@@ -41,11 +44,21 @@ if (outInsideRepo && !outIgnored && flags.standin === undefined)
     `refusing to write personal screenshots to tracked path ${outRel} (use user-data/..., or --standin for the stand-in)`,
   );
 const tag = flags.tag ?? 'twin';
+// A tag is a filename prefix, never a path: screenshots must stay inside the supplied outDir.
+if (!/^[a-zA-Z0-9_-]+$/.test(tag)) throw new Error('tag must contain only letters, digits, _ or -');
 const url = flags.url ?? 'http://localhost:5173';
 mkdirSync(outDir, { recursive: true });
-const files = ['rigged.glb', 'twin.json', 'mh2twin.bin']
-  .map((f) => path.resolve(twinDir, f))
-  .filter((f) => existsSync(f));
+const bundle =
+  flags.legacy === undefined
+    ? [path.resolve(twinDir, '../twin.glb'), path.resolve(twinDir, 'twin.glb')].find(existsSync)
+    : undefined;
+const files = bundle
+  ? [bundle]
+  : ['rigged.glb', 'twin.json', 'mh2twin.bin']
+      .map((f) => path.resolve(twinDir, f))
+      .filter((f) => existsSync(f));
+if (!bundle && !['rigged.glb', 'twin.json'].every((f) => existsSync(path.resolve(twinDir, f))))
+  throw new Error('no twin bundle or complete legacy package found');
 
 const browser = await chromium.launch({ channel: 'chrome' });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

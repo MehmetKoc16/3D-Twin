@@ -17,6 +17,8 @@ import { pushInPositions, pushInWeights } from './twinPushIn';
 import { coveredBodyVertices } from '../wardrobe/bodyHide';
 import { restAlignment, translatePositions, type RestAlignment } from './twinBinding';
 import type { TwinModel } from './twinModel';
+import { resolveSkinTone } from './twinSkinTone';
+import { TwinOpeningRepair } from './twinOpeningRepair';
 import {
   compactTwinIndex,
   hiddenTwinVertices,
@@ -67,6 +69,7 @@ export class TwinRig {
   private hiddenTriangles = 0;
   private disposed = false;
   private readonly hands: TwinHands;
+  private readonly openingRepair: TwinOpeningRepair;
   private readonly rest: Float32Array;
   private handMask: Uint8Array;
   private readonly offWardrobe: () => void;
@@ -88,7 +91,10 @@ export class TwinRig {
     private readonly model: TwinModel,
     private readonly mapping: Uint32Array | null,
     private readonly onInfo: (info: TwinRuntimeInfo) => void = () => undefined,
-    skinToneHex = `#${model.material.color.getHexString()}`,
+    skinToneHex = resolveSkinTone(
+      model,
+      assets.skeleton.bones.map((bone) => bone.name),
+    ),
   ) {
     this.bodyGeometry = assets.mesh.geometry;
     this.bodyVertexCount = this.bodyGeometry.getAttribute('position').count;
@@ -99,6 +105,7 @@ export class TwinRig {
     this.handMask = new Uint8Array(model.vertexCount);
     this.pushWeights = new Float32Array(model.vertexCount);
     this.hands = new TwinHands(assets, skinToneHex);
+    this.openingRepair = new TwinOpeningRepair(model.material, model.uv, skinToneHex);
     // Wardrobe refreshes in its synchronous subscriber first; this also catches size/colour changes without a new index.
     this.offWardrobe = useWardrobeStore.subscribe((state, previous) => {
       if (state.worn !== previous.worn || state.items !== previous.items)
@@ -223,6 +230,7 @@ export class TwinRig {
         any = true;
       }
     }
+    this.openingRepair.update(this.rest, this.model.index, hidden, this.alignment ? surfaces : []);
     this.pushWeights = pushInWeights(this.rest, hidden);
     pushInPositions(
       this.rest,
@@ -335,6 +343,8 @@ export class TwinRig {
       handsVisible: (): boolean => this.hands.mesh.visible,
       handColor: (): string =>
         `#${(this.hands.mesh.material as import('three').MeshStandardMaterial).color.getHexString()}`,
+      repairedTexels: (): number => this.openingRepair.painted,
+      originalTexture: (): boolean => this.openingRepair.originalTexture,
       handVertices: (): number[][] => {
         const out: number[][] = [];
         for (let i = 0; i < this.hands.mesh.geometry.getAttribute('position').count; i++) {
@@ -384,6 +394,7 @@ export class TwinRig {
     this.offWardrobe();
     this.surfaceCache.clear();
     this.hands.dispose();
+    this.openingRepair.restore();
     Reflect.deleteProperty(this.bodyGeometry, 'setIndex'); // back to the prototype method
     this.assets.mesh.visible = this.bodyWasVisible;
     this.mesh.removeFromParent();

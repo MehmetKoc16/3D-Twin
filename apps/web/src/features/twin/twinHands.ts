@@ -58,7 +58,7 @@ export class TwinHands {
     private readonly assets: AvatarAssets,
     skinToneHex: string,
   ) {
-    this.material = new MeshStandardMaterial({ color: skinToneHex, roughness: 0.88, metalness: 0 });
+    this.material = new MeshStandardMaterial({ color: skinToneHex, roughness: 0.6, metalness: 0 });
     this.mesh = new SkinnedMesh(this.geometry, this.material);
     this.mesh.name = 'twin:hands';
     this.mesh.visible = false;

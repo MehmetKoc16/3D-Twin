@@ -17,6 +17,8 @@ interface TwinProbe {
   handTriangles: () => number;
   handsVisible: () => boolean;
   handColor: () => string;
+  repairedTexels: () => number;
+  originalTexture: () => boolean;
   fingerVertices: () => number[][];
   pushDistances: () => number[];
   restPositions: () => number[];
@@ -111,6 +113,8 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
     .toBe(true);
   expect(await page.evaluate(() => window.__dtTwin!.bodyVisible())).toBe(false); // the MakeHuman body is solved but hidden
   expect(await page.evaluate(() => window.__dtTwin!.handsVisible())).toBe(true);
+  expect(await page.evaluate(() => window.__dtTwin!.repairedTexels())).toBe(0);
+  expect(await page.evaluate(() => window.__dtTwin!.originalTexture())).toBe(true);
   expect(await page.evaluate(() => window.__dtTwin!.handTriangles())).toBeGreaterThan(100);
   expect(await page.evaluate(() => window.__dtTwin!.handColor())).toBe('#d6a489');
   const handHidden = await page.evaluate(() => window.__dtTwin!.hiddenTriangles());
@@ -216,6 +220,8 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
   expect(push.filter((d) => d > 0).length).toBeGreaterThan(100);
   expect(push.some((d) => d > 0 && d < 0.008)).toBe(true); // smooth margin around neckline and waistband
   expect(await page.evaluate(() => window.__dtTwin!.handsVisible())).toBe(true);
+  expect(await page.evaluate(() => window.__dtTwin!.repairedTexels())).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__dtTwin!.originalTexture())).toBe(false);
   await page.getByRole('tab', { name: 'Gerçekçi ikiz', exact: true }).click();
   await expect(page.getByTestId('twin-runtime')).toHaveAttribute(
     'data-hidden',
@@ -240,6 +246,8 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
     true,
   );
   expect(await page.evaluate(() => window.__dtTwin!.restPositions())).toEqual(undressedPositions);
+  expect(await page.evaluate(() => window.__dtTwin!.repairedTexels())).toBe(0);
+  expect(await page.evaluate(() => window.__dtTwin!.originalTexture())).toBe(true);
 
   // --- the twin survives a reload (IndexedDB, no upload) and is restored in twin mode
   await page.reload();
@@ -343,6 +351,10 @@ test('realistic twin: files that do not belong together are rejected, a missing 
   await expect
     .poll(() => page.evaluate(() => window.__dtTwin?.twinVisible() ?? false), { timeout: 60_000 })
     .toBe(true);
+  // Legacy packages have no skinToneHex: the forearm texture must provide the replacement hand colour.
+  const legacyTone = await page.evaluate(() => window.__dtTwin!.handColor());
+  expect(legacyTone).not.toBe('#ffffff');
+  expect(legacyTone).not.toBe('#c99a7e'); // confirms sampling, rather than the neutral unavailable-texture fallback
   await page.getByRole('tab', { name: 'Gardırop', exact: true }).click();
   await page.getByTestId('use-template-tshirt').click();
   await fill(page, 'form-name', 'Twin tişört');

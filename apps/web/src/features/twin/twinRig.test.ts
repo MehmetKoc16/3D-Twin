@@ -1,12 +1,22 @@
-import { describe, expect, it } from 'vitest';
-import { BufferAttribute, BufferGeometry, MeshBasicMaterial, SkinnedMesh } from 'three';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  BufferAttribute,
+  BufferGeometry,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  SkinnedMesh,
+} from 'three';
 import { filterBodyIndex, hiddenVertexMask } from '../wardrobe/bodyHide';
 import type { TwinRuntimeInfo } from '../../store/twinStore';
 import { bodyIndex, envelope, fakeAssets, fakeModel, mapping } from './twinTestkit';
 import { MAX_HEAD_RESIDUAL_M, TwinRig } from './twinRig';
+import { TwinOpeningRepair } from './twinOpeningRepair';
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('TwinRig', () => {
   it('pushes clothing coverage and its margin inward once, recomputes normals, and restores on take-off', () => {
+    const repairs = vi.spyOn(TwinOpeningRepair.prototype, 'update');
     const assets = fakeAssets();
     const model = fakeModel();
     for (let v = 0; v < model.vertexCount; v++) {
@@ -43,15 +53,28 @@ describe('TwinRig', () => {
     const first = Float32Array.from(position.array);
     const normals = rig.mesh.geometry.getAttribute('normal') as BufferAttribute;
     const normalVersion = normals.version;
+    const repairCount = repairs.mock.calls.length;
     (garment.getAttribute('position') as BufferAttribute).needsUpdate = true; // wardrobe uploads unchanged rest data
     rig.onSolve(envelope(true)); // cached: no accumulating shrink on repeated solves
     expect(position.array).toEqual(first);
     expect(normals.version).toBe(normalVersion); // avoids another footprint / push-in / normals pass
+    expect(repairs).toHaveBeenCalledTimes(repairCount); // no band/texel work for repeated solves or poses
     assets.scene.remove(mesh);
     assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1));
     expect(position.array).toEqual(original);
+    expect(repairs).toHaveBeenCalledTimes(repairCount + 1); // take-off restores the texture too
     rig.dispose();
     garment.dispose();
+  });
+  it('uses neutral matte skin for legacy twins without readable forearm texels', () => {
+    const assets = fakeAssets();
+    const rig = new TwinRig(assets, fakeModel(), null);
+    const hands = assets.scene.children.find((child) => child.name === 'twin:hands') as SkinnedMesh;
+    const material = hands.material as MeshStandardMaterial;
+    expect(material.color.getHexString()).toBe('c99a7e');
+    expect(material.roughness).toBe(0.6);
+    expect(material.metalness).toBe(0);
+    rig.dispose();
   });
   it('stays hidden and leaves the body visible until a fixed-shape solve aligns it', () => {
     const assets = fakeAssets();

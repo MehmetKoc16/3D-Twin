@@ -4,6 +4,7 @@ import { isTwinActive, useTwinStore, type TwinError, type TwinPack } from '../..
 import { MAX_HEAD_RESIDUAL_M, TwinRig } from './twinRig';
 import { loadTwinModel } from './twinModel';
 import { TwinFormatError, twinMacros } from './twinDef';
+import { resolveSkinTone } from './twinSkinTone';
 
 /** Body parts (eyes, brows, hair) are a standard-mode feature: the controller mounts them only in that mode. */
 export interface ModeParts {
@@ -112,7 +113,12 @@ export class TwinMode {
         model,
         pack.mapping,
         (info) => useTwinStore.getState().setRuntime(info),
-        pack.skinToneHex,
+        pack.skinToneHex ??
+          resolveSkinTone(
+            model,
+            this.assets.skeleton.bones.map((bone) => bone.name),
+            pack.glb,
+          ),
       );
       this.appliedRevision = state.revision;
       this.requestSolve();
