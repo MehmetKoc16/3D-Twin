@@ -2,9 +2,9 @@
 
 python rig_scan.py <scan.glb> <out_dir> [--keep-pose] [--smooth N]
 
-Writes <out_dir>/rigged.glb, rig_report.json, fitted_template.glb (debug: posed template). The GLB has our bone
-names, identity rest rotations (node translation only) and is in the MakeHuman A-pose rest frame, so
-apps/web/public/assets/poses/*.json apply unchanged.
+Writes <out_dir>/rigged.glb, rig_report.json, fitted_template.glb (debug: posed template) and the web-app package
+twin.json + mh2twin.bin (see twin_export.py). The GLB has our bone names, identity rest rotations (node translation
+only) and is in the MakeHuman A-pose rest frame, so apps/web/public/assets/poses/*.json apply unchanged.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import trimesh
 from glbio import GlbScene, Prim, read_glb, write_skinned_glb, write_static_glb
 from mh import MHModel
 from rigfit import Fitter, log, top4, transfer_weights
+from twin_export import canonicalize_fit, write_twin_package
 
 
 def main() -> None:
@@ -68,6 +69,9 @@ def main() -> None:
         res = Fitter(model, pts, nrm).run()
         with open(pkl, "wb") as fh:
             pickle.dump(res, fh)
+    # the browser rebuilds the body from the NET modifier values: continue with exactly that body (twin_export.py)
+    canonicalize_fit(model, res)
+    log(f"canonical fit: shape deviation from the raw fit {res.stats['canonical_shape_dev_mm']}")
 
     W, tstats = transfer_weights(model, res.posed_vertices, uverts, wm.faces, smooth_iters=args.smooth)
     if args.fingers == "merge":
@@ -136,6 +140,25 @@ def main() -> None:
     ]
     out_scene = GlbScene(prims_out, scene.materials, scene.textures, scene.samplers, scene.images)
     write_skinned_glb(os.path.join(args.out, "rigged.glb"), out_scene, joints, sj, sw)
+    if args.keep_pose:
+        log("--keep-pose: the mesh is not in the rest frame, twin.json / mh2twin.bin are not written")
+    elif len(prims_out) != 1:
+        raise SystemExit("twin.json export needs a single-primitive mesh (the app binds one SkinnedMesh)")
+    else:
+        opts = {"fingers": args.fingers, "cutBridges": args.cut_bridges, "smooth": args.smooth, "weights": args.weights}
+        twin = write_twin_package(
+            args.out,
+            model,
+            res,
+            prims_out[0].positions.astype(np.float64),
+            prims_out[0].normals.astype(np.float64) if prims_out[0].normals is not None else None,
+            float(shift[1]),
+            {"scan": os.path.basename(args.scan), "options": opts},
+        )
+        log(
+            f"twin.json: mapping {twin['fit']['mappingCm']} cm; body lowest vertex at y = "
+            f"{twin['fit']['bodyLowestYM'] * 100:.2f} cm (twin frame); measurements {twin['measurementsCm']}"
+        )
 
     dbg = Prim(res.posed_vertices.astype(np.float32), model.faces.astype(np.uint32), None, None, 0, "fitted_template")
     write_static_glb(os.path.join(args.out, "fitted_template.glb"), GlbScene([dbg]))

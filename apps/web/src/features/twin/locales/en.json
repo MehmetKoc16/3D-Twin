@@ -1,0 +1,63 @@
+{
+  "tab": "Realistic twin",
+  "model": {
+    "label": "Model",
+    "standard": "Standard mannequin",
+    "twin": "My realistic twin",
+    "needFiles": "To show the realistic twin, first pick your files in the “Realistic twin” tab.",
+    "twinActive": "Showing the realistic twin: poses, camera and wardrobe use the same skeleton."
+  },
+  "panel": {
+    "title": "Realistic twin",
+    "description": "Show your rigged 3D scan, generated locally from your own photos, instead of the standard mannequin. Poses, zoom and the wardrobe work as usual.",
+    "privacy": "Privacy: the files are kept only in this browser (IndexedDB); they are never uploaded and never part of the app. You can remove them at any time.",
+    "pick": "Choose files",
+    "pickHint": "Pick rigged.glb and twin.json (optionally with mh2twin.bin) in one go. The files are in the output of tools/twin-lab/rig.",
+    "files": {
+      "glb": "Rigged scan (rigged.glb)",
+      "json": "Body data (twin.json)",
+      "mapping": "Mapping (mh2twin.bin)"
+    },
+    "notSelected": "not selected",
+    "optional": "optional",
+    "status": {
+      "empty": "No twin files yet.",
+      "partial": "Files are missing: rigged.glb and twin.json are both required.",
+      "ready": "Twin loaded.",
+      "error": "The twin could not be loaded."
+    },
+    "noMapping": "No mapping file: the wardrobe only hides the scan right under the fabric; with thick clothes the scan may show through.",
+    "stats": "{{vertices}} vertices · {{triangles}} triangles · hidden by the wardrobe: {{hidden}}",
+    "alignment": "Skeleton fit: at most {{residual}} mm apart",
+    "remove": "Remove twin",
+    "howTo": "To produce the files: python tools/twin-lab/rig/rig_scan.py <scan.glb> <output folder>"
+  },
+  "measures": {
+    "title": "Your twin's measurements",
+    "note": "These measurements come from the scan and are read-only. The estimated allowance for the clothes, hair and shoes in the scan is subtracted; the sliders only work in the standard model.",
+    "details": "Measurement details",
+    "person": "Twin",
+    "body": "Scan",
+    "allowance": "Allowance"
+  },
+  "notes": {
+    "face": "The face photo belongs to the standard mannequin. The realistic twin has its own face and hair; your face is applied again when you return to the standard model.",
+    "appearance": "Skin tone, hair, eyebrow and eye settings belong to the standard mannequin. The realistic twin uses its own texture."
+  },
+  "errors": {
+    "json": "twin.json is not a valid JSON file.",
+    "version": "This twin.json version is not supported.",
+    "bones": "The skeleton bones do not match the avatar's skeleton.",
+    "macros": "The macro values in twin.json are invalid.",
+    "modifiers": "The body adjustments in twin.json are invalid.",
+    "measurements": "The measurements in twin.json are invalid.",
+    "mapping": "The mapping file (mh2twin.bin) does not match the scan.",
+    "glb": "rigged.glb could not be read; pick a rigged GLB file.",
+    "noSkin": "The scan has no skeleton binding (skin).",
+    "rest": "The scan is not in the rest pose; use the output of rig_scan.py.",
+    "mismatch": "twin.json and rigged.glb do not seem to belong to the same scan.",
+    "shape": "The body shape could not be applied to the avatar.",
+    "files": "These files could not be read.",
+    "unknown": "An unexpected error occurred."
+  }
+}

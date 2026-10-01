@@ -1,0 +1,106 @@
+import { describe, expect, it } from 'vitest';
+import { BufferAttribute, BufferGeometry, MeshBasicMaterial, SkinnedMesh } from 'three';
+import { filterBodyIndex, hiddenVertexMask } from '../wardrobe/bodyHide';
+import type { TwinRuntimeInfo } from '../../store/twinStore';
+import { bodyIndex, envelope, fakeAssets, fakeModel, mapping } from './twinTestkit';
+import { MAX_HEAD_RESIDUAL_M, TwinRig } from './twinRig';
+
+describe('TwinRig', () => {
+  it('stays hidden and leaves the body visible until a fixed-shape solve aligns it', () => {
+    const assets = fakeAssets();
+    const rig = new TwinRig(assets, fakeModel(), mapping);
+    expect(rig.mesh.parent).toBe(assets.scene);
+    expect(rig.mesh.visible).toBe(false);
+    expect(assets.mesh.visible).toBe(true);
+    expect(rig.onSolve(envelope(false))).toBeNull(); // a stale standard solve is ignored
+    expect(rig.mesh.visible).toBe(false);
+    const alignment = rig.onSolve(envelope(true));
+    expect(alignment?.maxResidual).toBeLessThan(1e-6);
+    expect(rig.mesh.visible).toBe(true);
+    expect(assets.mesh.visible).toBe(false);
+    rig.dispose();
+    expect(assets.mesh.visible).toBe(true);
+    expect(rig.mesh.parent).toBeNull();
+  });
+
+  it('translates the twin onto the avatar rest heads', () => {
+    const assets = fakeAssets();
+    const rig = new TwinRig(assets, fakeModel(0.013), mapping); // the twin frame is 1.3 cm lower
+    const alignment = rig.onSolve(envelope(true))!;
+    expect(alignment.offset[1]).toBeCloseTo(0.013, 6);
+    const position = rig.mesh.geometry.getAttribute('position');
+    expect(position.getY(0)).toBeCloseTo(1 + 0.013, 5);
+    rig.dispose();
+  });
+
+  it('does not show files whose skeleton does not match', () => {
+    const assets = fakeAssets();
+    const rig = new TwinRig(assets, fakeModel(), mapping);
+    const alignment = rig.onSolve(envelope(true, 0.2))!; // still a pure translation: aligned
+    expect(alignment.maxResidual).toBeLessThan(MAX_HEAD_RESIDUAL_M);
+    const foreign = envelope(true);
+    foreign.result.joints[1 * 6 + 1] = 5; // one bone far away
+    const rig2 = new TwinRig(fakeAssets(), fakeModel(), mapping);
+    expect(rig2.onSolve(foreign)!.maxResidual).toBeGreaterThan(MAX_HEAD_RESIDUAL_M);
+    expect(rig2.mesh.visible).toBe(false);
+    rig.dispose();
+    rig2.dispose();
+  });
+
+  it('follows the index the wardrobe assigns to the body and restores everything on dispose', () => {
+    const assets = fakeAssets();
+    const info: TwinRuntimeInfo[] = [];
+    const rig = new TwinRig(assets, fakeModel(), mapping, (i) => info.push(i));
+    rig.onSolve(envelope(true));
+    const drawn = () => rig.mesh.geometry.drawRange.count / 3;
+    expect(drawn()).toBe(5);
+    // the wardrobe hides body vertices 0..7 (delete list): body triangles of quads 0-2 go
+    const mask = hiddenVertexMask([Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7])], 10);
+    assets.mesh.geometry.setIndex(new BufferAttribute(filterBodyIndex(bodyIndex, mask), 1));
+    // (0,1,5), (1,2,6), (4,5,6) map onto body vertices left without any triangle
+    expect(drawn()).toBe(2);
+    expect(info.at(-1)?.hiddenTriangles).toBe(3);
+    expect(info.at(-1)?.triangles).toBe(5);
+    // taking the garment off restores every twin triangle
+    assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1));
+    expect(drawn()).toBe(5);
+    assets.mesh.geometry.setIndex(new BufferAttribute(filterBodyIndex(bodyIndex, mask), 1));
+    expect(drawn()).toBe(2);
+    rig.dispose();
+    // the shadowing setIndex is gone again, the body geometry is plain three.js
+    expect(Object.prototype.hasOwnProperty.call(assets.mesh.geometry, 'setIndex')).toBe(false);
+    assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1));
+  });
+
+  it('hides twin triangles under a worn garment surface even without a mapping', () => {
+    const assets = fakeAssets();
+    const rig = new TwinRig(assets, fakeModel(), null);
+    rig.onSolve(envelope(true));
+    expect(rig.mesh.geometry.drawRange.count / 3).toBe(5);
+    // a garment mesh as the wardrobe mounts it: a big triangle in the plane of the twin, a few mm in front of it
+    const garment = new BufferGeometry();
+    garment.setAttribute(
+      'position',
+      new BufferAttribute(Float32Array.from([-1, 0.5, 0.004, 3, 0.5, 0.004, 1, 2.5, 0.004]), 3),
+    );
+    garment.setIndex(new BufferAttribute(Uint32Array.from([0, 1, 2]), 1));
+    const mesh = new SkinnedMesh(garment, new MeshBasicMaterial());
+    mesh.name = 'garment:test';
+    assets.scene.add(mesh);
+    assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1)); // the wardrobe reports a change
+    expect(rig.mesh.geometry.drawRange.count).toBe(0); // every twin vertex lies under the garment
+    assets.scene.remove(mesh);
+    assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1));
+    expect(rig.mesh.geometry.drawRange.count / 3).toBe(5);
+    rig.dispose();
+  });
+
+  it('rejects a mapping that does not fit the twin or the body', () => {
+    expect(() => new TwinRig(fakeAssets(), fakeModel(), Uint32Array.from([0, 1]))).toThrow(
+      /entries/,
+    );
+    expect(
+      () => new TwinRig(fakeAssets(), fakeModel(), Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 99])),
+    ).toThrow(/outside the body/);
+  });
+});

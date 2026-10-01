@@ -1,7 +1,7 @@
 # twin-lab / rig - make a scan mesh riggable with OUR rig
 
 Input: an untextured or textured humanoid mesh (GLB, +Y up, facing +Z, feet on y=0, metres, roughly A-pose).
-Output: `rigged.glb` = the same mesh (materials/UVs/texture kept) skinned to our 53-bone MakeHuman rig with the
+Output: `rigged.glb` (+ `twin.json` and `mh2twin.bin` for the web app, see "Web app package") = the same mesh (materials/UVs/texture kept) skinned to our 53-bone MakeHuman rig with the
 identical bone names, world-aligned identity rest rotations (node translation only) and the exact MakeHuman A-pose
 rest frame, so `apps/web/public/assets/poses/*.json` and `PoseDriver` work unchanged (ADR 0004).
 
@@ -10,7 +10,7 @@ Nothing in here is committed data: `.venv/`, `.cache/` are ignored, personal out
 ## Setup (Windows, Python 3.12)
 
     python -m venv .venv
-    .venv/Scripts/python -m pip install numpy scipy trimesh pillow
+    .venv/Scripts/python -m pip install numpy scipy trimesh pillow pytest
 
 Pure CPU, no GPU, no Blender, no bpy. Node scripts use the repo's `three` and `playwright` (chromium, software GL).
 
@@ -18,6 +18,7 @@ Pure CPU, no GPU, no Blender, no bpy. Node scripts use the repo's `three` and `p
 
     # non-personal stand-in (MakeHuman body, other shape/pose, re-meshed, noise) + ground truth
     .venv/Scripts/python make_standin.py                       # -> .cache/standin/mesh.glb, truth.json
+    .venv/Scripts/python make_standin.py --textured            # keeps the render mesh + UVs, synthetic texture (web app fixture)
     .venv/Scripts/python rig_scan.py .cache/standin/mesh.glb .cache/standin_out
     .venv/Scripts/python eval_standin.py                       # rest-joint error vs ground truth
 
@@ -26,8 +27,40 @@ Pure CPU, no GPU, no Blender, no bpy. Node scripts use the repo's `three` and `p
     node check_pose.mjs  <out>/rigged.glb --json=<out>/check.json      # headless three.js sanity + edge stretch
     node render_preview.mjs <out>/rigged.glb <out>/previews name       # t-pose / walk / hips PNG sheets
 
+    # the web app on a twin package (dev server running: npm run dev -w @dt/web)
+    node app_qa.mjs ../../../user-data/twin/out/rig ../../../user-data/twin/out/app --tag=twin   # poses, zoom, tee + jeans + sneakers
+
+    .venv/Scripts/python -m pytest                             # tests/: twin_export (measures, canonical fit, mapping, twin.json)
+
 Options of `rig_scan.py`: `--weights transfer|geodesic` (geodesic = geometry-only baseline for comparison),
 `--keep-pose` (do not unpose to the template A-pose; T-pose then no longer matches the pose JSONs), `--smooth N`.
+
+## Web app package (`twin.json`, `mh2twin.bin`)
+
+`rig_scan.py` also writes, next to `rigged.glb`, what the web app's "Realistic twin" mode needs (`twin_export.py`; format
+and the runtime in `docs/ARCHITECTURE.md`, "Realistic twin"). The three files are picked in the app's twin tab and stay in
+the browser; for a real person they live in `user-data/` only.
+
+- `twin.json`: `fittedMacros` / `fittedModifiers` (the fitted MakeHuman body, net modifier values), `measurementsCm`
+  (measured on that body with the avatar-core definitions of `measures.json`, minus `clothingAllowanceCm`: what the
+  scan's fitted T-shirt, jeans, sneakers and hair add - height 3, neck 0.5, shoulder 1, chest 3, waist 3, hip 2.5, thigh 2,
+  upper arm 2.5, arm length 0, inseam 2.5, foot 2.5 cm; estimates, edit the file if you know better), the raw values,
+  `boneOrder`, `restHeadsM` and fit numbers.
+- `mh2twin.bin`: uint32 little endian per rigged.glb vertex = nearest MakeHuman render vertex (12 candidates, opposing
+  normals penalised). The app hides twin triangles under a worn garment with it (plus a footprint pass).
+- Canonical fit: the fitter uses an incr and a decr column per modifier, avatar-core the net value. After the fit (and
+  after `--reuse-fit`) `canonicalize_fit` rebuilds the rest body from the net values rounded to 6 decimals, so the browser
+  reproduces the very skeleton the glb was rigged with (rest heads agree to < 2e-5 m in the web tests). This moves the
+  fitted surface by 0.6 mm on average (up to ~1 cm at single vertices) and is applied before the weight transfer.
+- Not written with `--keep-pose` (the mesh is not in the rest frame then).
+
+## App QA notes (real twin, local only)
+
+`app_qa.mjs` loads a package into the running web app like a user would and writes PNGs of poses, zoom presets and the
+scan under a T-shirt, jeans and sneakers. What to expect: the MakeHuman garments line up with the scan's torso, legs and
+feet and hide it under them; the scan's own clothes remain where the new garment does not reach (collar, sleeve stubs,
+waistband); scans whose arms touch the torso keep a thin web at the armpit in the T-pose. Nude or minimal-clothing input
+views would fix the first, a different arm pose in the input views (A-pose, arms away from the body) the second.
 
 ## Method (approach B, recommended)
 

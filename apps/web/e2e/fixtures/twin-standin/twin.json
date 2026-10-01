@@ -1,0 +1,480 @@
+{
+ "version": 1,
+ "generator": "dijital-ikiz twin-lab rig",
+ "glb": "rigged.glb",
+ "source": {
+  "scan": "mesh.glb",
+  "options": {
+   "fingers": "keep",
+   "cutBridges": false,
+   "smooth": 6,
+   "weights": "transfer"
+  }
+ },
+ "mapping": {
+  "file": "mh2twin.bin",
+  "format": "uint32le",
+  "twinVertexCount": 14517,
+  "renderVertexCount": 14517
+ },
+ "boneOrder": [
+  "Root",
+  "pelvis",
+  "spine_01",
+  "spine_02",
+  "spine_03",
+  "clavicle_l",
+  "upperarm_l",
+  "lowerarm_l",
+  "hand_l",
+  "index_01_l",
+  "index_02_l",
+  "index_03_l",
+  "middle_01_l",
+  "middle_02_l",
+  "middle_03_l",
+  "pinky_01_l",
+  "pinky_02_l",
+  "pinky_03_l",
+  "ring_01_l",
+  "ring_02_l",
+  "ring_03_l",
+  "thumb_01_l",
+  "thumb_02_l",
+  "thumb_03_l",
+  "clavicle_r",
+  "upperarm_r",
+  "lowerarm_r",
+  "hand_r",
+  "index_01_r",
+  "index_02_r",
+  "index_03_r",
+  "middle_01_r",
+  "middle_02_r",
+  "middle_03_r",
+  "pinky_01_r",
+  "pinky_02_r",
+  "pinky_03_r",
+  "ring_01_r",
+  "ring_02_r",
+  "ring_03_r",
+  "thumb_01_r",
+  "thumb_02_r",
+  "thumb_03_r",
+  "neck_01",
+  "head",
+  "thigh_l",
+  "calf_l",
+  "foot_l",
+  "ball_l",
+  "thigh_r",
+  "calf_r",
+  "foot_r",
+  "ball_r"
+ ],
+ "fittedMacros": {
+  "gender": 0.601397,
+  "muscle": 0.617416,
+  "weight": 0.888528,
+  "height": 0.552427
+ },
+ "fittedModifiers": {
+  "armslegs/foot-scale": 0.066766,
+  "armslegs/foot-scale-depth": -0.003496,
+  "armslegs/foot-scale-horiz": -0.016749,
+  "armslegs/foot-scale-vert": 0.122007,
+  "armslegs/hand-scale": -0.440878,
+  "armslegs/lowerarm-fat": 0.054104,
+  "armslegs/lowerarm-muscle": 0.090326,
+  "armslegs/lowerarm-scale-depth": -0.088002,
+  "armslegs/lowerarm-scale-horiz": -0.112076,
+  "armslegs/lowerarm-scale-vert": -0.113893,
+  "armslegs/lowerleg-fat": -0.028078,
+  "armslegs/lowerleg-muscle": -0.013391,
+  "armslegs/lowerleg-scale-depth": -0.030513,
+  "armslegs/lowerleg-scale-horiz": -0.000983,
+  "armslegs/lowerlegs-height": 0.034974,
+  "armslegs/upperarm-fat": -0.02829,
+  "armslegs/upperarm-muscle": 0.041383,
+  "armslegs/upperarm-scale-depth": -0.004334,
+  "armslegs/upperarm-scale-horiz": 0.160577,
+  "armslegs/upperarm-scale-vert": 0.044589,
+  "armslegs/upperarm-shoulder-muscle": 0.231056,
+  "armslegs/upperleg-fat": 0.067984,
+  "armslegs/upperleg-muscle": -0.026423,
+  "armslegs/upperleg-scale-depth": -0.010478,
+  "armslegs/upperleg-scale-horiz": 0.007984,
+  "armslegs/upperleg-scale-vert": 0.029641,
+  "breast/breast-dist": -0.000446,
+  "breast/breast-point": -0.180609,
+  "breast/breast-trans": -0.008776,
+  "breast/breast-volume-vert": 0.000863,
+  "buttocks/buttocks-volume": -0.118315,
+  "head/head-fat": -0.022652,
+  "head/head-scale-depth": 0.117246,
+  "head/head-scale-horiz": 0.009977,
+  "head/head-scale-vert": 0.057578,
+  "hip/hip-scale-depth": -0.030695,
+  "hip/hip-scale-horiz": -0.226009,
+  "hip/hip-scale-vert": 0.000887,
+  "hip/hip-waist": 0.01468,
+  "measure/measure-ankle-circ": -0.054402,
+  "measure/measure-bust-circ": 0.035037,
+  "measure/measure-calf-circ": -0.033019,
+  "measure/measure-frontchest-dist": 0.003512,
+  "measure/measure-hips-circ": -0.102774,
+  "measure/measure-knee-circ": 0.003041,
+  "measure/measure-lowerarm-length": 0.129331,
+  "measure/measure-lowerleg-height": 0.034974,
+  "measure/measure-napetowaist-dist": 0.008564,
+  "measure/measure-neck-circ": 0.084227,
+  "measure/measure-neck-height": 0.037599,
+  "measure/measure-shoulder-dist": -0.033029,
+  "measure/measure-thigh-circ": -0.018439,
+  "measure/measure-underbust-circ": -0.041346,
+  "measure/measure-upperarm-circ": -0.206329,
+  "measure/measure-upperarm-length": -0.091686,
+  "measure/measure-waist-circ": 0.358603,
+  "measure/measure-waisttohip-dist": 0.043289,
+  "measure/measure-wrist-circ": 0.084922,
+  "neck/neck-double": -0.024669,
+  "neck/neck-scale-depth": 0.027035,
+  "neck/neck-scale-horiz": 0.049796,
+  "neck/neck-scale-vert": 0.0514,
+  "pelvis/pelvis-tone": 0.069955,
+  "stomach/stomach-pregnant": -0.030952,
+  "stomach/stomach-tone": 0.010018,
+  "torso/torso-muscle-dorsi": 0.098486,
+  "torso/torso-muscle-pectoral": -0.094064,
+  "torso/torso-scale-depth": -0.122105,
+  "torso/torso-scale-horiz": 0.035519,
+  "torso/torso-vshape": 0.025806
+ },
+ "measurementsRawCm": {
+  "height": 176.51,
+  "neck": 38.07,
+  "shoulder": 41.33,
+  "chest": 97.39,
+  "waist": 80.48,
+  "hip": 97.29,
+  "thigh": 57.66,
+  "upperArm": 31.68,
+  "armLength": 58.39,
+  "inseam": 84.29,
+  "footLength": 25.48
+ },
+ "clothingAllowanceCm": {
+  "height": 3.0,
+  "neck": 0.5,
+  "shoulder": 1.0,
+  "chest": 3.0,
+  "waist": 3.0,
+  "hip": 2.5,
+  "thigh": 2.0,
+  "upperArm": 2.5,
+  "armLength": 0.0,
+  "inseam": 2.5,
+  "footLength": 2.5
+ },
+ "measurementsCm": {
+  "height": 173.51,
+  "neck": 37.57,
+  "shoulder": 40.33,
+  "chest": 94.39,
+  "waist": 77.48,
+  "hip": 94.79,
+  "thigh": 55.66,
+  "upperArm": 29.18,
+  "armLength": 58.39,
+  "inseam": 81.79,
+  "footLength": 22.98
+ },
+ "restHeadsM": {
+  "Root": [
+   0.0,
+   0.006836,
+   0.0
+  ],
+  "pelvis": [
+   0.0,
+   0.944133,
+   0.011433
+  ],
+  "spine_01": [
+   0.0,
+   1.027985,
+   -0.026833
+  ],
+  "spine_02": [
+   0.0,
+   1.099623,
+   -0.011658
+  ],
+  "spine_03": [
+   0.0,
+   1.177185,
+   -0.011839
+  ],
+  "clavicle_l": [
+   0.023656,
+   1.438793,
+   0.023828
+  ],
+  "upperarm_l": [
+   0.180179,
+   1.414264,
+   0.019567
+  ],
+  "lowerarm_l": [
+   0.35631,
+   1.21523,
+   0.02119
+  ],
+  "hand_l": [
+   0.484808,
+   1.083979,
+   0.199691
+  ],
+  "index_01_l": [
+   0.51234,
+   1.045465,
+   0.292154
+  ],
+  "index_02_l": [
+   0.515582,
+   1.030895,
+   0.312423
+  ],
+  "index_03_l": [
+   0.515003,
+   1.015113,
+   0.328466
+  ],
+  "middle_01_l": [
+   0.528424,
+   1.034864,
+   0.274897
+  ],
+  "middle_02_l": [
+   0.535297,
+   1.009563,
+   0.294965
+  ],
+  "middle_03_l": [
+   0.537865,
+   0.988668,
+   0.311805
+  ],
+  "pinky_01_l": [
+   0.537005,
+   1.018511,
+   0.23943
+  ],
+  "pinky_02_l": [
+   0.542743,
+   0.999988,
+   0.246747
+  ],
+  "pinky_03_l": [
+   0.54438,
+   0.985909,
+   0.252391
+  ],
+  "ring_01_l": [
+   0.535728,
+   1.027235,
+   0.258274
+  ],
+  "ring_02_l": [
+   0.544664,
+   1.003363,
+   0.272111
+  ],
+  "ring_03_l": [
+   0.548799,
+   0.982985,
+   0.284486
+  ],
+  "thumb_01_l": [
+   0.48684,
+   1.077593,
+   0.242871
+  ],
+  "thumb_02_l": [
+   0.465708,
+   1.069024,
+   0.26311
+  ],
+  "thumb_03_l": [
+   0.453579,
+   1.055751,
+   0.293495
+  ],
+  "clavicle_r": [
+   -0.023656,
+   1.438793,
+   0.023828
+  ],
+  "upperarm_r": [
+   -0.180179,
+   1.414264,
+   0.019567
+  ],
+  "lowerarm_r": [
+   -0.35631,
+   1.21523,
+   0.02119
+  ],
+  "hand_r": [
+   -0.484808,
+   1.083979,
+   0.199691
+  ],
+  "index_01_r": [
+   -0.51234,
+   1.045465,
+   0.292154
+  ],
+  "index_02_r": [
+   -0.515582,
+   1.030895,
+   0.312423
+  ],
+  "index_03_r": [
+   -0.515003,
+   1.015113,
+   0.328466
+  ],
+  "middle_01_r": [
+   -0.528424,
+   1.034864,
+   0.274897
+  ],
+  "middle_02_r": [
+   -0.535297,
+   1.009563,
+   0.294965
+  ],
+  "middle_03_r": [
+   -0.537865,
+   0.988668,
+   0.311805
+  ],
+  "pinky_01_r": [
+   -0.537005,
+   1.018511,
+   0.23943
+  ],
+  "pinky_02_r": [
+   -0.542743,
+   0.999988,
+   0.246747
+  ],
+  "pinky_03_r": [
+   -0.54438,
+   0.985909,
+   0.252391
+  ],
+  "ring_01_r": [
+   -0.535728,
+   1.027235,
+   0.258274
+  ],
+  "ring_02_r": [
+   -0.544664,
+   1.003363,
+   0.272111
+  ],
+  "ring_03_r": [
+   -0.548799,
+   0.982985,
+   0.284486
+  ],
+  "thumb_01_r": [
+   -0.48684,
+   1.077593,
+   0.242871
+  ],
+  "thumb_02_r": [
+   -0.465708,
+   1.069024,
+   0.26311
+  ],
+  "thumb_03_r": [
+   -0.453579,
+   1.055751,
+   0.293495
+  ],
+  "neck_01": [
+   0.0,
+   1.5129,
+   0.00748
+  ],
+  "head": [
+   0.0,
+   1.619455,
+   0.044072
+  ],
+  "thigh_l": [
+   0.101139,
+   0.936273,
+   0.002475
+  ],
+  "calf_l": [
+   0.149489,
+   0.51634,
+   0.036165
+  ],
+  "foot_l": [
+   0.190608,
+   0.082948,
+   0.019482
+  ],
+  "ball_l": [
+   0.195894,
+   0.015555,
+   0.1461
+  ],
+  "thigh_r": [
+   -0.101139,
+   0.936273,
+   0.002475
+  ],
+  "calf_r": [
+   -0.149489,
+   0.51634,
+   0.036165
+  ],
+  "foot_r": [
+   -0.190608,
+   0.082948,
+   0.019482
+  ],
+  "ball_r": [
+   -0.195894,
+   0.015555,
+   0.1461
+  ]
+ },
+ "fit": {
+  "bodyLowestYM": 0.0063,
+  "twinHeightM": 1.7744,
+  "mappingCm": {
+   "median_cm": 0.432,
+   "p99_cm": 5.227,
+   "max_cm": 5.948
+  },
+  "template_to_scan_cm": {
+   "median": 0.2850322602444628,
+   "p90": 0.7264513710503131
+  },
+  "scan_to_template_cm": {
+   "median": 0.8448059695915423,
+   "p90": 1.4822375562021048
+  },
+  "canonical_shape_dev_mm": {
+   "mean": 1.650868055841776,
+   "max": 6.20434587654781
+  }
+ }
+}

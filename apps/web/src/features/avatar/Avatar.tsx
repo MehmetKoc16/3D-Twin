@@ -13,6 +13,7 @@ import { resolveSkinHex } from './skinComposite';
 import { SkinMap } from './SkinMap';
 import { PartsRig } from './parts/partsRig';
 import { WardrobeRig } from '../wardrobe/wardrobeRig';
+import { TwinMode } from '../twin/twinMode';
 
 function setMap(assets: AvatarAssets, map: CanvasTexture | null): void {
   if (assets.material.map === map) return;
@@ -78,36 +79,39 @@ export function Avatar() {
   useEffect(() => {
     if (!assets) return;
     const rig = new WardrobeRig(assets); // worn garments: mounted on the shared skeleton, re-fitted after each solve
-    // Body parts (eyes, brows, lashes, hair). Created after the wardrobe rig and disposed before it: it hooks the body
-    // geometry's setIndex to compose its own hidden triangles with the wardrobe's.
-    const parts = new PartsRig(assets);
+    // Standard mode: body parts (eyes, brows, lashes, hair), created after the wardrobe rig and disposed before it: it
+    // hooks the body geometry's setIndex to compose its own hidden triangles with the wardrobe's. Realistic-twin mode:
+    // the parts are dropped, the body is solved with the twin's fitted shape but hidden, and the scan is bound to the
+    // same skeleton (features/twin). The mode switch owns both, so the two never hook the body index together.
+    const twin = new TwinMode(
+      assets,
+      () => new PartsRig(assets),
+      () => assets.client.solve(useBodyStore.getState().params),
+    );
     const off = assets.onSolve((envelope) => {
       applySolveResult(assets, envelope);
       rig.onSolve(envelope);
-      parts.onSolve(envelope);
+      twin.onSolve(envelope);
       const runtime = useAvatarRuntimeStore.getState();
       if (runtime.skeleton !== assets.skeleton) runtime.setSkeleton(assets.skeleton);
       runtime.bumpRestVersion();
       const r = envelope.result;
       if (r.faceFit !== undefined) useFaceStore.getState().setFit(r.faceFit);
       useSolveStore.getState().setSolve({
-        achievedCm: r.achievedCm,
-        residualsCm: r.residualsCm,
-        unreachable: r.unreachable,
-        estimatedMassKg: r.estimatedMassKg,
+        ...twin.displaySolve(envelope),
         solveMs: r.solveMs,
         roundTripMs: envelope.roundTripMs,
       });
       useAvatarLoadStore.getState().setReady();
     });
     const unsubscribe = useBodyStore.subscribe((state, previous) => {
-      if (state.params !== previous.params) assets.client.solve(state.params);
+      if (state.params !== previous.params && !twin.active) assets.client.solve(state.params);
     });
     assets.client.solve(useBodyStore.getState().params);
     return () => {
       off();
       unsubscribe();
-      parts.dispose();
+      twin.dispose();
       rig.dispose();
     };
   }, [assets]);

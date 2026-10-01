@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useBodyStore } from '../store/bodyStore';
 import { useFaceStore } from '../store/faceStore';
+import { useTwinStore } from '../store/twinStore';
 import { useWardrobeStore } from '../store/wardrobeStore';
 import faviconUrl from './favicon.svg?url';
 
@@ -14,6 +15,7 @@ export function App() {
     void useBodyStore.getState().hydrate();
     void useFaceStore.getState().ensureBaked(); // restores a saved selfie and bakes it
     void useWardrobeStore.getState().hydrate(); // restores saved store items and what was worn
+    void useTwinStore.getState().hydrate(); // restores the user's own twin files (IndexedDB) and the chosen model
     const icon = document.createElement('link');
     icon.rel = 'icon';
     icon.href = faviconUrl;

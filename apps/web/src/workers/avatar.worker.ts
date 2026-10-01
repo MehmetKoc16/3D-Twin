@@ -25,6 +25,7 @@ import type {
 } from './avatarProtocol';
 import { flattenJoints, groundRenderPositions } from './ground';
 import { FaceShapeState } from './faceShape';
+import { fixedShapeWeights, solveFixedShape, type FixedShape } from './fixedShape';
 
 const MORPHS_FALLBACK_BYTES = 15_789_632;
 
@@ -33,6 +34,10 @@ let rig: RigDef | null = null;
 let manifest: BodyManifest | null = null;
 let boneNames: string[] = [];
 let solverData: { manifest: BodyManifest; base: Float32Array; morphs: ArrayBuffer } | null = null;
+let measuresDef: MeasuresDef | null = null;
+let triangleIndices: Uint32Array | null = null;
+/** Set while the realistic twin is shown: solves return this fitted body instead of solving for the params. */
+let fixedShape: FixedShape | null = null;
 let baseUrl = '';
 let faceMap: FaceMapDef | null = null;
 let solvedWeights: ReadonlyMap<string, number> | null = null;
@@ -88,6 +93,8 @@ const api: AvatarWorkerApi = {
     solver = createBodySolver({ manifest: m, base, morphs, measures, indices: init.indices });
     manifest = m;
     solverData = { manifest: m, base, morphs };
+    measuresDef = measures;
+    triangleIndices = init.indices.slice();
     baseUrl = init.baseUrl;
     rig = rigDef;
     boneNames = rigDef.bones.map((b) => b.name);
@@ -95,9 +102,33 @@ const api: AvatarWorkerApi = {
     return { boneNames, renderVertexCount: m.renderVertexCount };
   },
 
+  setFixedShape(shape: FixedShape | null): void {
+    if (!solverData) throw new Error('avatar worker: setFixedShape() before init()');
+    if (shape) fixedShapeWeights(solverData.manifest, shape); // validates the modifier ids before anything switches
+    fixedShape = shape;
+  },
+
   solve(params: BodyParams): AvatarSolveResult {
     if (!solver || !rig || !manifest) throw new Error('avatar worker: solve() before init()');
     const t0 = performance.now();
+    if (fixedShape && solverData && measuresDef && triangleIndices) {
+      const fixed = solveFixedShape({ ...solverData, measures: measuresDef, indices: triangleIndices }, fixedShape);
+      const solveMs = performance.now() - t0;
+      const { positions, offsetY } = groundRenderPositions(fixed.positions, manifest.renderVertexCount);
+      const joints = flattenJoints(boneNames, computeJoints(rig, fixed.positions), offsetY);
+      const result: AvatarSolveResult = {
+        positions,
+        joints,
+        groundOffsetY: offsetY,
+        achievedCm: fixed.achievedCm,
+        residualsCm: {},
+        unreachable: [],
+        estimatedMassKg: fixed.estimatedMassKg,
+        solveMs,
+        fixedShape: true,
+      };
+      return Comlink.transfer(result, [positions.buffer, joints.buffer]);
+    }
     const res = solver.solve(params);
     solvedWeights = res.weights;
     let bodyPositions = res.positions;

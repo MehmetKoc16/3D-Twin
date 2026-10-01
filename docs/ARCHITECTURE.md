@@ -319,6 +319,90 @@ Appearance store: hairId / hairColor / eyebrowId / eyebrowColor (null = follow h
 - Persistence. `appearance:<field>` keys in IndexedDB (try / catch); values the user changed before the stored ones
   arrived win.
 
+### Realistic twin (the user's own scan in the app)
+
+The standard model is the parametric MakeHuman mannequin. The "Model" switch (top of the body panel) can replace it by
+the user's **realistic twin**: a photoreal, rigged scan made locally by `tools/twin-lab` (shape -> texture -> rig), shown
+with the same poses, camera presets and wardrobe. The design decisions are listed here.
+
+```text
+tools/twin-lab/rig/rig_scan.py            (local, python; outputs stay in user-data/twin/out/rig/, git-ignored)
+  fit our MakeHuman body to the scan (macros + ~130 modifiers + 19 bone rotations), transfer skin weights, unpose
+  -> rigged.glb   the scan (UV + texture kept) skinned to our 53 bones, identity rest rotations, MakeHuman A-pose rest
+  -> twin.json    fittedMacros / fittedModifiers (net values), measurements, rest heads, boneOrder
+  -> mh2twin.bin  uint32 LE per twin vertex: nearest MakeHuman render vertex (optional)
+        |  file picker in the "Realistic twin" tab   (twinStore.loadFiles: parse + validate, nothing is fetched)
+        v
+store/twinStore.ts   pack {def, glb bytes, mapping}, mode 'standard' | 'twin'      IndexedDB `twin:*` (try / catch)
+        |  subscribe
+        v
+TwinMode (features/twin/twinMode.ts, created by Avatar next to the WardrobeRig; Avatar forwards every solve)
+  standard: PartsRig mounted, the worker solves the body params                    (the unchanged pre-twin behaviour)
+  twin:     PartsRig disposed, loadTwinModel(glb) -> worker.setFixedShape({macros, modifiers}) -> re-solve
+            body = the fitted MakeHuman body, HIDDEN (mesh.visible = false), still the source of skeleton + garment fit
+            TwinRig: SkinnedMesh of the scan bound to the SAME skeleton (translated onto its rest heads)
+```
+
+- **Package (`twin.json`, version 1).** `fittedMacros` (gender, muscle, weight, height) and `fittedModifiers` are the
+  shape of the fitted body. The fitter optimises with an incr AND a decr column per modifier, avatar-core applies the NET
+  value, so `rig_scan.py` continues with the canonical body (`canonicalize_fit`: net values rounded to 6 decimals, rest
+  body rebuilt from them); the browser therefore reproduces exactly the skeleton the glb was rigged with (tested: rest
+  heads agree to < 2e-5 m). `boneOrder` is the rig order, `restHeadsM` the rest heads in the glb frame. `mh2twin.bin` maps
+  each twin vertex to the nearest render vertex of that body (12 candidates, opposing normals penalised); `mapping` in
+  twin.json gives its vertex counts.
+- **Measurements.** `measurementsRawCm` are measured on the fitted body with the avatar-core definitions of
+  `measures.json` (numpy port in `twin_export.py`, cross-checked against `measure()` in a unit test). The scan wears
+  clothes, hair and shoes, so `measurementsCm = raw - clothingAllowanceCm` (fitted T-shirt, jeans, sneakers: height 3,
+  neck 0.5, shoulder 1, chest 3, waist 3, hip 2.5, thigh 2, upper arm 2.5, arm length 0, inseam 2.5, foot 2.5 cm -
+  estimates that can be edited in the file). The body panel shows them read-only instead of the sliders (with a note); the
+  fit report and size recommendations use them, while the garments are fitted to the hidden body's own geometry (which has
+  the clothes' bulk), so what is drawn stays consistent.
+- **One skeleton.** rigged.glb has the same bone names and world-aligned identity rest rotations as base.glb, its inverse
+  bind matrices are translations of `-head`. The twin keeps its vertices and skin weights (re-indexed to the avatar's
+  bone order by name, `twinBinding.ts`) and is translated by `mean(appHead - twinHead)` (the two frames differ by the
+  ground rule only, a few mm); the residual after that must stay below 5 mm, otherwise twin.json and the glb are
+  rejected as not belonging together (`mismatch`). The twin is then bound with `bind(avatar skeleton, body bindMatrix)`
+  exactly like a garment, so PoseDriver, the bone-based camera focus presets, the sole lift and every worn garment follow
+  the one skeleton.
+- **Worker.** `setFixedShape(shape | null)` makes `solve()` return the fixed body (`combineWeights(macros, modifiers)` ->
+  `applyMorphs`, measures, mass; `fixedShape: true` in the result) and ignore the body params and the face shape; `null`
+  returns to solving. Unknown modifier ids are rejected before anything switches. Body-parameter changes do not trigger
+  solves in twin mode.
+- **Wardrobe.** Garments bind to the hidden body as in standard mode and render over the twin. The scan is CLOTHED (its
+  own T-shirt / jeans / shoes are geometry), so twin triangles under a worn garment are hidden, with two passes that are
+  combined: (a) mapping - the wardrobe already removes the body triangles under a garment (delete lists + footprint
+  pass) through `geometry.setIndex`; `TwinRig` shadows that method on the body geometry (as `PartsRig` does in standard
+  mode; the two never live together) and hides a twin triangle when its three vertices map to body vertices that no
+  remaining body triangle uses; (b) footprint - `coveredBodyVertices` (the wardrobe's own function) on the twin's
+  vertices against each worn garment's fitted surface (the `garment:*` meshes of the scene) within 3 cm, which removes the
+  scan's clothes where they stick out of the new fabric and gives a straight boundary at hems. A triangle is hidden only
+  when all three vertices are; `refreshHidden` costs 15-80 ms on a 47k-vertex scan and runs only when the worn set
+  changes.
+- **Parts, face, appearance.** Eyes / brows / hair (`PartsRig`), the face bake and the skin composite are standard-mode
+  features: the parts are disposed in twin mode, the face and appearance tabs show a note; the twin has its own face,
+  hair and baked texture (`MeshStandardMaterial`, roughness 0.88, no skin composite).
+- **Privacy.** The user's scan and photos live only in `user-data/twin/` (git-ignored). The app never bundles or fetches
+  them: the user picks the files, they are held in memory and IndexedDB (`twin:glb`, `twin:json`, `twin:mapping`,
+  `twin:names`, `twin:mode`) and are removed with "Remove twin". Tests and docs use a NON-personal stand-in (below).
+- **Licence.** The shape stage uses Hunyuan3D-2 (Tencent community licence, territory excludes the EU / UK / South Korea,
+  see `tools/twin-lab/README.md`): a twin made with it is for the user's own local use and must not be shipped with the
+  app.
+- **Tests.** Unit: `twinDef` (strict twin.json parser), `twinMapping` (parsing, hiding composed with the wardrobe's own
+  `hiddenVertexMask` / `filterBodyIndex`), `twinBinding` (bone matching, alignment, three.js skinning through the
+  avatar's rebuilt skeleton), `twinStore` (IndexedDB mock), `fixedShape` and `twin.real.test.ts` (real MakeHuman assets +
+  the stand-in fixture: numpy measurements vs avatar-core, rest heads vs the browser's body, glb binding, mapping range).
+  E2E `e2e/twin.spec.ts`: switch, load, poses change bones and twin vertices, garments hide the scan, back to standard,
+  reload persistence, removal, a mismatching twin.json, no upload and no foreign request. Python:
+  `tools/twin-lab/rig/tests`. The stand-in fixture (`apps/web/e2e/fixtures/twin-standin`) is the CC0 MakeHuman body with
+  another shape, another pose, its own UV layout and a generated texture, rigged by `rig_scan.py`; its screenshots are
+  `docs/screenshots/twin-standin-*.png`. `tools/twin-lab/rig/app_qa.mjs` runs the same flow on a real twin (output
+  under `user-data/` only).
+- **Limitations.** The scan's own clothes stay where a new garment does not cover them (collar, sleeve stubs, waistband);
+  the hidden region follows the triangulation of the scan, so its boundary is jagged where the mesh is irregular.
+  Skinning is linear blend: a scan whose arms touch the torso keeps a web at the armpit in the T-pose (`--cut-bridges`
+  removes it only partly). The camera "full" preset frames the body-panel height, not the twin's. Nude or
+  minimal-clothing views would give a scan that can be dressed cleanly.
+
 ## File ownership by wave
 
 | Wave | Work                                                                    | Owner (executor)            | Files                                                                  |
@@ -330,3 +414,4 @@ Appearance store: hairId / hairColor / eyebrowId / eyebrowColor (null = follow h
 | 2    | Integration: `<Avatar/>`, worker, poses + 6 pose JSONs                  | Sonnet (high)               | `features/avatar`, `features/poses`, `workers/`, `public/assets/poses` |
 | 3    | Face: MediaPipe, canonical<->MH map, warp, delighting, blending, skin   | agy (Gemini Flash) + review | `features/face/**`, pipeline `face_map` module                         |
 | 4    | Wardrobe: MHCLO fitting, templates, shoes, size chart form, fit heatmap | Sonnet + Codex              | `features/wardrobe/**`, pipeline `garments` module                     |
+| Twin | Realistic twin: rig export (twin.json, mh2twin.bin), twin mode in the app | Sonnet (xhigh)              | `tools/twin-lab/rig/**`, `features/twin/**`, hooks in `features/avatar`, `store`, `workers`, `features/body-panel`, `app/App.tsx` |

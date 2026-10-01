@@ -8,10 +8,11 @@ import { useBodyStore, isBodyParams } from '../../store/bodyStore';
 import { useFaceStore } from '../../store/faceStore';
 import { PartsAppearance } from './AppearanceControls';
 import { useSolveStore } from '../../store/solveStore';
+import { isTwinActive, ModelSwitch, TwinMeasurements, TwinPanel, useTwinStore } from '../twin';
 
 const FacePanel = lazy(() => import('../face/FacePanel').then((module) => ({ default: module.FacePanel })));
 const WardrobePanel = lazy(() => import('../wardrobe/WardrobePanel').then((module) => ({ default: module.WardrobePanel })));
-type PanelTab = 'measurements' | 'face' | 'wardrobe';
+type PanelTab = 'measurements' | 'face' | 'wardrobe' | 'twin';
 
 type NumericField = Exclude<keyof BodyParams, 'shoe'>;
 interface FieldDef { key: NumericField; min: number; max: number; step?: number; unit: string; optional?: boolean }
@@ -159,6 +160,7 @@ export function BodyPanel() {
   const [status, setStatus] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [tab, setTab] = useState<PanelTab>('measurements');
+  const twinActive = useTwinStore(isTwinActive); // realistic twin: sliders become read-only, face and appearance are the twin's own
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -181,18 +183,28 @@ export function BodyPanel() {
     <div className="mb-5"><p className="text-[11px] font-bold uppercase tracking-[0.2em] text-teal-300">{t('panel.subtitle')}</p>
       <h2 className="mt-1 text-2xl font-semibold tracking-tight">{t('panel.title')}</h2>
       <p className="mt-2 text-xs leading-relaxed text-slate-400">{t('panel.description')}</p></div>
+    <ModelSwitch onNeedFiles={() => setTab('twin')} />
     <div className="flex gap-3 border-b border-white/10" role="tablist" aria-label={t('panel.tabs')}>
-      {(['measurements', 'face', 'wardrobe'] as const).map((key) => <button key={key} type="button" role="tab" id={`tab-${key}`} aria-selected={tab === key}
+      {(['measurements', 'face', 'wardrobe', 'twin'] as const).map((key) => <button key={key} type="button" role="tab" id={`tab-${key}`} aria-selected={tab === key}
         aria-controls={`tabpanel-${key}`} onClick={() => setTab(key)}
-        className={`px-2 py-2 text-sm focus-visible:outline-2 focus-visible:outline-teal-400 ${tab === key ? 'border-b-2 border-teal-400 font-semibold text-teal-300' : 'text-slate-400 hover:text-slate-200'}`}>{t(`panel.${key}`)}</button>)}
+        className={`px-2 py-2 text-sm focus-visible:outline-2 focus-visible:outline-teal-400 ${tab === key ? 'border-b-2 border-teal-400 font-semibold text-teal-300' : 'text-slate-400 hover:text-slate-200'}`}>{t(key === 'twin' ? 'twin.tab' : `panel.${key}`)}</button>)}
     </div>
     {tab === 'face' && <div role="tabpanel" id="tabpanel-face" aria-labelledby="tab-face" className="mt-5">
-      <Suspense fallback={null}><FacePanel /></Suspense>
+      {twinActive
+        ? <p data-testid="twin-face-note" className="text-xs leading-relaxed text-slate-400">{t('twin.notes.face')}</p>
+        : <Suspense fallback={null}><FacePanel /></Suspense>}
+    </div>}
+    {tab === 'twin' && <div role="tabpanel" id="tabpanel-twin" aria-labelledby="tab-twin" className="mt-5">
+      <TwinPanel />
     </div>}
     {tab === 'wardrobe' && <div role="tabpanel" id="tabpanel-wardrobe" aria-labelledby="tab-wardrobe" className="mt-5">
       <Suspense fallback={null}><WardrobePanel /></Suspense>
     </div>}
     <div role="tabpanel" id="tabpanel-measurements" aria-labelledby="tab-measurements" hidden={tab !== 'measurements'}>
+    {twinActive ? <>
+      <TwinMeasurements />
+      <p data-testid="twin-appearance-note" className="mt-5 text-xs leading-relaxed text-slate-400">{t('twin.notes.appearance')}</p>
+    </> : <>
     <Section title={t('panel.basics')} fields={basics} />
     <Section title={t('panel.upper')} fields={upper} />
     <Section title={t('panel.lower')} fields={lower} />
@@ -217,6 +229,7 @@ export function BodyPanel() {
       <p className="mt-1 text-xs text-slate-500">{t('measure.shoeSize.help')}</p>
     </section>
     <AppearanceSection />
+    </>}
     </div>
     <section className="mt-7 border-t border-white/10 pt-5"><h3 className="text-xs font-bold uppercase tracking-[0.16em] text-teal-300">{t('panel.profile')}</h3>
       <div className="mt-3 flex flex-wrap gap-2">

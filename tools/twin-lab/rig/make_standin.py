@@ -3,6 +3,10 @@
 Different body (macros + modifiers), different arm/leg pose than the template rest pose, re-meshed (welded +
 subdivided, no skin, no UV), smooth low-frequency noise. Ground truth (macro/mods/pose/joints) goes to truth.json.
 Usage: python make_standin.py [out_dir]   (default .cache/standin)
+
+`--textured` keeps the render mesh (seams and MakeHuman UVs, no re-meshing, no noise) and paints a synthetic texture
+(a skin gradient with a coloured grid, generated here) on it: the tiny non-personal fixture of the web app's twin
+tests (apps/web/e2e/fixtures/twin-standin). Rig it with rig_scan.py to get rigged.glb + twin.json + mh2twin.bin.
 """
 
 from __future__ import annotations
@@ -21,10 +25,37 @@ from mh import MHModel
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def synthetic_texture(size: int = 512) -> bytes:
+    """A non-personal skin-toned test texture: warm gradient, dark grid lines every 64 px, one colour tag per column."""
+    import io
+
+    from PIL import Image
+
+    u = np.linspace(0.0, 1.0, size)[None, :]
+    v = np.linspace(0.0, 1.0, size)[:, None]
+    base = np.stack([0.86 - 0.10 * v + 0 * u, 0.66 - 0.08 * v + 0 * u, 0.55 - 0.06 * v + 0 * u], axis=-1)
+    img = (base * 255).astype(np.uint8)
+    step = size // 8
+    for k in range(0, size, step):
+        img[k : k + 2, :, :] = (90, 60, 50)
+        img[:, k : k + 2, :] = (90, 60, 50)
+    tags = [(200, 60, 60), (60, 160, 70), (60, 90, 200), (220, 190, 60)]
+    for i in range(8):
+        for j in range(8):
+            if (i + j) % 5 == 0:
+                c = tags[(i * 3 + j) % len(tags)]
+                img[i * step + 6 : (i + 1) * step - 6, j * step + 6 : (j + 1) * step - 6, :] = c
+    buf = io.BytesIO()
+    Image.fromarray(img, "RGB").save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
 def main() -> None:
     hard = "--hard" in sys.argv
+    textured = "--textured" in sys.argv
     argv = [a for a in sys.argv[1:] if not a.startswith("--")]
-    out_dir = argv[0] if argv else os.path.join(HERE, ".cache", "standin_hard" if hard else "standin")
+    default = "standin_textured" if textured else ("standin_hard" if hard else "standin")
+    out_dir = argv[0] if argv else os.path.join(HERE, ".cache", default)
     os.makedirs(out_dir, exist_ok=True)
     m = MHModel()
     macro = {"gender": 0.8, "muscle": 0.62, "weight": 0.66, "height": 0.55}
@@ -51,6 +82,24 @@ def main() -> None:
     local = {k: R.from_euler("xyz", v, degrees=True).as_matrix() for k, v in pose_deg.items()}
     rots, posed = m.fk(heads, local)
     v = m.lbs(pos[: m.nr], m.skin_j, m.skin_w, heads, rots, posed)
+    if textured:
+        verts, faces = v.copy(), m.faces
+        tm = trimesh.Trimesh(v, m.faces, process=False)
+        shift = float(verts[:, 1].min())
+        verts[:, 1] -= shift
+        material = {"name": "twin_skin_cloth", "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicFactor": 0.0, "roughnessFactor": 0.9}}
+        scene = GlbScene(
+            prims=[Prim(verts.astype(np.float32), faces.astype(np.uint32), tm.vertex_normals.astype(np.float32), m.uv.astype(np.float32), 0, "standin")],
+            materials=[material],
+            textures=[{"source": 0, "sampler": 0}],
+            samplers=[{"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071}],
+            images=[{"data": synthetic_texture(), "mimeType": "image/png"}],
+        )
+        write_static_glb(os.path.join(out_dir, "mesh.glb"), scene)
+        truth = {"macro": macro, "mods": mods, "pose_deg": pose_deg, "vertices": int(len(verts)), "height": float(verts[:, 1].max())}
+        json.dump(truth, open(os.path.join(out_dir, "truth.json"), "w"), indent=1)
+        print("textured stand-in", len(verts), "verts", len(faces), "tris, height", truth["height"])
+        return
     tm = trimesh.Trimesh(v, m.faces, process=False)
     tm.merge_vertices(digits_vertex=5)
     verts, faces = trimesh.remesh.subdivide(tm.vertices, tm.faces)

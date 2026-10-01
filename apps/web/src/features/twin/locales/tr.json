@@ -1,0 +1,63 @@
+{
+  "tab": "Gerçekçi ikiz",
+  "model": {
+    "label": "Model",
+    "standard": "Standart manken",
+    "twin": "Gerçekçi ikizim",
+    "needFiles": "Gerçekçi ikizi göstermek için önce dosyalarınızı “Gerçekçi ikiz” sekmesinden seçin.",
+    "twinActive": "Gerçekçi ikiz gösteriliyor: pozlar, kamera ve gardırop aynı iskelete bağlı."
+  },
+  "panel": {
+    "title": "Gerçekçi ikiz",
+    "description": "Kendi fotoğraflarınızdan yerelde üretilen, iskeletlenmiş 3B taramanızı standart mankenin yerine gösterin. Pozlar, yakınlaştırma ve gardırop aynen çalışır.",
+    "privacy": "Gizlilik: dosyalar yalnızca bu tarayıcıda (IndexedDB) saklanır; hiçbir yere yüklenmez ve uygulamaya dahil edilmez. İstediğiniz zaman kaldırabilirsiniz.",
+    "pick": "Dosyaları seç",
+    "pickHint": "rigged.glb ve twin.json dosyalarını (isteğe bağlı olarak mh2twin.bin ile birlikte) tek seferde seçin. Dosyalar tools/twin-lab/rig çıktısındadır.",
+    "files": {
+      "glb": "İskeletli tarama (rigged.glb)",
+      "json": "Vücut verisi (twin.json)",
+      "mapping": "Eşleme (mh2twin.bin)"
+    },
+    "notSelected": "seçilmedi",
+    "optional": "isteğe bağlı",
+    "status": {
+      "empty": "Henüz ikiz dosyası yok.",
+      "partial": "Dosyalar eksik: rigged.glb ve twin.json birlikte gerekli.",
+      "ready": "İkiz yüklendi.",
+      "error": "İkiz yüklenemedi."
+    },
+    "noMapping": "Eşleme dosyası yok: gardırop yalnızca kumaşın hemen altındaki tarama parçalarını gizler; kalın kıyafetlerde tarama kumaşın içinden görünebilir.",
+    "stats": "{{vertices}} köşe · {{triangles}} üçgen · gardırop nedeniyle gizlenen üçgen: {{hidden}}",
+    "alignment": "İskelet uyumu: en fazla {{residual}} mm fark",
+    "remove": "İkizi kaldır",
+    "howTo": "Dosyaları üretmek için: python tools/twin-lab/rig/rig_scan.py <tarama.glb> <çıktı klasörü>"
+  },
+  "measures": {
+    "title": "İkizinizin ölçüleri",
+    "note": "Bu ölçüler taramadan gelir ve salt okunurdur. Taramadaki kıyafet, saç ve ayakkabının eklediği tahmini pay düşülmüştür; sliderlar yalnızca standart modelde çalışır.",
+    "details": "Ölçü ayrıntıları",
+    "person": "İkiz",
+    "body": "Tarama",
+    "allowance": "Pay"
+  },
+  "notes": {
+    "face": "Yüz fotoğrafı standart mankene özgüdür. Gerçekçi ikizin kendi yüzü ve saçı vardır; standart modele dönünce yüzünüz yeniden uygulanır.",
+    "appearance": "Ten rengi, saç, kaş ve göz ayarları standart mankene özgüdür. Gerçekçi ikiz kendi dokusunu kullanır."
+  },
+  "errors": {
+    "json": "twin.json geçerli bir JSON dosyası değil.",
+    "version": "twin.json sürümü desteklenmiyor.",
+    "bones": "İskelet kemikleri avatarın iskeletiyle uyuşmuyor.",
+    "macros": "twin.json içindeki makro değerleri geçersiz.",
+    "modifiers": "twin.json içindeki vücut ayarları geçersiz.",
+    "measurements": "twin.json içindeki ölçüler geçersiz.",
+    "mapping": "Eşleme dosyası (mh2twin.bin) tarama ile uyuşmuyor.",
+    "glb": "rigged.glb okunamadı; iskeletli bir GLB dosyası seçin.",
+    "noSkin": "Taramada iskelet bağlaması (skin) bulunamadı.",
+    "rest": "Tarama dinlenme pozunda değil; rig_scan.py çıktısını kullanın.",
+    "mismatch": "twin.json ile rigged.glb aynı taramaya ait görünmüyor.",
+    "shape": "Vücut şekli avatara uygulanamadı.",
+    "files": "Bu dosyalar okunamadı.",
+    "unknown": "Beklenmeyen bir hata oluştu."
+  }
+}

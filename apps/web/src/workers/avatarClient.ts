@@ -7,6 +7,7 @@ import type {
   AvatarWorkerApi,
 } from './avatarProtocol';
 import { LatestWinsRunner } from './latestWins';
+import type { FixedShape } from './fixedShape';
 
 export interface SolveEnvelope {
   result: AvatarSolveResult;
@@ -46,6 +47,16 @@ export class AvatarClient {
   solve(params: BodyParams): void {
     this.lastParams = { ...params, shoe: { ...params.shoe } };
     this.runner.submit(this.lastParams);
+  }
+
+  /** Switches the worker to the twin's fixed body (or back to `null` = solve for the params); the caller re-solves. */
+  setFixedShape(shape: FixedShape | null): Promise<void> {
+    return this.api.setFixedShape(shape);
+  }
+
+  /** Re-runs the last requested solve (used after `setFixedShape`). */
+  resolve(): void {
+    if (this.lastParams) this.runner.submit(this.lastParams);
   }
 
   /** Sends photo landmarks; the worker fits the face shape during the re-solve triggered here. */

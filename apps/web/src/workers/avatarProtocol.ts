@@ -1,4 +1,5 @@
 import type { BodyParams, MeasureId } from '@dt/avatar-core';
+import type { FixedShape } from './fixedShape';
 
 /** Sent once by the main thread: raw (un-morphed) render vertices and triangle indices of base.glb. */
 export interface AvatarInit {
@@ -38,11 +39,19 @@ export interface AvatarSolveResult {
   solveMs: number;
   /** Present only in the solve that (re)fitted the face shape: the fit, or null if it failed. */
   faceFit?: AvatarFaceFit | null;
+  /** True when the body is the twin's fixed shape (see `setFixedShape`), not a solve for the requested params. */
+  fixedShape?: true;
 }
 
 export interface AvatarWorkerApi {
   init(init: AvatarInit, onProgress?: (fraction: number) => void): Promise<AvatarInitResult>;
   solve(params: BodyParams): AvatarSolveResult;
+  /**
+   * Switches the worker to a fixed body (macro variables + net modifier values; the realistic twin's fitted
+   * MakeHuman body): every following solve returns it and ignores the params (no face shape either). `null` goes back
+   * to solving for the params. Rejects when a modifier id is unknown, without changing anything.
+   */
+  setFixedShape(shape: FixedShape | null): void;
   /**
    * Stores MediaPipe landmarks (478 * 3 floats, un-mirrored photo). The face modifiers are fitted against the next
    * solve and merged into every solve after it.
