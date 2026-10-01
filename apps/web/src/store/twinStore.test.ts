@@ -15,6 +15,7 @@ vi.mock('idb-keyval', () => ({
 }));
 
 import { buildPack, isTwinActive, TWIN_KEYS, useTwinStore } from './twinStore';
+import { bundleBytes } from '../features/twin/twinBundleTestkit';
 
 const pristine = useTwinStore.getState();
 beforeEach(() => {
@@ -45,6 +46,19 @@ function file(name: string, content: BlobPart): File {
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('twin store', () => {
+  it('loads one twin.glb and restores its embedded definition, mapping and skin tone from IndexedDB', async () => {
+    await useTwinStore.getState().loadFiles([file('twin.glb', bundleBytes())]);
+    expect(useTwinStore.getState().status).toBe('ready');
+    expect(useTwinStore.getState().pack?.skinToneHex).toBe('#c49a7a');
+    expect(useTwinStore.getState().pack?.mapping).toEqual(Uint32Array.from([1, 3]));
+    expect(db.get(TWIN_KEYS.json)).toBeNull();
+    expect(db.get(TWIN_KEYS.mapping)).toBeNull();
+    useTwinStore.setState({ ...pristine, hydrated: false }, true);
+    await useTwinStore.getState().hydrate();
+    expect(useTwinStore.getState().mode).toBe('twin');
+    expect(useTwinStore.getState().pack?.skinToneHex).toBe('#c49a7a');
+    expect(useTwinStore.getState().pack?.names.glb).toBe('twin.glb');
+  });
   it('starts empty in the standard model and refuses to show a twin that is not loaded', () => {
     const s = useTwinStore.getState();
     expect(s.mode).toBe('standard');

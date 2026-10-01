@@ -11,10 +11,10 @@
     "title": "Gerçekçi ikiz",
     "description": "Kendi fotoğraflarınızdan yerelde üretilen, iskeletlenmiş 3B taramanızı standart mankenin yerine gösterin. Pozlar, yakınlaştırma ve gardırop aynen çalışır.",
     "privacy": "Gizlilik: dosyalar yalnızca bu tarayıcıda (IndexedDB) saklanır; hiçbir yere yüklenmez ve uygulamaya dahil edilmez. İstediğiniz zaman kaldırabilirsiniz.",
-    "pick": "Dosyaları seç",
-    "pickHint": "rigged.glb ve twin.json dosyalarını (isteğe bağlı olarak mh2twin.bin ile birlikte) tek seferde seçin. Dosyalar tools/twin-lab/rig çıktısındadır.",
+    "pick": "twin.glb seç",
+    "pickHint": "Tek bir twin.glb paketi seçin. Eski rigged.glb + twin.json (+ mh2twin.bin) dosyaları da desteklenir.",
     "files": {
-      "glb": "İskeletli tarama (rigged.glb)",
+      "glb": "İkiz taraması (GLB)",
       "json": "Vücut verisi (twin.json)",
       "mapping": "Eşleme (mh2twin.bin)"
     },
@@ -22,15 +22,16 @@
     "optional": "isteğe bağlı",
     "status": {
       "empty": "Henüz ikiz dosyası yok.",
-      "partial": "Dosyalar eksik: rigged.glb ve twin.json birlikte gerekli.",
+      "partial": "Eski tarama için twin.json dosyasını da seçin. twin.glb paketi başka dosya gerektirmez.",
       "ready": "İkiz yüklendi.",
       "error": "İkiz yüklenemedi."
     },
     "noMapping": "Eşleme dosyası yok: gardırop yalnızca kumaşın hemen altındaki tarama parçalarını gizler; kalın kıyafetlerde tarama kumaşın içinden görünebilir.",
-    "stats": "{{vertices}} köşe · {{triangles}} üçgen · gardırop nedeniyle gizlenen üçgen: {{hidden}}",
+    "stats": "{{vertices}} köşe · {{triangles}} üçgen · gizlenen üçgen: {{hidden}}",
     "alignment": "İskelet uyumu: en fazla {{residual}} mm fark",
     "remove": "İkizi kaldır",
-    "howTo": "Dosyaları üretmek için: python tools/twin-lab/rig/rig_scan.py <tarama.glb> <çıktı klasörü>"
+    "howTo": "Dosyaları üretmek için: python tools/twin-lab/rig/rig_scan.py <tarama.glb> <çıktı klasörü>",
+    "embedded": "twin.glb içinde"
   },
   "measures": {
     "title": "İkizinizin ölçüleri",

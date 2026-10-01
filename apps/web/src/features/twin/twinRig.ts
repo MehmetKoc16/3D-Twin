@@ -11,6 +11,9 @@ import type { SolveEnvelope } from '../../workers/avatarClient';
 import type { TwinRuntimeInfo } from '../../store/twinStore';
 import type { AvatarAssets } from '../avatar/avatarAssets';
 import { headsFromJoints } from '../avatar/meshMath';
+import { useWardrobeStore } from '../../store/wardrobeStore';
+import { handVertexMask, SCAN_WRIST_M, TwinHands } from './twinHands';
+import { pushInPositions, pushInWeights } from './twinPushIn';
 import { coveredBodyVertices } from '../wardrobe/bodyHide';
 import { restAlignment, translatePositions, type RestAlignment } from './twinBinding';
 import type { TwinModel } from './twinModel';
@@ -22,6 +25,12 @@ import {
 } from './twinMapping';
 
 type Source = BufferAttribute | number[] | null;
+
+function sameValues(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 
 /** Twin vertices this close to a worn garment's surface (either side) and under its footprint are hidden as well. */
 export const FOOTPRINT_BAND_M = 0.03;
@@ -57,18 +66,46 @@ export class TwinRig {
   private bodyIndex: Source = null;
   private hiddenTriangles = 0;
   private disposed = false;
+  private readonly hands: TwinHands;
+  private readonly rest: Float32Array;
+  private handMask: Uint8Array;
+  private readonly offWardrobe: () => void;
+  private pushWeights: Float32Array;
+  private coverageKey = '';
+  private coverageIndex = new Uint32Array();
+  private readonly surfaceCache = new Map<
+    string,
+    {
+      version: string;
+      epoch: number;
+      positions: Float32Array;
+      index: Uint32Array;
+    }
+  >();
 
   constructor(
     private readonly assets: AvatarAssets,
     private readonly model: TwinModel,
     private readonly mapping: Uint32Array | null,
     private readonly onInfo: (info: TwinRuntimeInfo) => void = () => undefined,
+    skinToneHex = `#${model.material.color.getHexString()}`,
   ) {
     this.bodyGeometry = assets.mesh.geometry;
     this.bodyVertexCount = this.bodyGeometry.getAttribute('position').count;
     if (mapping) validateMapping(mapping, model.vertexCount, this.bodyVertexCount);
     this.unreferenced = new Uint8Array(this.bodyVertexCount);
     this.hiddenTwin = new Uint8Array(model.vertexCount);
+    this.rest = new Float32Array(model.position);
+    this.handMask = new Uint8Array(model.vertexCount);
+    this.pushWeights = new Float32Array(model.vertexCount);
+    this.hands = new TwinHands(assets, skinToneHex);
+    // Wardrobe refreshes in its synchronous subscriber first; this also catches size/colour changes without a new index.
+    this.offWardrobe = useWardrobeStore.subscribe((state, previous) => {
+      if (state.worn !== previous.worn || state.items !== previous.items)
+        queueMicrotask(() => {
+          if (!this.disposed) this.refreshHidden();
+        });
+    });
 
     this.position = new Float32BufferAttribute(new Float32Array(model.position), 3).setUsage(
       DynamicDrawUsage,
@@ -120,7 +157,16 @@ export class TwinRig {
     const alignment = restAlignment(this.model.heads, this.model.remap, appHeads);
     this.alignment = alignment;
     if (alignment.maxResidual > MAX_HEAD_RESIDUAL_M) return alignment; // foreign files: the caller rejects them, nothing is shown
-    translatePositions(this.model.position, alignment.offset, this.position.array as Float32Array);
+    translatePositions(this.model.position, alignment.offset, this.rest);
+    this.handMask = handVertexMask(
+      this.rest,
+      this.model.skinIndex,
+      this.model.skinWeight,
+      this.assets.skeleton.bones.map((b) => b.name),
+      appHeads,
+      SCAN_WRIST_M,
+    );
+    this.hands.update(appHeads);
     this.position.needsUpdate = true;
     this.mesh.bindMatrix.copy(this.assets.mesh.bindMatrix);
     this.mesh.bindMatrixInverse.copy(this.assets.mesh.bindMatrix).invert();
@@ -144,6 +190,12 @@ export class TwinRig {
    */
   private refreshHidden(): void {
     const index = this.bodyIndex;
+    const bodyValues = index ? (Array.isArray(index) ? index : index.array) : [];
+    const surfaces = this.garmentSurfaces();
+    const key = `${this.alignment?.offset.join(',') ?? 'pending'}|${surfaces.map((s) => s.key).join('|')}`;
+    if (key === this.coverageKey && sameValues(bodyValues, this.coverageIndex)) return;
+    this.coverageKey = key;
+    this.coverageIndex = Uint32Array.from(bodyValues);
     const hidden = this.hiddenTwin;
     hidden.fill(0);
     let any = false;
@@ -156,8 +208,8 @@ export class TwinRig {
       any = true;
     }
     if (this.alignment) {
-      const positions = this.position.array as Float32Array;
-      for (const garment of this.garmentSurfaces()) {
+      const positions = this.rest;
+      for (const garment of surfaces) {
         const covered = coveredBodyVertices(
           positions,
           this.model.vertexCount,
@@ -171,11 +223,35 @@ export class TwinRig {
         any = true;
       }
     }
-    if (!any) {
+    this.pushWeights = pushInWeights(this.rest, hidden);
+    pushInPositions(
+      this.rest,
+      this.model.normal,
+      this.pushWeights,
+      this.position.array as Float32Array,
+    );
+    this.position.needsUpdate = true;
+    // Recompute on the complete surface before compacting, so coverage boundaries retain correct normals.
+    this.indexArray.set(this.model.index);
+    this.geometry.computeVertexNormals();
+    for (let v = 0; v < hidden.length; v++) hidden[v] = hidden[v]! | this.handMask[v]!;
+    if (!any && !this.handMask.some(Boolean)) {
       this.showAll();
       return;
     }
-    this.setDrawn(compactTwinIndex(this.model.index, hidden, this.indexArray));
+    const count = compactTwinIndex(this.model.index, hidden, this.indexArray);
+    // A triangle touching the hand region is removed entirely: fused scan fists never remain at the wrist edge.
+    let kept = 0;
+    for (let t = 0; t < count; t += 3) {
+      if (
+        this.handMask[this.indexArray[t]!] ||
+        this.handMask[this.indexArray[t + 1]!] ||
+        this.handMask[this.indexArray[t + 2]!]
+      )
+        continue;
+      for (let j = 0; j < 3; j++) this.indexArray[kept++] = this.indexArray[t + j]!;
+    }
+    this.setDrawn(kept);
   }
 
   /**
@@ -183,19 +259,41 @@ export class TwinRig {
    * avatar scene (its position attribute holds the graded rest positions in the body's frame, the draw range the
    * triangles that are not hidden under an outer garment).
    */
-  private garmentSurfaces(): { positions: Float32Array; index: ArrayLike<number> }[] {
-    const out: { positions: Float32Array; index: ArrayLike<number> }[] = [];
+  private garmentSurfaces(): { positions: Float32Array; index: ArrayLike<number>; key: string }[] {
+    const out: { positions: Float32Array; index: ArrayLike<number>; key: string }[] = [];
     for (const child of this.assets.scene.children) {
       if (!child.name.startsWith('garment:') || !(child instanceof SkinnedMesh)) continue;
       const geometry = child.geometry;
       const index = geometry.getIndex();
       if (!index) continue;
       const count = Math.min(index.count, geometry.drawRange.count);
+      const positions = geometry.getAttribute('position').array as Float32Array;
+      const values = (index.array as Uint32Array).subarray(0, count);
+      const version = `${(geometry.getAttribute('position') as BufferAttribute).version}:${index.version}:${count}`;
+      let cached = this.surfaceCache.get(child.uuid);
+      if (!cached || cached.version !== version) {
+        if (
+          !cached ||
+          !sameValues(positions, cached.positions) ||
+          !sameValues(values, cached.index)
+        ) {
+          cached = {
+            version,
+            epoch: (cached?.epoch ?? 0) + 1,
+            positions: positions.slice(),
+            index: Uint32Array.from(values),
+          };
+          this.surfaceCache.set(child.uuid, cached);
+        } else cached.version = version;
+      }
       out.push({
-        positions: geometry.getAttribute('position').array as Float32Array,
-        index: (index.array as Uint32Array).subarray(0, count),
+        key: `${child.uuid}:${cached.epoch}`,
+        positions,
+        index: values,
       });
     }
+    const live = new Set(out.map((surface) => surface.key.split(':')[0]));
+    for (const id of this.surfaceCache.keys()) if (!live.has(id)) this.surfaceCache.delete(id);
     return out;
   }
 
@@ -233,6 +331,39 @@ export class TwinRig {
         return [scratch.x, scratch.y, scratch.z];
       },
       hiddenTriangles: (): number => this.hiddenTriangles,
+      handTriangles: (): number => (this.hands.mesh.geometry.getIndex()?.count ?? 0) / 3,
+      handsVisible: (): boolean => this.hands.mesh.visible,
+      handColor: (): string =>
+        `#${(this.hands.mesh.material as import('three').MeshStandardMaterial).color.getHexString()}`,
+      handVertices: (): number[][] => {
+        const out: number[][] = [];
+        for (let i = 0; i < this.hands.mesh.geometry.getAttribute('position').count; i++) {
+          this.hands.mesh.getVertexPosition(i, scratch);
+          this.hands.mesh.localToWorld(scratch);
+          out.push([scratch.x, scratch.y, scratch.z]);
+        }
+        return out;
+      },
+      fingerVertices: (): number[][] => {
+        const out: number[][] = [];
+        const wrist = this.assets.skeleton.bones.find((b) => b.name === 'hand_l');
+        const index = this.assets.skeleton.bones.findIndex((b) => b.name === 'index_03_l');
+        if (!wrist) return out;
+        const geometry = this.hands.mesh.geometry;
+        const joints = geometry.getAttribute('skinIndex');
+        const weights = geometry.getAttribute('skinWeight');
+        if (!joints || !weights) return out;
+        for (let v = 0; v < joints.count; v++) {
+          if (joints.getX(v) !== index || weights.getX(v) < 0.75) continue;
+          this.hands.mesh.getVertexPosition(v, scratch);
+          this.hands.mesh.localToWorld(scratch);
+          wrist.worldToLocal(scratch); // removes arm and wrist motion: only articulated fingers remain
+          out.push([scratch.x, scratch.y, scratch.z]);
+        }
+        return out;
+      },
+      pushDistances: (): number[] => Array.from(this.pushWeights, (weight) => weight * 0.008),
+      restPositions: (): number[] => Array.from(this.position.array),
       bodyVisible: (): boolean => this.assets.mesh.visible,
       twinVisible: (): boolean => this.mesh.visible && this.mesh.parent !== null,
       alignment: (): RestAlignment | null => this.alignment,
@@ -250,6 +381,9 @@ export class TwinRig {
 
   dispose(): void {
     this.disposed = true;
+    this.offWardrobe();
+    this.surfaceCache.clear();
+    this.hands.dispose();
     Reflect.deleteProperty(this.bodyGeometry, 'setIndex'); // back to the prototype method
     this.assets.mesh.visible = this.bodyWasVisible;
     this.mesh.removeFromParent();

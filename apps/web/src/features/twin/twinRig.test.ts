@@ -6,6 +6,53 @@ import { bodyIndex, envelope, fakeAssets, fakeModel, mapping } from './twinTestk
 import { MAX_HEAD_RESIDUAL_M, TwinRig } from './twinRig';
 
 describe('TwinRig', () => {
+  it('pushes clothing coverage and its margin inward once, recomputes normals, and restores on take-off', () => {
+    const assets = fakeAssets();
+    const model = fakeModel();
+    for (let v = 0; v < model.vertexCount; v++) {
+      model.position[v * 3] = model.position[v * 3]! * 0.1;
+      model.position[v * 3 + 1] = 1 + Math.floor(v / 5) * 0.01;
+      model.normal[v * 3 + 2] = 1;
+    }
+    const rig = new TwinRig(assets, model, null);
+    rig.onSolve(envelope(true));
+    const position = rig.mesh.geometry.getAttribute('position');
+    const original = Float32Array.from(position.array);
+    const garment = new BufferGeometry();
+    garment.setAttribute(
+      'position',
+      new BufferAttribute(
+        Float32Array.from([-0.02, 0.98, 0.004, 0.025, 0.98, 0.004, 0, 1.04, 0.004]),
+        3,
+      ),
+    );
+    garment.setIndex([0, 1, 2]);
+    const mesh = new SkinnedMesh(garment, new MeshBasicMaterial());
+    mesh.name = 'garment:test';
+    assets.scene.add(mesh);
+    assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1));
+    const deltas = Array.from(
+      { length: model.vertexCount },
+      (_, v) => original[v * 3 + 2]! - position.getZ(v),
+    );
+    expect(Math.max(...deltas)).toBeCloseTo(0.008);
+    expect(deltas.some((d) => d > 0 && d < 0.0079)).toBe(true);
+    expect(Array.from(rig.mesh.geometry.getAttribute('normal').array).every(Number.isFinite)).toBe(
+      true,
+    );
+    const first = Float32Array.from(position.array);
+    const normals = rig.mesh.geometry.getAttribute('normal') as BufferAttribute;
+    const normalVersion = normals.version;
+    (garment.getAttribute('position') as BufferAttribute).needsUpdate = true; // wardrobe uploads unchanged rest data
+    rig.onSolve(envelope(true)); // cached: no accumulating shrink on repeated solves
+    expect(position.array).toEqual(first);
+    expect(normals.version).toBe(normalVersion); // avoids another footprint / push-in / normals pass
+    assets.scene.remove(mesh);
+    assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1));
+    expect(position.array).toEqual(original);
+    rig.dispose();
+    garment.dispose();
+  });
   it('stays hidden and leaves the body visible until a fixed-shape solve aligns it', () => {
     const assets = fakeAssets();
     const rig = new TwinRig(assets, fakeModel(), mapping);

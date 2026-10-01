@@ -333,7 +333,7 @@ tools/twin-lab/rig/rig_scan.py            (local, python; outputs stay in user-d
   -> mh2twin.bin  uint32 LE per twin vertex: nearest MakeHuman render vertex (optional)
         |  file picker in the "Realistic twin" tab   (twinStore.loadFiles: parse + validate, nothing is fetched)
         v
-store/twinStore.ts   pack {def, glb bytes, mapping}, mode 'standard' | 'twin'      IndexedDB `twin:*` (try / catch)
+store/twinStore.ts   pack {def, glb bytes, mapping, skinToneHex?}, mode 'standard' | 'twin'   IndexedDB `twin:*`
         |  subscribe
         v
 TwinMode (features/twin/twinMode.ts, created by Avatar next to the WardrobeRig; Avatar forwards every solve)
@@ -341,9 +341,17 @@ TwinMode (features/twin/twinMode.ts, created by Avatar next to the WardrobeRig; 
   twin:     PartsRig disposed, loadTwinModel(glb) -> worker.setFixedShape({macros, modifiers}) -> re-solve
             body = the fitted MakeHuman body, HIDDEN (mesh.visible = false), still the source of skeleton + garment fit
             TwinRig: SkinnedMesh of the scan bound to the SAME skeleton (translated onto its rest heads)
+            TwinHands: only the fitted MakeHuman hands/fingers, matte skin material on that same skeleton
 ```
 
-- **Package (`twin.json`, version 1).** `fittedMacros` (gender, muscle, weight, height) and `fittedModifiers` are the
+- **Single-file bundle (`twin.glb`).** The rigged scan and embedded baseColor texture carry
+  `asset.extras.dtTwin = {version: 1, twin: <full twin.json>, skinToneHex: '#rrggbb',
+  mh2twin: {bufferView, count, componentType: 'uint32'}, provenance: {shape, license, createdAt}}`.
+  `twinBundle.ts` reads the extras from `gltf.parser.json` and obtains the little-endian uint32 mapping through
+  `gltf.parser.getDependency('bufferView', i)`. Version, definition, skin tone, provenance, buffer-view index,
+  count, byte length and mapping range are validated. Bundles must embed their buffers and images. IndexedDB
+  stores the original GLB and reparses its embedded data on hydration; legacy sidecar packages still work.
+- **Legacy package (`twin.json`, version 1).** `fittedMacros` (gender, muscle, weight, height) and `fittedModifiers` are the
   shape of the fitted body. The fitter optimises with an incr AND a decr column per modifier, avatar-core applies the NET
   value, so `rig_scan.py` continues with the canonical body (`canonicalize_fit`: net values rounded to 6 decimals, rest
   body rebuilt from them); the browser therefore reproduces exactly the skeleton the glb was rigged with (tested: rest
@@ -368,6 +376,13 @@ TwinMode (features/twin/twinMode.ts, created by Avatar next to the WardrobeRig; 
   `applyMorphs`, measures, mass; `fixedShape: true` in the result) and ignore the body params and the face shape; `null`
   returns to solving. Unknown modifier ids are rejected before anything switches. Body-parameter changes do not trigger
   solves in twin mode.
+- **Hands.** `twinHands.ts` selects vertices by their dominant skin influence (`hand_*` or any thumb/index/middle/ring/
+  pinky bone). Lowerarm-weighted vertices extend the selection 8 mm past the scan wrist, using the rest forearm
+  direction and wrist head. Scan triangles touching that selection are removed, including fused fists. A separate
+  compact `SkinnedMesh` copies only the fitted body's hand/finger region, extending 25 mm up the wrist and expanding
+  the surface 1 mm along its normal to overlap the cut. Its own matte material uses `dtTwin.skinToneHex` (legacy:
+  scan material colour). It shares the skeleton/bind matrix and updates from the hidden body after each fixed solve;
+  finger pose JSONs therefore articulate real finger geometry. Disposal restores standard mode and frees the mesh.
 - **Wardrobe.** Garments bind to the hidden body as in standard mode and render over the twin. The scan is CLOTHED (its
   own T-shirt / jeans / shoes are geometry), so twin triangles under a worn garment are hidden, with two passes that are
   combined: (a) mapping - the wardrobe already removes the body triangles under a garment (delete lists + footprint
@@ -376,8 +391,14 @@ TwinMode (features/twin/twinMode.ts, created by Avatar next to the WardrobeRig; 
   remaining body triangle uses; (b) footprint - `coveredBodyVertices` (the wardrobe's own function) on the twin's
   vertices against each worn garment's fitted surface (the `garment:*` meshes of the scene) within 3 cm, which removes the
   scan's clothes where they stick out of the new fabric and gives a straight boundary at hems. A triangle is hidden only
-  when all three vertices are; `refreshHidden` costs 15-80 ms on a 47k-vertex scan and runs only when the worn set
-  changes.
+  when all three vertices are. Additionally, `twinPushIn.ts` pushes covered scan vertices inward along normalized
+  original normals by at most 8 mm, with smoothstep falloff across a 25 mm spatial margin around coverage. A spatial
+  grid bounds the neighbourhood search. Unmodified aligned rest positions are retained; every update starts from
+  them, normals are recomputed on the complete surface, and removing garments restores the exact positions.
+  Coverage/displacement are cached by garment surface content, draw ranges, body index and alignment; attribute
+  versions avoid comparisons unless the wardrobe uploaded new data. Identical repeated solves and pose changes
+  reuse them. Wardrobe store changes schedule a refresh after fitting, including size edits that leave
+  the body index unchanged. The integration uses the existing body-index composition hook entirely inside TwinRig.
 - **Parts, face, appearance.** Eyes / brows / hair (`PartsRig`), the face bake and the skin composite are standard-mode
   features: the parts are disposed in twin mode, the face and appearance tabs show a note; the twin has its own face,
   hair and baked texture (`MeshStandardMaterial`, roughness 0.88, no skin composite).
@@ -387,17 +408,22 @@ TwinMode (features/twin/twinMode.ts, created by Avatar next to the WardrobeRig; 
 - **Licence.** The shape stage uses Hunyuan3D-2 (Tencent community licence, territory excludes the EU / UK / South Korea,
   see `tools/twin-lab/README.md`): a twin made with it is for the user's own local use and must not be shipped with the
   app.
-- **Tests.** Unit: `twinDef` (strict twin.json parser), `twinMapping` (parsing, hiding composed with the wardrobe's own
+- **Tests.** Unit: `twinBundle` (contract, malformed extras, dependency lookup), `twinHands` (dominant weights,
+  wrist overlap), `twinPushIn` (bounded displacement, smooth margin, repeatability and restoration), `twinDef`
+  (strict twin.json parser), `twinMapping` (parsing, hiding composed with the wardrobe's own
   `hiddenVertexMask` / `filterBodyIndex`), `twinBinding` (bone matching, alignment, three.js skinning through the
   avatar's rebuilt skeleton), `twinStore` (IndexedDB mock), `fixedShape` and `twin.real.test.ts` (real MakeHuman assets +
   the stand-in fixture: numpy measurements vs avatar-core, rest heads vs the browser's body, glb binding, mapping range).
-  E2E `e2e/twin.spec.ts`: switch, load, poses change bones and twin vertices, garments hide the scan, back to standard,
+  E2E `e2e/twin.spec.ts`: switch, single-file load, poses change bones and hand/finger vertices, tee + jeans hide and
+  push in the scan, take-off restores it, back to standard,
   reload persistence, removal, a mismatching twin.json, no upload and no foreign request. Python:
   `tools/twin-lab/rig/tests`. The stand-in fixture (`apps/web/e2e/fixtures/twin-standin`) is the CC0 MakeHuman body with
   another shape, another pose, its own UV layout and a generated texture, rigged by `rig_scan.py`; its screenshots are
-  `docs/screenshots/twin-standin-*.png`. `tools/twin-lab/rig/app_qa.mjs` runs the same flow on a real twin (output
+  `docs/screenshots/twin-standin-*.png`. `bundle_standin.py` in the fixture directory deterministically packages only
+  these non-personal files, sampling the median synthetic forearm colour. `tools/twin-lab/rig/app_qa.mjs` runs the same flow on a real twin (output
   under `user-data/` only).
-- **Limitations.** The scan's own clothes stay where a new garment does not cover them (collar, sleeve stubs, waistband);
+- **Limitations.** The scan's own clothes stay beyond a new garment's coverage and 25 mm margin. The 8 mm push-in
+  cannot conceal arbitrary thick or distant old clothing;
   the hidden region follows the triangulation of the scan, so its boundary is jagged where the mesh is irregular.
   Skinning is linear blend: a scan whose arms touch the torso keeps a web at the armpit in the T-pose (`--cut-bridges`
   removes it only partly). The camera "full" preset frames the body-panel height, not the twin's. Nude or

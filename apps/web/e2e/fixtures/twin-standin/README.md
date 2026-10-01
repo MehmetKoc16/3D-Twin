@@ -14,3 +14,12 @@ Regenerate (Windows, from `tools/twin-lab/rig`, see its README for the venv):
 Used by `e2e/twin.spec.ts` (picked through the twin panel's file input, like a user would) and by the unit test
 `src/features/twin/twin.real.test.ts` (checks that the browser rebuilds the body the pipeline exported).
 Licence: derived from the CC0 MakeHuman assets and generated code only.
+
+`twin.glb` is a deterministic bundle of these same non-personal files. It embeds the full `twin.json` in
+`asset.extras.dtTwin.twin` and appends the uint32 LE mapping as a GLB buffer view. `skinToneHex` is the median
+RGB of synthetic forearm texture samples (dominant `lowerarm_l/r` weights). No photos are used.
+Rebuild from the repository root with:
+
+    tools/twin-lab/rig/.venv/Scripts/python apps/web/e2e/fixtures/twin-standin/bundle_standin.py
+
+The script accepts no input paths and reads only the adjacent stand-in files. `createdAt` is fixed for reproducibility.

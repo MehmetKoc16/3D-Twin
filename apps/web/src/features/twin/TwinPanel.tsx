@@ -51,7 +51,7 @@ function FileRow({
   );
 }
 
-/** Twin tab: pick rigged.glb + twin.json (+ mh2twin.bin), see the status, remove. Nothing leaves the browser. */
+/** Twin tab: one twin.glb bundle or legacy pieces, status and removal. Nothing leaves the browser. */
 export function TwinPanel() {
   const { t, i18n } = useTranslation();
   const input = useRef<HTMLInputElement>(null);
@@ -75,13 +75,16 @@ export function TwinPanel() {
       ? { name: pending.glb.name, size: pending.glb.buffer.byteLength }
       : null;
   const json: PickedFile | null = pack
-    ? { name: pack.names.json }
+    ? { name: pack.skinToneHex ? t('twin.panel.embedded') : pack.names.json }
     : pending.json
       ? { name: pending.json.name }
       : null;
   const mapping: PickedFile | null = pack
     ? pack.names.mapping
-      ? { name: pack.names.mapping, ...(pack.mapping ? { size: pack.mapping.byteLength } : {}) }
+      ? {
+          name: pack.skinToneHex ? t('twin.panel.embedded') : pack.names.mapping,
+          ...(pack.mapping ? { size: pack.mapping.byteLength } : {}),
+        }
       : null
     : pending.mapping
       ? { name: pending.mapping.name, size: pending.mapping.buffer.byteLength }

@@ -15,6 +15,14 @@ import { bytes, parseGlb, primitive, root } from '../wardrobe/realAssets.testkit
 import { restAlignment, translatePositions } from './twinBinding';
 import { parseTwinJson, twinMacros } from './twinDef';
 import { loadTwinModel } from './twinModel';
+import { loadTwinBundle } from './twinBundle';
+import { TwinHands } from './twinHands';
+import { TwinRig } from './twinRig';
+import { rebuildRestSkeleton } from '../avatar/applySolve';
+import type { AvatarAssets } from '../avatar/avatarAssets';
+import type { SolveEnvelope } from '../../workers/avatarClient';
+import { Bone, SkinnedMesh, Vector3 } from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { parseMapping, validateMapping } from './twinMapping';
 
 /**
@@ -71,6 +79,90 @@ describe.skipIf(!root || !fixtureDir)('twin package on the stand-in fixture', ()
     { manifest, base, morphs, measures, indices: baseGlb.indices },
     { macros: twinMacros(def), modifiers: def.fittedModifiers },
   );
+
+  it('loads the stand-in bundle, replaces its hands and articulates real fingers from the pose JSONs', async () => {
+    const bundle = await loadTwinBundle(stripImages(bytes(`${fixture}/twin.glb`)));
+    expect(bundle?.def).toEqual(def);
+    expect(bundle?.mapping).toEqual(parseMapping(bytes(`${fixture}/mh2twin.bin`)));
+    expect(bundle?.skinToneHex).toBe('#d6a489');
+    const gltf = await new GLTFLoader().parseAsync(bytes(`${dir}/body/base.glb`), '');
+    let body: SkinnedMesh | undefined;
+    gltf.scene.traverse((child) => {
+      if (child instanceof SkinnedMesh) body = child;
+    });
+    if (!body) throw new Error('CC0 fixture must have a skinned body');
+    const skeleton = body.skeleton;
+    const grounded = groundRenderPositions(solved.positions, manifest.renderVertexCount);
+    const joints = flattenJoints(boneNames, computeJoints(rig, solved.positions), grounded.offsetY);
+    const rigIndexOfBone = Int32Array.from(skeleton.bones.map((b) => boneNames.indexOf(b.name)));
+    const assets = {
+      scene: gltf.scene,
+      mesh: body,
+      skeleton,
+      indices: Uint32Array.from(body.geometry.getIndex()!.array),
+      rigIndexOfBone,
+      parents: Int32Array.from(
+        skeleton.bones.map((b) =>
+          b.parent instanceof Bone ? skeleton.bones.indexOf(b.parent) : -1,
+        ),
+      ),
+    } as AvatarAssets;
+    (body.geometry.getAttribute('position').array as Float32Array).set(grounded.positions);
+    body.geometry.computeVertexNormals();
+    rebuildRestSkeleton(assets, joints);
+    const appHeads = headsFromJoints(joints, rigIndexOfBone);
+    const hands = new TwinHands(assets, bundle!.skinToneHex);
+    hands.update(appHeads);
+    expect(hands.mesh.visible).toBe(true);
+    expect(hands.mesh.skeleton).toBe(skeleton);
+    expect(hands.mesh.geometry.getIndex()!.count).toBeGreaterThan(300);
+    expect(hands.mesh.geometry.getAttribute('position').count).toBeLessThan(
+      manifest.renderVertexCount / 3,
+    );
+    const skinIndex = hands.mesh.geometry.getAttribute('skinIndex');
+    const skinWeight = hands.mesh.geometry.getAttribute('skinWeight');
+    const distal = skeleton.bones.findIndex((b) => b.name === 'index_03_l');
+    const selected = Array.from({ length: skinIndex.count }, (_, v) => v).filter(
+      (v) => skinIndex.getX(v) === distal && skinWeight.getX(v) >= 0.75,
+    );
+    expect(selected.length).toBeGreaterThan(0);
+    const wrist = skeleton.bones.find((b) => b.name === 'hand_l')!;
+    const pose = (id: string): Vector3[] => {
+      const json = JSON.parse(readFileSync(`${dir}/poses/${id}.json`, 'utf8')) as {
+        bones: Record<string, [number, number, number, number]>;
+      };
+      for (const bone of skeleton.bones)
+        bone.quaternion.fromArray(json.bones[bone.name] ?? [0, 0, 0, 1]);
+      gltf.scene.updateMatrixWorld(true);
+      skeleton.update();
+      return selected.map((v) =>
+        wrist.worldToLocal(hands.mesh.localToWorld(hands.mesh.getVertexPosition(v, new Vector3()))),
+      );
+    };
+    const t = pose('t-pose');
+    const relaxed = pose('relaxed');
+    expect(Math.max(...t.map((p, i) => p.distanceTo(relaxed[i]!)))).toBeGreaterThan(0.001);
+    hands.dispose();
+    for (const bone of skeleton.bones) bone.quaternion.identity();
+    gltf.scene.updateMatrixWorld(true);
+    const model = await loadTwinModel(
+      stripImages(bytes(`${fixture}/twin.glb`)),
+      bundle!.def,
+      skeleton.bones.map((b) => b.name),
+    );
+    const twin = new TwinRig(assets, model, bundle!.mapping, undefined, bundle!.skinToneHex);
+    const envelope = { result: { fixedShape: true, joints } } as SolveEnvelope;
+    twin.onSolve(envelope);
+    expect(twin.mesh.visible).toBe(true);
+    expect(body.visible).toBe(false);
+    expect(twin.mesh.geometry.drawRange.count).toBeLessThan(model.index.length - 300);
+    const sourcePositions = (body.geometry.getAttribute('position').array as Float32Array).slice();
+    twin.dispose();
+    expect(body.visible).toBe(true);
+    expect(body.geometry.getAttribute('position').array).toEqual(sourcePositions);
+    expect(assets.scene.children.some((child) => child.name === 'twin:hands')).toBe(false);
+    body.geometry.dispose();
+  });
 
   it('the bone order of twin.json is the rig order', () => {
     expect(def.boneOrder).toEqual(boneNames);

@@ -11,10 +11,10 @@
     "title": "Realistic twin",
     "description": "Show your rigged 3D scan, generated locally from your own photos, instead of the standard mannequin. Poses, zoom and the wardrobe work as usual.",
     "privacy": "Privacy: the files are kept only in this browser (IndexedDB); they are never uploaded and never part of the app. You can remove them at any time.",
-    "pick": "Choose files",
-    "pickHint": "Pick rigged.glb and twin.json (optionally with mh2twin.bin) in one go. The files are in the output of tools/twin-lab/rig.",
+    "pick": "Choose twin.glb",
+    "pickHint": "Choose one twin.glb bundle. Legacy rigged.glb + twin.json (+ mh2twin.bin) files also work.",
     "files": {
-      "glb": "Rigged scan (rigged.glb)",
+      "glb": "Twin scan (GLB)",
       "json": "Body data (twin.json)",
       "mapping": "Mapping (mh2twin.bin)"
     },
@@ -22,15 +22,16 @@
     "optional": "optional",
     "status": {
       "empty": "No twin files yet.",
-      "partial": "Files are missing: rigged.glb and twin.json are both required.",
+      "partial": "For a legacy scan, also choose twin.json. A twin.glb bundle needs no other files.",
       "ready": "Twin loaded.",
       "error": "The twin could not be loaded."
     },
     "noMapping": "No mapping file: the wardrobe only hides the scan right under the fabric; with thick clothes the scan may show through.",
-    "stats": "{{vertices}} vertices · {{triangles}} triangles · hidden by the wardrobe: {{hidden}}",
+    "stats": "{{vertices}} vertices · {{triangles}} triangles · hidden triangles: {{hidden}}",
     "alignment": "Skeleton fit: at most {{residual}} mm apart",
     "remove": "Remove twin",
-    "howTo": "To produce the files: python tools/twin-lab/rig/rig_scan.py <scan.glb> <output folder>"
+    "howTo": "To produce the files: python tools/twin-lab/rig/rig_scan.py <scan.glb> <output folder>",
+    "embedded": "embedded in twin.glb"
   },
   "measures": {
     "title": "Your twin's measurements",

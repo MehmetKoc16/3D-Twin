@@ -7,6 +7,7 @@ import {
   type TwinErrorCode,
 } from '../features/twin/twinDef';
 import { parseMapping } from '../features/twin/twinMapping';
+import { loadTwinBundle } from '../features/twin/twinBundle';
 
 /**
  * The realistic twin: the user's own rigged scan (`rigged.glb` + `twin.json` + optional `mh2twin.bin`, produced locally
@@ -30,6 +31,8 @@ export const MAX_TWIN_BYTES = 200 * 1024 * 1024;
 
 export interface TwinPack {
   def: TwinDef;
+  /** Present for a single-file bundle; legacy packs use the scan material colour. */
+  skinToneHex?: string;
   /** rigged.glb bytes. */
   glb: ArrayBuffer;
   /** Twin vertex -> nearest body render vertex; null when no mapping file was given. */
@@ -124,6 +127,23 @@ export function buildPack(pending: PendingFiles): TwinPack | null {
   };
 }
 
+async function buildPickedPack(pending: PendingFiles): Promise<TwinPack | null> {
+  if (pending.glb) {
+    const bundle = await loadTwinBundle(pending.glb.buffer);
+    if (bundle)
+      return {
+        ...bundle,
+        glb: pending.glb.buffer,
+        names: {
+          glb: pending.glb.name,
+          json: 'asset.extras.dtTwin.twin',
+          mapping: 'embedded mh2twin',
+        },
+      };
+  }
+  return buildPack(pending);
+}
+
 const empty = {
   status: 'empty' as TwinStatus,
   error: null,
@@ -156,7 +176,7 @@ export const useTwinStore = create<TwinState>((update, read) => ({
             `${file.name}: expected rigged.glb, twin.json or mh2twin.bin`,
           );
       }
-      const pack = buildPack(pending);
+      const pack = await buildPickedPack(pending);
       if (!pack) {
         update({ pending, status: 'partial', error: null });
         return;
@@ -172,8 +192,8 @@ export const useTwinStore = create<TwinState>((update, read) => ({
       }));
       await persist([
         [TWIN_KEYS.glb, pack.glb],
-        [TWIN_KEYS.json, pending.json?.text],
-        [TWIN_KEYS.mapping, pending.mapping?.buffer ?? null],
+        [TWIN_KEYS.json, pack.skinToneHex ? null : pending.json?.text],
+        [TWIN_KEYS.mapping, pack.skinToneHex ? null : (pending.mapping?.buffer ?? null)],
         [TWIN_KEYS.names, pack.names],
         [TWIN_KEYS.mode, 'twin'],
       ]);
@@ -217,17 +237,20 @@ export const useTwinStore = create<TwinState>((update, read) => ({
         get<unknown>(TWIN_KEYS.mode),
       ]);
       if (read().pack || Object.keys(read().pending).length > 0) return; // the user picked files meanwhile
-      if (!(glb instanceof ArrayBuffer) || typeof json !== 'string') return;
+      if (!(glb instanceof ArrayBuffer)) return;
       const stored = names as
         Partial<Record<'glb' | 'json' | 'mapping', string | null>> | undefined;
-      const pack = buildPack({
+      const pack = await buildPickedPack({
         glb: { name: stored?.glb ?? 'rigged.glb', buffer: glb },
-        json: { name: stored?.json ?? 'twin.json', text: json },
+        ...(typeof json === 'string'
+          ? { json: { name: stored?.json ?? 'twin.json', text: json } }
+          : {}),
         ...(mapping instanceof ArrayBuffer
           ? { mapping: { name: stored?.mapping ?? 'mh2twin.bin', buffer: mapping } }
           : {}),
       });
       if (!pack) return;
+      if (read().pack || Object.keys(read().pending).length > 0) return;
       update((state) => ({
         pack,
         status: 'ready',

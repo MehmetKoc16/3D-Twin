@@ -7,13 +7,19 @@ test.use({ channel: 'chrome' });
 // Relative to apps/web (Playwright's working directory). The fixture is a NON-personal stand-in: a re-fitted, re-posed
 // CC0 MakeHuman body with a synthetic texture (see e2e/fixtures/twin-standin/README.md).
 const fixture = 'e2e/fixtures/twin-standin';
-const twinFiles = ['rigged.glb', 'twin.json', 'mh2twin.bin'].map((name) => `${fixture}/${name}`);
+const twinFiles = [`${fixture}/twin.glb`];
 const shots = '../../docs/screenshots';
 
 interface TwinProbe {
   vertexCount: number;
   vertex: (i: number) => [number, number, number];
   hiddenTriangles: () => number;
+  handTriangles: () => number;
+  handsVisible: () => boolean;
+  handColor: () => string;
+  fingerVertices: () => number[][];
+  pushDistances: () => number[];
+  restPositions: () => number[];
   bodyVisible: () => boolean;
   twinVisible: () => boolean;
   alignment: () => { offset: number[]; maxResidual: number } | null;
@@ -92,18 +98,24 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
   await expect(page.getByTestId('twin-status')).toHaveAttribute('data-status', 'error');
   await expect(page.getByTestId('twin-error')).toBeVisible();
 
-  // --- pick rigged.glb + twin.json + mh2twin.bin: the twin replaces the mannequin
+  // --- pick one self-contained twin.glb: the twin replaces the mannequin
   await page.getByTestId('twin-file-input').setInputFiles(twinFiles);
   await expect(page.getByTestId('twin-status')).toHaveAttribute('data-status', 'ready');
   await expect(page.getByTestId('twin-status')).toHaveAttribute('data-active', 'true');
   await expect(page.getByTestId('model-twin')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('twin-runtime')).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByTestId('twin-file-glb')).toContainText('rigged.glb');
-  await expect(page.getByTestId('twin-file-mapping')).toContainText('mh2twin.bin');
+  await expect(page.getByTestId('twin-file-glb')).toContainText('twin.glb');
+  await expect(page.getByTestId('twin-file-mapping')).toContainText('twin.glb içinde');
   await expect
     .poll(() => page.evaluate(() => window.__dtTwin?.twinVisible() ?? false), { timeout: 30_000 })
     .toBe(true);
   expect(await page.evaluate(() => window.__dtTwin!.bodyVisible())).toBe(false); // the MakeHuman body is solved but hidden
+  expect(await page.evaluate(() => window.__dtTwin!.handsVisible())).toBe(true);
+  expect(await page.evaluate(() => window.__dtTwin!.handTriangles())).toBeGreaterThan(100);
+  expect(await page.evaluate(() => window.__dtTwin!.handColor())).toBe('#d6a489');
+  const handHidden = await page.evaluate(() => window.__dtTwin!.hiddenTriangles());
+  expect(handHidden).toBeGreaterThan(100);
+  const undressedPositions = await page.evaluate(() => window.__dtTwin!.restPositions());
   const alignment = await page.evaluate(() => window.__dtTwin!.alignment());
   expect(alignment?.maxResidual).toBeLessThan(1e-4); // twin.json and rigged.glb rebuild the same skeleton
   await expect.poll(() => page.evaluate(() => window.__dtParts?.ids().length ?? 0)).toBe(0); // eyes / hair are the twin's own
@@ -133,6 +145,8 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
   const tBone = await page.evaluate(() => window.__dtTwin!.bone('upperarm_l')!);
   const tHand = await page.evaluate(() => window.__dtTwin!.bone('hand_l')!.world);
   const tSample = await samplePositions(page);
+  const tFingers = await page.evaluate(() => window.__dtTwin!.fingerVertices());
+  expect(tFingers.length).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Tam vücut', exact: true }).first().click();
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `${shots}/twin-standin-tpose.png` });
@@ -141,6 +155,8 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
   const rBone = await page.evaluate(() => window.__dtTwin!.bone('upperarm_l')!);
   const rHand = await page.evaluate(() => window.__dtTwin!.bone('hand_l')!.world);
   const rSample = await samplePositions(page);
+  const rFingers = await page.evaluate(() => window.__dtTwin!.fingerVertices());
+  expect(maxDistance(tFingers, rFingers)).toBeGreaterThan(0.001); // finger motion in the wrist frame
   expect(Math.hypot(...rBone.q.map((v, i) => v - tBone.q[i]!))).toBeGreaterThan(0.05); // the bone rotated
   expect(
     Math.hypot(rHand[0]! - tHand[0]!, rHand[1]! - tHand[1]!, rHand[2]! - tHand[2]!),
@@ -162,7 +178,7 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
   // --- wardrobe: a T-shirt bound to the hidden body renders over the twin and hides the scan under it
   await page.getByRole('tab', { name: 'Gardırop', exact: true }).click();
   await expect(page.getByTestId('worn-empty')).toBeVisible();
-  expect(await page.evaluate(() => window.__dtTwin!.hiddenTriangles())).toBe(0);
+  expect(await page.evaluate(() => window.__dtTwin!.hiddenTriangles())).toBe(handHidden);
   await page.getByTestId('use-template-tshirt').click();
   await fill(page, 'form-name', 'Twin tişört');
   await fill(page, 'form-color-hex', '#3b6ea8');
@@ -195,6 +211,11 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
     .toBeGreaterThan(hiddenWithTop + 500);
   await page.waitForTimeout(1500);
   const hiddenWithOutfit = await page.evaluate(() => window.__dtTwin!.hiddenTriangles());
+  const push = await page.evaluate(() => window.__dtTwin!.pushDistances());
+  expect(Math.max(...push)).toBeLessThanOrEqual(0.008);
+  expect(push.filter((d) => d > 0).length).toBeGreaterThan(100);
+  expect(push.some((d) => d > 0 && d < 0.008)).toBe(true); // smooth margin around neckline and waistband
+  expect(await page.evaluate(() => window.__dtTwin!.handsVisible())).toBe(true);
   await page.getByRole('tab', { name: 'Gerçekçi ikiz', exact: true }).click();
   await expect(page.getByTestId('twin-runtime')).toHaveAttribute(
     'data-hidden',
@@ -214,7 +235,11 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
   // taking the clothes off shows the whole scan again
   await page.getByTestId('take-off-bottom').click();
   await page.getByTestId('take-off-top').click();
-  await expect.poll(() => page.evaluate(() => window.__dtTwin!.hiddenTriangles())).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__dtTwin!.hiddenTriangles())).toBe(handHidden);
+  expect(await page.evaluate(() => window.__dtTwin!.pushDistances().every((d) => d === 0))).toBe(
+    true,
+  );
+  expect(await page.evaluate(() => window.__dtTwin!.restPositions())).toEqual(undressedPositions);
 
   // --- the twin survives a reload (IndexedDB, no upload) and is restored in twin mode
   await page.reload();

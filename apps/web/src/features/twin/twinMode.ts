@@ -107,8 +107,12 @@ export class TwinMode {
         return;
       }
       this.twinRig?.dispose();
-      this.twinRig = new TwinRig(this.assets, model, pack.mapping, (info) =>
-        useTwinStore.getState().setRuntime(info),
+      this.twinRig = new TwinRig(
+        this.assets,
+        model,
+        pack.mapping,
+        (info) => useTwinStore.getState().setRuntime(info),
+        pack.skinToneHex,
       );
       this.appliedRevision = state.revision;
       this.requestSolve();
