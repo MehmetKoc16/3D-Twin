@@ -1,0 +1,30 @@
+# twin-lab / refine - everything except mediapipe (see README: pip install --no-deps mediapipe==1.0.1, because its
+# declared opencv-contrib-python dependency would clash with opencv-python)
+absl-py==2.5.0
+certifi==2026.7.22
+cffi==2.1.1
+colorama==0.4.6
+contourpy==1.4.0
+cycler==0.12.1
+fast_simplification==0.2.0
+flatbuffers==25.12.19
+fonttools==4.66.1
+iniconfig==2.3.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.5.3
+opencv-python==5.0.0.93
+packaging==26.3
+pillow==12.3.0
+pluggy==1.6.0
+pycparser==3.0
+Pygments==2.21.0
+pyparsing==3.3.3
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+ruff==0.16.9
+scipy==1.18.1
+six==1.17.0
+sounddevice==0.5.6
+trimesh==5.1.0
+xatlas==0.0.11
