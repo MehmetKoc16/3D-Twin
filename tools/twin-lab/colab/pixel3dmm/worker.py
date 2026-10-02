@@ -162,9 +162,10 @@ def fit(root: Path, included: list, config: dict) -> None:
     tracker.run()
     # Explicitly save every view AFTER joint optimization. canonical.ply saved
     # during online initialization is stale and must not be used as neutral export.
+    # Upstream only calls save_checkpoint under no_grad; it calls .numpy() on graph tensors.
     for item in included:
         index = item["frame"]
-        tracker.save_checkpoint(index, selected_frames=torch.tensor([index], device="cuda"))
+        with torch.no_grad(): tracker.save_checkpoint(index, selected_frames=torch.tensor([index], device="cuda"))
     (root / "fit_path.txt").write_text(str(Path(tracker.output_folder)))
     (root / "fit_config.json").write_text(json.dumps(OmegaConf.to_container(cfg, resolve=True)))
     tracker.writer.close()
