@@ -28,8 +28,8 @@ def build() -> dict:
         No models or upstream source are embedded here or redistributed by this notebook.
 
         Register at FLAME, download **FLAME2020.zip** yourself and put it in your
-        Google Drive. Choose **Runtime > Change runtime type > GPU > L4 or A100**.
-        T4 is rejected with a warning. Edit the parameter cell, then **Runtime > Run all**.
+        Google Drive. Choose **Runtime > Change runtime type > GPU** (T4 works; L4/A100 are faster).
+        Edit the parameter cell, then **Runtime > Run all**.
         A separate Python 3.9 / CUDA 11.8 conda environment avoids restarting Colab.
         Installation/native compilation and multi-GB weight downloads can take tens of minutes.
         **Colab execution has not been tested.**
@@ -68,7 +68,7 @@ def build() -> dict:
     """, "parameters"), cell("markdown", """
         ## GPU check
 
-        Fails before Drive access or image uploads unless the runtime has L4/A100.
+        Fails before Drive access or image uploads unless a T4/L4/A100/H100 GPU is attached.
         These GPU choices are notebook policy; no VRAM/performance guarantee is made.
         FLAME 2023 fitting uses `use_flame2023=True` and `ignore_mica=True`.
         The MICA stage still runs with its own FLAME 2020 model.
@@ -87,11 +87,13 @@ def build() -> dict:
             raise RuntimeError("Select an L4 or A100 Colab GPU runtime") from error
         gpu_name, gpu_memory = gpu_summary.rsplit(",", 1)
         print(f"GPU: {gpu_name.strip()}, {int(gpu_memory)} MiB")
-        if "T4" in gpu_name:
-            print("Warning: T4 is unsupported. Select L4/A100 before Run all.")
-        if not any(name in gpu_name for name in ("L4", "A100")) or int(gpu_memory) < 22000:
-            raise RuntimeError("L4 (24 GB) or A100 is required")
-        GPU_ARCH = "8.9" if "L4" in gpu_name else "8.0"
+        # T4 (16 GB, sm_75) is the only GPU on Google AI Pro; L4/A100/H100 need AI Ultra.
+        GPU_ARCHES = {"T4": "7.5", "L4": "8.9", "A100": "8.0", "H100": "9.0"}
+        GPU_ARCH = next((arch for name, arch in GPU_ARCHES.items() if name in gpu_name), None)
+        if GPU_ARCH is None or int(gpu_memory) < 15000:
+            raise RuntimeError("A T4, L4, A100 or H100 GPU runtime is required")
+        if GPU_ARCH == "7.5":
+            print("T4 detected: fitting is slower; if it runs out of memory, lower ITERS/GLOBAL_ITERS.")
     """, "gpu-check"), cell("code", "EMBEDDED_FILES = " + repr(embedded), "embedded-original-helpers"), cell("markdown", """
         ## Copy FLAME, install, upload, fit and download
 
