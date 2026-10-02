@@ -1,7 +1,9 @@
 # Pixel3DMM multi-image FLAME head fit on Colab
 
 Research checked **2026-10-02**. This user-operated notebook is the requested
-Colab exception to twin-lab's local-only privacy rule. **Colab execution is untested.**
+Colab exception to twin-lab's local-only privacy rule. **The revised retry/fitting
+path is not Colab-tested here.** The user reported successful installation/upload
+on T4 with the previous notebook, followed by a preprocessing failure.
 No personal photos, model files, weights or derived meshes were accessed during
 development. Only original notebook/helper code is added to the repository.
 
@@ -11,38 +13,51 @@ development. Only original notebook/helper code is added to the repository.
    the licence applicable to your use, and download **FLAME 2020** yourself.
    The archive must contain `generic_model.pkl`. Do not download texture-space
    archives instead. The notebook never asks for your FLAME login/password.
-2. Upload **FLAME2020.zip** to your Google Drive, e.g. `MyDrive/FLAME2020.zip`.
+2. Upload **FLAME2020.zip** to your Google Drive, e.g. `MyDrive/flame/FLAME2020.zip`.
    Only model archives belong in Drive for this workflow; photos stay on your device.
 3. Open/upload [pixel3dmm_head.ipynb](pixel3dmm_head.ipynb) in Google Colab.
-4. Select **Runtime > Change runtime type > Python 3 > GPU > L4 or A100**.
-   T4 produces a warning and stops before Drive access/photos. GPU availability
-   varies; L4/A100 selection is notebook policy, not an upstream memory guarantee.
+4. Select **Runtime > Change runtime type > Python 3 > GPU**. T4 is accepted,
+   as are L4/A100/H100. Native builds use the attached GPU architecture (T4: sm_75).
+   GPU availability varies; successful fitting and memory usage remain unverified.
 5. Edit the top parameter cell: set `FLAME_ZIP_DRIVE_PATH` to the exact Drive path
    and leave `FLAME_VERSION="2020"` for the recommended first run. Default fitting
-   uses 1500 iterations per view and 1500 joint iterations.
+   uses 1500 iterations per view and 1500 joint iterations. Leave
+   `MAX_FIT_BATCH_SIZE=1` for T4 memory headroom; iteration counts affect runtime,
+   while batch size controls peak joint-fit memory.
 6. Choose **Runtime > Run all**. Authorize Drive when prompted. The notebook copies
-   only the selected FLAME zip(s) into its private VM directory and unmounts Drive.
+   only the selected FLAME zip(s) into `/content/dt-pixel3dmm-cache` and unmounts
+   Drive. Repeated runs reuse these copied archives without mounting Drive again.
    Installation and native compilation can take tens of minutes and substantial
    RAM/disk; all processing happens in an isolated environment.
 7. At `files.upload()`, select all four de-glassed head photos together, named
    `front.png`, `left.png`, `right.png`, `back.png` (JPG/JPEG also accepted).
    Left/right refer to the subject's profiles. Use the same person, neutral face,
    closed mouth, consistent lighting, no glasses and clear face/ears. Back may be
-   omitted or skipped if no face is detected. Front and both profiles are required;
-   if a profile cannot be detected, retry with a less extreme angle.
+   omitted. Front is required; profiles/back that have no usable face, landmarks,
+   MICA identity or segmentation are skipped with a warning and metadata reason.
+   A front-only fit is allowed but has less geometric constraint; try milder
+   profile angles when possible.
 8. Save **head_fit.zip** when `files.download()` starts. Put it under
    **`user-data/twin/head/flame/`**, which is gitignored, and extract it there.
    Inspect the overlays in your own local viewer before using the fit downstream.
-9. Run the last privacy cell manually if an earlier cell stopped, then select
-   **Runtime > Disconnect and delete runtime**. Clear outputs before sharing
-   the notebook. To retry after a failed run, use a fresh runtime and Run all.
+9. On failure, read the printed step/view and filtered traceback tail. Run the
+   **Fit only** cell to upload photos again without installation or Drive access.
+   It reuses software, weights and FLAME; private photos/outputs/logs from the last
+   attempt are already deleted. Successful Run all skips a duplicate fit automatically.
+10. When finished, set **`DELETE_VM_CACHE=True` in the final privacy cell** and run
+    it to delete all remaining cache files, then **Disconnect and delete runtime**.
+    Default False preserves the cache for retries. Clear saved diagnostic outputs
+    before sharing. If the cache is missing/incompatible, prepare it again with
+    install-and-fit; clear an incompatible cache with the final privacy cell first.
 
 Drive mounting grants write capability; Colab does not provide a read-only flag
 here. **Read-only usage** means this notebook performs only explicit model-zip
 reads/copies, then unmounts. It never writes photos, outputs or fitted parameters
 to Drive. No other inference/API service is used. Upstream diagnostics are kept
-in a VM log rather than displayed in notebook outputs, and are deleted with the
-session. Do not share notebook outputs containing your file names.
+in private per-step VM logs. On failure, the notebook prints the last ~120
+filtered stack-trace lines before deleting those logs; it excludes arrays, byte
+reprs, image/base64 payloads, credentials and arbitrary progress/debug output.
+Diagnostics can remain in saved notebook outputs: clear them before sharing.
 
 ## Installation and research findings
 
@@ -53,7 +68,7 @@ Its [environment file](https://github.com/SimonGiebenhain/pixel3dmm/blob/fcd1fa9
 uses the torch 2.7 family. Plain pip on a recent Colab kernel is unsuitable for
 its legacy NumPy/chumpy stack. This notebook bootstraps
 [micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html)
-**2.0.5** inside the session, creates **Python 3.9 + CUDA 11.8 + GCC 11**, and runs
+**2.0.5** inside the VM cache, creates **Python 3.9 + CUDA 11.8 + GCC 11**, and runs
 everything through that environment's interpreter. It avoids condacolab's kernel
 restart, keeping Run all continuous. Torch **2.7.1/cu118**, torchvision **0.22.1**,
 NumPy **1.23.5** and selected compatibility constraints adapt the upstream recipe.
@@ -74,12 +89,12 @@ The [MICA README](https://github.com/Zielon/MICA#pre-trained-models) requires it
 pretrained weights plus insightface `antelopev2`/`buffalo_l`. The notebook fetches
 them from the identifiers in the
 [upstream MICA install replacement](https://github.com/SimonGiebenhain/pixel3dmm/blob/fcd1fa973c7715b02a8948dfc679dff53cf85924/src/pixel3dmm/preprocessing/replacement_code/install_mica_download_flame.sh).
-It keeps insightface models in a session-specific directory and uses CPU ONNX
+It keeps insightface models in the persistent VM cache and uses CPU ONNX
 detection to avoid a second CUDA runtime dependency; MICA itself runs on GPU.
 The pipeline installer fetches PIPNet's WFLW checkpoint and Pixel3DMM's UV/normal
 checkpoints. Facer fetches its detector/FaRL parsing assets when initialized;
 PyTorch/torch-hub also fetch required pretrained encoders/backbones automatically.
-All caches stay in the session directory. Weight URLs can expire or hit quotas;
+Model/software caches stay in `/content/dt-pixel3dmm-cache` until final cleanup. Weight URLs can expire or hit quotas;
 there is no redistribution mirror or credential fallback.
 
 | Source | Pinned revision |
@@ -119,9 +134,9 @@ results into a contiguous sequence. It checks every landmark/segmentation and
 UV/normal prediction because upstream wrappers sometimes catch/ignore errors.
 The worker uses upstream `Tracker` with the same YAML/CLI configuration contract;
 identity is shared and expression/pose are per view. `global_camera=False` also
-fits focal/principal point per photo. Batch size is the accepted photo count.
+fits focal/principal point per photo. Joint batch size is the smaller of the accepted photo count and `MAX_FIT_BATCH_SIZE`.
 No temporal smoothness is applied. Neck fitting is disabled because this region
-is often underconstrained. Skipped back views have reasons in the metadata.
+is often underconstrained. Skipped profiles/back have reasons and failed-step labels in the metadata.
 
 `head_fit.zip` contains only the export directory; no FLAME files, weights,
 repositories, original photo files or pickle checkpoints are bundled.
@@ -194,16 +209,53 @@ are fetched into the session VM, never committed or redistributed by the noteboo
 Personal outputs stay under gitignored `user-data/`; they are not cleared for
 shipping with the app. Other preprocessing dependencies retain their own terms.
 
-Installation, photo uploads, preprocessing, fitting, export and archive transfer
-share `try/finally`. It clears uploaded bytes, stops the subprocess group on
-ordinary errors/interruption, and removes the entire private
-`/content/dt-pixel3dmm-session-*` directory, including FLAME zips/extracted models,
-repositories, caches/weights, originals, derived images/meshes, logs and ZIP.
-The final cell repeats bounded cleanup and removes only session-owned `.env`.
-It never deletes anything from Drive. Browser download completion is awaited using
-the same wrapper convention as the TRELLIS notebook. Hard termination can bypass
-Python cleanup; disconnect/delete the runtime. Deletion is not secure erasure or
-a statement about Google's retention. Your downloaded copy remains your responsibility.
+Each photo attempt has a fresh `/content/dt-pixel3dmm-session-*` directory for
+uploads, normalized inputs, preprocessing, tracking, overlays/meshes, logs and ZIP.
+A `try/finally` clears uploaded bytes and deletes that directory on success,
+ordinary failure or interruption. The worker/subprocess group is stopped before
+cleanup. Its stdout/stderr and each preprocessing step are captured separately;
+failures print the current step/view and the last 120 filtered traceback lines
+while logs still exist. Hard/native kills without a traceback are reported as such.
+
+Software, source clones, copied/extracted FLAME, model weights and native-extension
+caches are kept separately in **`/content/dt-pixel3dmm-cache`** for retries.
+A completion marker checks GPU architecture/source/stack versions before reuse;
+changing GPU/build compatibility requires clearing this cache before rebuilding.
+No photo or derived output belongs there. Session-bound `.env` is removed after
+fitting. The **Fit only** cell validates/reuses the cache and asks for photos anew;
+it never mounts Drive or installs packages. A ready-cache Run all also avoids
+installation. Interrupted initial installs may retry preparation; failed fits
+reuse the completed installation.
+
+The final privacy cell deletes **both** session directories and the complete
+cache, including environment, weights, source clones and FLAME. Set
+`DELETE_VM_CACHE=True` there and execute it when finished; default False lets
+Run all keep the cache for further fits. No Drive file is deleted. Download
+completion is awaited before private outputs are deleted. Hard termination can
+bypass Python cleanup: disconnect/delete the runtime. VM deletion is not secure
+erasure or a statement about Google's retention. Your downloaded copy and saved
+notebook diagnostics remain your responsibility.
+
+### T4 robustness changes and likely causes
+
+The original failure's logs were deleted, so its exact cause is **unknown**.
+Inspection found that upstream cropping indexes `detections[0]` before checking
+for no detections and stacks an empty landmark list on failure. Such known
+face-detection failures on optional views now produce warnings/skips; a failed
+front still stops with diagnostics. Unexpected import/CUDA/process errors remain
+visible failures rather than being classified as detection failures.
+
+Native PyTorch3D builds use the runtime's `TORCH_CUDA_ARCH_LIST` (T4: **7.5**);
+nvdiffrast's JIT extension cache is partitioned by GPU architecture. The VM adapter
+disables upstream `COMPILE=True` to avoid an additional compiler/graph path.
+Prediction models run `.eval().float()`; preprocessing and the worker use float32
+with autocast disabled, and CUDA's default autocast dtype is float16 rather than
+bf16. The timm DINO encoder uses ordinary attention (`set_fused_attn(False)`), with
+[PyTorch's math attention backend](https://docs.pytorch.org/docs/2.7/generated/torch.nn.functional.scaled_dot_product_attention.html)
+enabled and fused Flash/memory-efficient/cuDNN SDPA disabled. No xformers or
+flash-attn dependency is added; `XFORMERS_DISABLED=1` is also set. These are
+compatibility adaptations, not a proven diagnosis or a guarantee against T4 OOM.
+
 
 ## Developer validation
 
@@ -223,18 +275,19 @@ npm run test
 `nbformat` validates notebook JSON; each extracted code cell and every helper
 passes `py_compile`. Synthetic tests cover zip traversal/symlinks, model variant
 selection, preserving auxiliary files, bounded cleanup on error, upload naming,
-camera projection/composition and fail-closed source patches. No tests contain
+camera projection/composition, safe traceback filtering, cache reuse/final deletion,
+optional-view handling, diagnostics-before-cleanup and fail-closed source patches. No tests contain
 photos, real model data or personal meshes.
 
-Local checks (2026-10-02): **nbformat passed; all 5 code cells and helpers passed
-py_compile; 15 synthetic pytest cases passed; repository typecheck passed.**
+Local checks (2026-10-02): **nbformat passed; all 7 code cells and helpers passed
+py_compile; 27 synthetic pytest cases passed; repository typecheck passed.**
 Standard `npm run lint` encountered an inaccessible existing `.pytest_cache`;
 direct ESLint with `--ignore-pattern '**/.pytest_cache/**'` passed.
 Standard `npm run test` hit Windows `spawn EPERM` / native Vite dependency errors;
 direct Vitest thread-pool runs passed **290 web + 111 avatar-core tests**.
 The web run used `--experimental-strip-types` and `--configLoader=native`.
 
-**Untested:** Colab environment solve, CUDA/native builds, checkpoint URLs/quotas,
+**Untested after these changes:** Colab retry/cache lifecycle, revised CUDA/native execution,
 FLAME 2020/2023 loading, real detections/segmentation/fitting, likeness, alignment,
 GPU memory/performance and browser Drive/upload/download interactions. Local syntax
 and synthetic checks cannot prove operational Colab execution; smoke-test there

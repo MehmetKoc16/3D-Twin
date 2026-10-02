@@ -16,7 +16,8 @@ def cell(kind: str, source: str, identifier: str) -> dict:
 
 def build() -> dict:
     embedded = {name: (HERE / name).read_text(encoding="utf-8") for name in
-                ("io_utils.py", "camera.py", "setup_runtime.py", "worker.py", "export_fit.py")}
+                ("io_utils.py", "camera.py", "setup_runtime.py", "worker.py", "export_fit.py",
+                 "diagnostics.py", "runtime_compat.py", "notebook_session.py")}
     cells = [cell("markdown", """
         # Multi-image FLAME head fit with Pixel3DMM
 
@@ -28,11 +29,11 @@ def build() -> dict:
         No models or upstream source are embedded here or redistributed by this notebook.
 
         Register at FLAME, download **FLAME2020.zip** yourself and put it in your
-        Google Drive. Choose **Runtime > Change runtime type > GPU** (T4 works; L4/A100 are faster).
+        Google Drive. Choose **Runtime > Change runtime type > GPU** (T4 supported; L4/A100 have more headroom).
         Edit the parameter cell, then **Runtime > Run all**.
         A separate Python 3.9 / CUDA 11.8 conda environment avoids restarting Colab.
         Installation/native compilation and multi-GB weight downloads can take tens of minutes.
-        **Colab execution has not been tested.**
+        **The revised fitting/retry path has not been tested on Colab.**
 
         Drive is mounted with read-only **usage**, not a read-only permission grant:
         Colab's Drive mount can write. This notebook only reads the selected FLAME
@@ -41,7 +42,7 @@ def build() -> dict:
         select de-glassed `front.png`, `left.png`, `right.png`, `back.png` together
         (.jpg/.jpeg also accepted). Left/right mean the subject's left/right profile.
         Back is optional and omitted from fitting if no face is detected.
-        Front and both profiles must preprocess successfully.
+        Front must preprocess successfully; undetectable profiles/back are skipped with warnings.
 
         Photos run on Google's VM only, through user-operated uploads. No remote
         inference service or logging service receives them. No previews are displayed.
@@ -51,7 +52,8 @@ def build() -> dict:
         This is a head intermediate, not the rigged `twin.glb` bundle.
 
         Installation, upload, fitting and download share a `try/finally` cleanup.
-        The final privacy cell also checks that no session directory remains.
+        Software, weights and FLAME stay in /content/dt-pixel3dmm-cache for retries.
+        The final privacy cell can explicitly delete that cache once you finish.
         Save the browser download, then **Runtime > Disconnect and delete runtime**.
         VM deletion is not secure erasure or a promise about Google's retention.
         Clear notebook outputs before sharing. On hard kernel/VM termination,
@@ -65,6 +67,7 @@ def build() -> dict:
         FLAME2020_ZIP_DRIVE_PATH = "/content/drive/MyDrive/flame/FLAME2020.zip"
         ITERS = 1500
         GLOBAL_ITERS = 1500
+        MAX_FIT_BATCH_SIZE = 1  # Small joint batches reduce peak memory on T4.
     """, "parameters"), cell("markdown", """
         ## GPU check
 
@@ -77,32 +80,34 @@ def build() -> dict:
 
         if FLAME_VERSION not in {"2020", "2023"}:
             raise ValueError("FLAME_VERSION must be 2020 or 2023")
-        if any(not isinstance(value, int) or value < 1 for value in (ITERS, GLOBAL_ITERS)):
+        if any(not isinstance(value, int) or value < 1 for value in (ITERS, GLOBAL_ITERS, MAX_FIT_BATCH_SIZE)):
             raise ValueError("Iteration counts must be positive integers")
         try:
             gpu_summary = subprocess.check_output(
                 ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"], text=True
             ).splitlines()[0]
         except (FileNotFoundError, subprocess.CalledProcessError, IndexError) as error:
-            raise RuntimeError("Select an L4 or A100 Colab GPU runtime") from error
+            raise RuntimeError("Select a T4, L4, A100 or H100 Colab GPU runtime") from error
         gpu_name, gpu_memory = gpu_summary.rsplit(",", 1)
         print(f"GPU: {gpu_name.strip()}, {int(gpu_memory)} MiB")
-        # T4 (16 GB, sm_75) is the only GPU on Google AI Pro; L4/A100/H100 need AI Ultra.
+        # Compile native extensions for the attached GPU, including T4 sm_75.
         GPU_ARCHES = {"T4": "7.5", "L4": "8.9", "A100": "8.0", "H100": "9.0"}
         GPU_ARCH = next((arch for name, arch in GPU_ARCHES.items() if name in gpu_name), None)
         if GPU_ARCH is None or int(gpu_memory) < 15000:
             raise RuntimeError("A T4, L4, A100 or H100 GPU runtime is required")
         if GPU_ARCH == "7.5":
-            print("T4 detected: fitting is slower; if it runs out of memory, lower ITERS/GLOBAL_ITERS.")
+            print("T4 detected: eager float32 execution, no bf16; use MAX_FIT_BATCH_SIZE=1 for memory headroom.")
     """, "gpu-check"), cell("code", "EMBEDDED_FILES = " + repr(embedded), "embedded-original-helpers"), cell("markdown", """
         ## Copy FLAME, install, upload, fit and download
 
         Drive authorization is only needed to read the model zip(s). No FLAME
         username/password is requested. The credential sections of upstream's
         preprocessing installer are replaced in the VM with model-weight downloads.
-        All subprocess diagnostics stay in the session's `runtime.log`, removed
-        by cleanup; if installation fails, the cell reports the failing command
-        without displaying upstream numeric/photo debug output.
+        Worker stdout/stderr and each preprocessing step go to private session logs.
+        Failures print the failed step/view and the last 120 filtered traceback lines
+        BEFORE cleanup. Numeric arrays, image bytes and arbitrary debug output are excluded.
+        Clear saved outputs before sharing. The installed cache survives success/failure;
+        only photos, derived outputs and logs are automatically removed.
 
         Each view is cropped separately before the joint fit. `is_discontinuous=True`
         disables temporal smoothness; `global_camera=False` fits intrinsics per photo.
@@ -116,117 +121,65 @@ def build() -> dict:
         verify that you saved the browser download to disk.
     """, "session-notes"), cell("code", """
         from pathlib import Path
-        import gc
         import importlib
-        import json
-        import shutil
         import sys
-        import tempfile
-        from google.colab import drive, files
 
-        def run_session():
-            session = Path(tempfile.mkdtemp(prefix="dt-pixel3dmm-session-", dir="/content"))
-            helpers = session / "helpers"
-            helpers.mkdir()
-            uploaded = {}
-            mounted = False
-            config_created = False
-            env_file = Path.home() / ".config/pixel3dmm/.env"
-            try:
-                for name, source in EMBEDDED_FILES.items():
-                    (helpers / name).write_text(source, encoding="utf-8")
-                sys.path.insert(0, str(helpers))
-                importlib.invalidate_caches()
-                from io_utils import upload_views, download_and_wait
-                from setup_runtime import install, run
-                selected = {FLAME_VERSION: FLAME_ZIP_DRIVE_PATH}
-                if FLAME_VERSION == "2023":
-                    selected["2020"] = FLAME2020_ZIP_DRIVE_PATH
-                drive.mount("/content/drive")
-                mounted = True
-                for version, filename in selected.items():
-                    # Accept "/content/drive/...", "drive/..." (Colab "Copy path") and stray whitespace.
-                    # No resolve(): the Drive FUSE mount may resolve outside /content/drive.
-                    raw = str(filename).strip().strip('"').strip("'")
-                    model_zip = Path(raw) if raw.startswith("/") else Path("/content") / raw
-                    if not str(model_zip).startswith("/content/drive/") or ".." in model_zip.parts or model_zip.suffix.lower() != ".zip":
-                        raise ValueError(f"Select a FLAME .zip inside /content/drive (got {raw!r})")
-                    if not model_zip.is_file():
-                        raise FileNotFoundError("FLAME zip not found; check the parameter cell")
-                    # Read-only Drive usage: this is the ONLY Drive file operation.
-                    shutil.copyfile(model_zip, session / ("FLAME" + version + ".zip"))
-                drive.flush_and_unmount()
-                mounted = False
-                if env_file.exists():
-                    raise RuntimeError("Existing Pixel3DMM config found. Use a fresh Colab runtime")
-                env_file.parent.mkdir(parents=True, exist_ok=True)
-                paths = {
-                    "PIXEL3DMM_CODE_BASE": str(session / "pixel3dmm"),
-                    "PIXEL3DMM_PREPROCESSED_DATA": str(session / "preprocessed"),
-                    "PIXEL3DMM_TRACKING_OUTPUT": str(session / "tracking"),
-                }
-                env_file.write_text("".join(key + "=" + json.dumps(value) + "\\n" for key, value in paths.items()), encoding="utf-8")
-                config_created = True
-                python, worker_env = install(session, GPU_ARCH)
-                worker_env.update(paths)
-                (session / "config.json").write_text(json.dumps({
-                    "flame_version": FLAME_VERSION, "iters": ITERS, "global_iters": GLOBAL_ITERS,
-                }), encoding="utf-8")
-                uploads = session / "uploads"
-                uploads.mkdir()
-                print("Upload de-glassed front, left, right and back head photos together.")
-                uploaded = files.upload(target_dir=str(uploads))
-                upload_views(uploaded.keys())
-                uploaded.clear()
-                print("Preprocessing each view, then fitting shared identity with independent cameras.")
-                run([python, helpers / "worker.py", session], session, cwd=session / "pixel3dmm", env=worker_env)
-                download_and_wait(session / "head_fit.zip")
-                print("head_fit.zip transferred to your browser. Save it to user-data/twin/head/flame/.")
-            finally:
-                uploaded.clear()
-                # Nested finally ensures private files are removed even if Drive unmount fails.
-                try:
-                    if mounted:
-                        drive.flush_and_unmount()
-                finally:
-                    try:
-                        if config_created:
-                            env_file.unlink(missing_ok=True)
-                    finally:
-                        if session.resolve().parent != Path("/content") or not session.name.startswith("dt-pixel3dmm-session-"):
-                            raise ValueError("Refusing unsafe session cleanup")
-                        shutil.rmtree(session)
-                        if str(helpers) in sys.path:
-                            sys.path.remove(str(helpers))
-                        for name in EMBEDDED_FILES:
-                            sys.modules.pop(Path(name).stem, None)
-                        gc.collect()
-                        print("Privacy cleanup: VM uploads, FLAME, weights, outputs, logs and archive removed.")
+        CACHE_ROOT = Path("/content/dt-pixel3dmm-cache")
+        if CACHE_ROOT.is_symlink() or CACHE_ROOT.resolve().parent != Path("/content"):
+            raise ValueError("Refusing unsafe VM cache path")
+        (CACHE_ROOT / "helpers").mkdir(parents=True, exist_ok=True)
+        for name, source in EMBEDDED_FILES.items():
+            (CACHE_ROOT / "helpers" / name).write_text(source, encoding="utf-8")
+            sys.modules.pop(Path(name).stem, None)
+        helper_path = str(CACHE_ROOT / "helpers")
+        if helper_path not in sys.path:
+            sys.path.insert(0, helper_path)
+        importlib.invalidate_caches()
+        from notebook_session import run_session as run_head_session, cleanup_everything
 
-        run_session()
-    """, "run-with-cleanup"), cell("markdown", """
-        ## Privacy cleanup (last cell)
+        def run_session(prepare=False):
+            selected = {FLAME_VERSION: FLAME_ZIP_DRIVE_PATH}
+            if FLAME_VERSION == "2023":
+                selected["2020"] = FLAME2020_ZIP_DRIVE_PATH
+            run_head_session(CACHE_ROOT, selected, FLAME_VERSION, GPU_ARCH,
+                             ITERS, GLOBAL_ITERS, MAX_FIT_BATCH_SIZE, prepare=prepare)
+    """, "session-functions"), cell("code", """
+        # Install once (or reuse a ready cache), then ask for photos and fit.
+        _SKIP_AUTOMATIC_RETRY = False
+        run_session(prepare=True)
+        _SKIP_AUTOMATIC_RETRY = True
+    """, "install-and-fit"), cell("markdown", """
+        ## Fit only: retry without installation or Drive access
 
-        The session `finally` already deletes all VM photos, derived files, model
-        archives/extracted FLAME and weights on success or ordinary errors.
-        This final cell checks for leftovers, including after a previous interrupted
-        run. If Run all stopped on an error, run this cell manually.
-        No Drive file is deleted. Always disconnect and delete the runtime after saving.
+        After a failed fit, run the next cell to upload the photos again and retry
+        with the same installed environment, weights and FLAME files. You may edit
+        iteration/batch parameters first. A missing cache requires install-and-fit;
+        an incompatible cache requires final privacy cleanup before reinstalling.
+        During a successful Run all, this cell skips a
+        duplicate upload; run it again manually for another fit. Even a front-only
+        fit is accepted when optional profiles cannot be detected; metadata and
+        warnings record every omission.
+    """, "fit-only-notes"), cell("code", """
+        if globals().pop("_SKIP_AUTOMATIC_RETRY", False):
+            print("Automatic duplicate fit skipped. Run this cell again for a fit-only retry.")
+        else:
+            run_session(prepare=False)
+    """, "fit-only-retry"), cell("markdown", """
+        ## Final privacy cleanup
+
+        Every fit already deletes uploads, outputs, logs and its archive. Keep the
+        model cache while retrying. **When finished, set DELETE_VM_CACHE=True below
+        and run this cell** to delete everything, including installed software,
+        copied/extracted FLAME and downloaded weights. Default False lets Run all
+        retain the cache for retries. Then disconnect and delete the runtime.
+        No Drive files are deleted. If an earlier cell stops, run this cell manually
+        with True when you are done. Clear saved diagnostic outputs before sharing.
     """, "privacy-notes"), cell("code", """
-        from pathlib import Path
-        import gc
-        import shutil
-
-        for leftover in Path("/content").glob("dt-pixel3dmm-session-*"):
-            if leftover.resolve().parent != Path("/content") or leftover.is_symlink():
-                raise ValueError("Refusing unsafe cleanup path")
-            shutil.rmtree(leftover)
-        # Remove only this notebook's session-bound configuration, never an unrelated config.
-        config_file = Path.home() / ".config/pixel3dmm/.env"
-        if config_file.exists() and '"/content/dt-pixel3dmm-session-' in config_file.read_text():
-            config_file.unlink()
-        gc.collect()
-        print("No Pixel3DMM session files remain. Save your download, then disconnect and delete runtime.")
+        DELETE_VM_CACHE = False  # Set True and run this cell once finished retrying.
+        if DELETE_VM_CACHE:
+            cleanup_everything(CACHE_ROOT)
+        else:
+            print("VM model cache retained for fit-only retries. Set DELETE_VM_CACHE=True here when finished.")
     """, "privacy-cleanup")]
     return {"cells": cells, "metadata": {
         "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},

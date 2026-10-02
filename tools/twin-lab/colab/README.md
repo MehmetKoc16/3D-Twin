@@ -181,7 +181,7 @@ must be smoke-tested by the user in Colab before treating it as an operational s
 ## Pixel3DMM head fitting
 
 The separate [Pixel3DMM head notebook](pixel3dmm_head.ipynb) fits a shared FLAME
-identity to de-glassed front/left/right/back head photos on **L4/A100**.
+identity to de-glassed front/left/right/back head photos on **T4/L4/A100/H100**.
 It uses a manually downloaded FLAME zip copied from Drive with read-only usage;
 photos are uploaded only to the session VM. The default is FLAME 2020; the 2023
 no-jaw option also needs 2020 for preprocessing. `head_fit.zip` contains neutral
@@ -189,6 +189,8 @@ OBJ/PLY geometry, JSON/NPZ coefficients, per-view cameras, fitted PLY meshes and
 PNG overlays. Save it in `user-data/twin/head/flame/` (gitignored).
 This is personal non-commercial research under the owner's 2026-10-02 decision,
 with separate restricted model licences; no models/weights are committed.
-Automatic cleanup removes VM photos, outputs and FLAME files.
+Each attempt deletes VM photos, outputs and logs after printing failure tracebacks.
+The model/FLAME cache survives for the fit-only retry cell; the final privacy cell
+deletes everything when `DELETE_VM_CACHE=True`.
 See [setup, licences, validation and limitations](pixel3dmm_README.md).
-**Colab execution is untested.**
+**The revised fitting/retry path is untested on Colab.**

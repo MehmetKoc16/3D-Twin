@@ -51,8 +51,8 @@ def upload_views(names) -> dict:
         if view in result:
             raise ValueError("Only one image per view is allowed")
         result[view] = path.name
-    if not {"front", "left", "right"}.issubset(result):
-        raise ValueError("Front, left profile and right profile are required; back is optional")
+    if "front" not in result:
+        raise ValueError("Front is required; left/right/back are optional")
     return result
 
 

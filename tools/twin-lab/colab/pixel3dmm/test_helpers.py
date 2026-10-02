@@ -6,6 +6,11 @@ import stat
 import uuid
 import zipfile
 from types import SimpleNamespace
+from types import ModuleType
+import json
+import sys
+import subprocess
+import notebook_session
 
 import numpy as np
 import pytest
@@ -14,6 +19,10 @@ from camera import camera_matrices, projection_matrix
 from io_utils import cleanup_session, safe_extract, stage_flame, upload_views
 from setup_runtime import replace_exact
 import setup_runtime
+from diagnostics import traceback_tail, print_diagnostics, step_context
+from notebook_session import cleanup_everything, private_config
+from worker import DetectionError, is_detection_failure, skip_optional
+from build_notebook import build
 
 
 @pytest.fixture
@@ -100,10 +109,11 @@ def test_cleanup_refuses_unowned_directory(tmp_path):
     assert unrelated.exists()
 
 
-def test_view_names_require_both_profiles_and_reject_duplicates():
+def test_view_names_require_front_and_reject_duplicates():
     assert upload_views(["front.png", "left.jpg", "right.jpeg", "back.png"])["left"] == "left.jpg"
     with pytest.raises(ValueError, match="required"):
-        upload_views(["front.png", "back.png"])
+        upload_views(["back.png", "left.png"])
+    assert upload_views(["front.png"]) == {"front": "front.png"}
     with pytest.raises(ValueError, match="one image"):
         upload_views(["front.png", "front.jpg", "left.png", "right.png"])
 
@@ -168,3 +178,218 @@ def test_interruption_stops_process_group_before_returning(tmp_path, monkeypatch
     with pytest.raises(KeyboardInterrupt):
         setup_runtime.run(["synthetic-worker"], tmp_path)
     assert events == ["wait", "kill_group", "wait"]
+
+
+def test_tracebacks_hide_image_bytes_arrays_secrets_and_debug(tmp_path):
+    log = tmp_path / "synthetic.log"
+    log.write_text("detections [[1,2,3,4]]\nb'IMAGE_BYTES_SENTINEL'\n"
+                   "Traceback (most recent call last):\n"
+                   '  File "/synthetic/module.py", line 10, in main\n'
+                   "    print(image)\nRuntimeError: CUDA out of memory\n"
+                   "ValueError: tensor([1,2,3,4]) IMAGE_BYTES_SENTINEL\n"
+                   "ValueError: data:image/png;base64,IMAGE_BYTES_SENTINEL\n"
+                   "RuntimeError: password=SECRET_SENTINEL\n"
+                   "KeyError: 'IMAGE_BYTES_SENTINEL'\n", encoding="utf-8")
+    result = "\n".join(traceback_tail(log))
+    assert "CUDA out of memory" in result
+    assert "module.py" in result
+    for hidden in ("IMAGE_BYTES_SENTINEL", "SECRET_SENTINEL", "detections", "print(image)"):
+        assert hidden not in result
+
+
+def test_diagnostics_show_step_and_view_and_bound_tail(tmp_path, capsys):
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs/cropping_landmarks-left.log").write_text("RuntimeError: synthetic failure\n" * 150)
+    step_context(tmp_path, "cropping_landmarks", "left")
+    print_diagnostics(tmp_path, limit=120)
+    output = capsys.readouterr().out
+    assert "Failed step: cropping_landmarks; view: left" in output
+    assert output.count("RuntimeError:") == 120
+
+
+def test_optional_profile_is_skipped_but_front_is_required(tmp_path):
+    step_context(tmp_path, "cropping_landmarks", "left")
+    skipped = skip_optional(tmp_path, "left", "no_usable_crop_or_landmarks")
+    assert skipped["step"] == "cropping_landmarks"
+    assert json.loads((tmp_path / "warnings.json").read_text())[0]["view"] == "left"
+    step_context(tmp_path, "face_detection", "front")
+    with pytest.raises(DetectionError, match="Front face required"):
+        skip_optional(tmp_path, "front", "no_face_detected")
+
+
+def test_crop_detection_failure_classification_excludes_install_and_cuda_errors(tmp_path):
+    log = tmp_path / "synthetic.log"
+    log.write_text("IndexError: list index out of range\n")
+    assert is_detection_failure(log)
+    log.write_text("RuntimeError: CUDA out of memory\n")
+    assert not is_detection_failure(log)
+    log.write_text("ImportError: failed to import insightface\n")
+    assert not is_detection_failure(log)
+    log.write_text("IndexError: list index out of range\nRuntimeError: CUDA out of memory\n")
+    assert not is_detection_failure(log)
+
+
+def populated_cache(tmp_path):
+    cache = tmp_path / "dt-pixel3dmm-cache"
+    for filename in ("env/bin/python", "FLAME2020.zip",
+                     "pixel3dmm/src/pixel3dmm/preprocessing/MICA/data/FLAME2020/generic_model.pkl",
+                     "pixel3dmm/src/pixel3dmm/preprocessing/MICA/data/pretrained/mica.tar",
+                     "pixel3dmm/pretrained_weights/uv.ckpt", "pixel3dmm/pretrained_weights/normals.ckpt"):
+        path = cache / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"synthetic-not-a-model")
+    (cache / "install_complete.json").write_text(json.dumps(setup_runtime.cache_signature("7.5")))
+    return cache
+
+
+def test_ready_cache_reused_without_installer_or_subprocess(tmp_path, monkeypatch):
+    cache = populated_cache(tmp_path)
+    monkeypatch.setattr(setup_runtime, "apply_runtime_patches", lambda root: None)
+    monkeypatch.setattr(setup_runtime, "run", lambda *args, **kwargs: pytest.fail("Should not reinstall"))
+    python, env = setup_runtime.install(cache, "7.5", tmp_path / "session")
+    assert python == cache / "env/bin/python"
+    assert env["TORCH_CUDA_ARCH_LIST"] == "7.5"
+    assert env["DT_LOG_ROOT"] == str(tmp_path / "session")
+    assert "extensions-sm75" in env["TORCH_EXTENSIONS_DIR"]
+    assert env["XFORMERS_DISABLED"] == "1"
+
+
+def test_cache_rejects_different_gpu_architecture(tmp_path):
+    cache = populated_cache(tmp_path)
+    with pytest.raises(RuntimeError, match="DELETE_VM_CACHE=True"):
+        setup_runtime.require_cache(cache, "8.9")
+
+
+def test_t4_policy_uses_float32_and_math_attention(monkeypatch):
+    from runtime_compat import configure
+
+    calls = {}
+    cuda = SimpleNamespace(matmul=SimpleNamespace(allow_tf32=True))
+    for backend in ("flash", "mem_efficient", "math", "cudnn"):
+        setattr(cuda, "enable_" + backend + "_sdp",
+                lambda enabled, name=backend: calls.update({name: enabled}))
+    fake_torch = SimpleNamespace(
+        float32="float32", float16="float16",
+        set_default_dtype=lambda value: calls.update(dtype=value),
+        set_autocast_dtype=lambda device, value: calls.update(autocast=(device, value)),
+        backends=SimpleNamespace(cuda=cuda, cudnn=SimpleNamespace(allow_tf32=True)))
+    fake_timm = ModuleType("timm")
+    fake_layers = ModuleType("timm.layers")
+    fake_layers.set_fused_attn = lambda enabled: calls.update(fused=enabled)
+    fake_timm.layers = fake_layers
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "timm", fake_timm)
+    monkeypatch.setitem(sys.modules, "timm.layers", fake_layers)
+    monkeypatch.setenv("XFORMERS_DISABLED", "0")
+    monkeypatch.setenv("TORCHDYNAMO_DISABLE", "0")
+    configure()
+    assert calls == {"dtype": "float32", "autocast": ("cuda", "float16"),
+                     "flash": False, "mem_efficient": False, "math": True,
+                     "cudnn": False, "fused": False}
+    assert not cuda.matmul.allow_tf32 and not fake_torch.backends.cudnn.allow_tf32
+
+
+def test_runtime_patches_are_idempotent_and_fail_closed(tmp_path):
+    tracker = tmp_path / "pixel3dmm/src/pixel3dmm/tracking/tracker.py"
+    network = tmp_path / "pixel3dmm/scripts/network_inference.py"
+    tracker.parent.mkdir(parents=True)
+    network.parent.mkdir(parents=True)
+    tracker.write_text("COMPILE = True\n")
+    network.write_text("model = model.cuda()\n")
+    setup_runtime.apply_runtime_patches(tmp_path)
+    setup_runtime.apply_runtime_patches(tmp_path)
+    assert tracker.read_text() == "COMPILE = False\n"
+    assert network.read_text() == "model = model.eval().float().cuda()\n"
+    network.write_text("synthetic_unknown_upstream\n")
+    with pytest.raises(RuntimeError, match="adapter mismatch"):
+        setup_runtime.apply_runtime_patches(tmp_path)
+
+
+def test_private_session_cleanup_keeps_cache_and_final_cleanup_deletes_it(tmp_path):
+    cache = populated_cache(tmp_path)
+    session = tmp_path / "dt-pixel3dmm-session-synthetic"
+    session.mkdir()
+    (session / "upload.placeholder").write_bytes(b"synthetic")
+    config = tmp_path / "synthetic.env"
+    config.write_text("".join(key + "=" + json.dumps(value) + "\n" for key, value in {
+        "PIXEL3DMM_CODE_BASE": str(cache / "pixel3dmm"),
+        "PIXEL3DMM_PREPROCESSED_DATA": str(session / "preprocessed"),
+        "PIXEL3DMM_TRACKING_OUTPUT": str(session / "tracking"),
+    }.items()))
+    assert private_config(config, cache, tmp_path)
+    cleanup_session(session, tmp_path)
+    assert cache.exists()
+    cleanup_everything(cache, tmp_path, config)
+    assert not cache.exists() and not config.exists()
+
+
+def test_final_cleanup_preserves_unrelated_config_and_refuses_unowned_cache(tmp_path):
+    cache = populated_cache(tmp_path)
+    config = tmp_path / "unrelated.env"
+    config.write_text("UNRELATED=true\n")
+    cleanup_everything(cache, tmp_path, config)
+    assert config.read_text() == "UNRELATED=true\n"
+    with pytest.raises(ValueError, match="Refusing unsafe cache"):
+        cleanup_everything(tmp_path / "unrelated", tmp_path, config)
+
+
+def test_notebook_preserves_lead_parameters_and_has_fit_only_cell():
+    cells = {cell["id"]: cell["source"] for cell in build()["cells"]}
+    assert "/content/drive/MyDrive/flame/FLAME2020.zip" in cells["parameters"]
+    assert '"T4": "7.5"' in cells["gpu-check"]
+    assert "run_session(prepare=False)" in cells["fit-only-retry"]
+    assert "DELETE_VM_CACHE = False" in cells["privacy-cleanup"]
+
+
+def test_failed_fit_prints_diagnostics_before_private_cleanup_and_keeps_models(tmp_path, monkeypatch, capsys):
+    cache = populated_cache(tmp_path)
+    session = tmp_path / "dt-pixel3dmm-session-synthetic"
+    session.mkdir()
+    fake_google = ModuleType("google")
+    fake_colab = ModuleType("google.colab")
+
+    def upload(target_dir):
+        (Path(target_dir) / "front.png").write_bytes(b"synthetic-not-an-image")
+        return {"front.png": b"synthetic-not-an-image"}
+
+    fake_colab.files = SimpleNamespace(upload=upload)
+    fake_google.colab = fake_colab
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.colab", fake_colab)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(notebook_session.tempfile, "mkdtemp", lambda **kwargs: str(session))
+    monkeypatch.setattr(notebook_session, "apply_runtime_patches", lambda root: None)
+
+    def fail(command, root, **kwargs):
+        step_context(root, "cropping_landmarks", "front")
+        (root / "logs").mkdir()
+        (root / "logs/cropping_landmarks-front.log").write_text(
+            'Traceback (most recent call last):\n  File "/synthetic.py", line 1, in main\n'
+            "IndexError: list index out of range\nIMAGE_BYTES_SENTINEL\n")
+        raise subprocess.CalledProcessError(1, ["synthetic-worker"])
+
+    monkeypatch.setattr(notebook_session, "run", fail)
+    events = []
+    original_print = notebook_session.print_diagnostics
+
+    def print_before_cleanup(root):
+        assert root.exists() and (root / "logs").exists()
+        events.append("diagnostics")
+        original_print(root)
+
+    def cleanup_after_diagnostics(root):
+        assert events == ["diagnostics"]
+        events.append("cleanup")
+        cleanup_session(root, tmp_path)
+
+    monkeypatch.setattr(notebook_session, "print_diagnostics", print_before_cleanup)
+    monkeypatch.setattr(notebook_session, "cleanup_session", cleanup_after_diagnostics)
+    with pytest.raises(subprocess.CalledProcessError):
+        notebook_session.run_session(cache, {}, "2020", "7.5", 1, 1, 1)
+    output = capsys.readouterr().out
+    assert "Failed step: cropping_landmarks; view: front" in output
+    assert "IndexError: list index out of range" in output
+    assert "IMAGE_BYTES_SENTINEL" not in output
+    assert events == ["diagnostics", "cleanup"]
+    assert not session.exists() and (cache / "FLAME2020.zip").exists()
+    assert not (tmp_path / ".config/pixel3dmm/.env").exists()

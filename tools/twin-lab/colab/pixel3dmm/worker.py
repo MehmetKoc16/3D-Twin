@@ -3,25 +3,66 @@
 from pathlib import Path
 import json
 import os
+import re
 import shutil
 import sys
+import subprocess
 
 from io_utils import upload_views
 from setup_runtime import run
+from diagnostics import step_context
+
+
+class DetectionError(RuntimeError):
+    """A view has no usable face/landmarks; optional views may be omitted."""
+
+
+def is_detection_failure(log: Path) -> bool:
+    text = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+    exceptions = [line.strip() for line in text.splitlines()
+                  if re.match(r"^[\w.]+(?:Error|Exception):", line.strip())]
+    # A prior detection warning must never mask a later CUDA/import exception.
+    terminal = exceptions[-1] if exceptions else ""
+    return any(message in terminal for message in (
+        "IndexError: list index out of range", "ValueError: need at least one array to stack",
+        "Found face with too low detections confidence", "Face not detected",
+    ))
+
+
+def skip_optional(root: Path, view: str, reason: str) -> dict:
+    context = json.loads((root / "current_step.json").read_text())
+    if view == "front":
+        raise DetectionError("Front face required; retry with a clear frontal photo")
+    item = {"view": view, "reason": reason, "step": context["step"]}
+    path = root / "warnings.json"
+    warnings = json.loads(path.read_text()) if path.is_file() else []
+    warnings.append(item)
+    path.write_text(json.dumps(warnings), encoding="utf-8")
+    return item
+
+
+def run_step(root: Path, script: Path, args: list, step: str, view: str = "all", cwd=None) -> None:
+    step_context(root, step, view)
+    wrapper = Path(__file__).parent / "runtime_compat.py"
+    try:
+        run([sys.executable, wrapper, script, *args], root, cwd=cwd, step=step, view=view)
+    except subprocess.CalledProcessError as error:
+        if step == "cropping_landmarks" and is_detection_failure(root / f"logs/{step}-{view}.log"):
+            raise DetectionError("No usable crop or facial landmarks") from error
+        raise
 
 
 def preprocess(root: Path) -> list:
+    step_context(root, "detector_initialization")
     import numpy as np
     from PIL import Image, ImageOps
     from insightface.app import FaceAnalysis
 
-    source = root / "pixel3dmm"
+    source = Path(os.environ["DT_CACHE_ROOT"]) / "pixel3dmm"
     data = root / "preprocessed"
     merged = data / "head"
     views = upload_views(path.name for path in (root / "uploads").iterdir())
     included, skipped = [], []
-    # Only back may be skipped. Detection/preprocessing failure for a required
-    # view stops the run; it must never silently create a zero-landmark input.
     detector = FaceAnalysis(name="antelopev2", root=os.environ["DT_INSIGHTFACE_ROOT"],
                             allowed_modules=["detection"], providers=["CPUExecutionProvider"])
     detector.prepare(ctx_id=-1, det_size=(512, 512))
@@ -29,6 +70,7 @@ def preprocess(root: Path) -> list:
         if view not in views:
             skipped.append({"view": view, "reason": "not_uploaded"})
             continue
+        step_context(root, "face_detection", view)
         input_dir = root / "inputs" / view
         input_dir.mkdir(parents=True)
         with Image.open(root / "uploads" / views[view]) as image:
@@ -36,31 +78,41 @@ def preprocess(root: Path) -> list:
             original_size = list(normalized.size)
             normalized.save(input_dir / "input.png")
             # Insightface receives BGR, matching its documented API.
-            if view == "back" and len(detector.get(np.asarray(normalized)[:, :, ::-1].copy())) == 0:
-                skipped.append({"view": view, "reason": "no_face_detected"})
+            if len(detector.get(np.asarray(normalized)[:, :, ::-1].copy())) == 0:
+                skipped.append(skip_optional(root, view, "no_face_detected"))
                 continue
         # run_preprocessing.py uses unchecked os.system. Execute its three
         # component scripts with checked subprocesses, independently per view.
-        run([sys.executable, source / "scripts/run_cropping.py", "--video_or_images_path", input_dir], root, cwd=source)
+        try:
+            run_step(root, source / "scripts/run_cropping.py", ["--video_or_images_path", input_dir],
+                     "cropping_landmarks", view, cwd=source)
+        except DetectionError:
+            skipped.append(skip_optional(root, view, "no_usable_crop_or_landmarks"))
+            continue
         folder = data / view
         crop = folder / "cropped/00000.jpg"
         landmark = folder / "PIPnet_landmarks/00000.npy"
         bounds = folder / "crop_ymin_ymax_xmin_xmax.npy"
-        for path in (crop, landmark, bounds):
-            if not path.is_file():
-                raise RuntimeError(f"Cropping/landmarks incomplete for {view}")
+        if not all(path.is_file() for path in (crop, landmark, bounds)):
+            skipped.append(skip_optional(root, view, "crop_or_landmarks_missing"))
+            continue
         lm = np.load(landmark, allow_pickle=False)
         if lm.shape != (98, 2) or not np.isfinite(lm).all() or not lm.any():
-            raise RuntimeError(f"Invalid facial landmarks for {view}")
-        run([sys.executable, "demo.py", "-video_name", view, "-a", folder / "arcface"], root,
-            cwd=source / "src/pixel3dmm/preprocessing/MICA")
+            skipped.append(skip_optional(root, view, "invalid_facial_landmarks"))
+            continue
+        run_step(root, source / "src/pixel3dmm/preprocessing/MICA/demo.py",
+                 ["-video_name", view, "-a", folder / "arcface"], "mica", view,
+                 cwd=source / "src/pixel3dmm/preprocessing/MICA")
         identity = folder / "mica/00000/identity.npy"
         if not identity.is_file():
-            raise RuntimeError(f"MICA face detection failed for {view}; use a less extreme profile")
-        run([sys.executable, source / "scripts/run_facer_segmentation.py", "--video_name", view], root, cwd=source)
+            skipped.append(skip_optional(root, view, "mica_face_output_missing"))
+            continue
+        run_step(root, source / "scripts/run_facer_segmentation.py", ["--video_name", view],
+                 "segmentation", view, cwd=source)
         segment = folder / "seg_og/00000.png"
         if not segment.is_file():
-            raise RuntimeError(f"Face segmentation incomplete for {view}")
+            skipped.append(skip_optional(root, view, "face_segmentation_output_missing"))
+            continue
         index = len(included)
         for path, destination in [
             (crop, merged / f"cropped/{index:05d}.jpg"),
@@ -72,27 +124,30 @@ def preprocess(root: Path) -> list:
         shutil.copytree(identity.parent, merged / f"mica/{index:05d}")
         included.append({"view": view, "frame": index, "originalSizeWH": original_size,
                          "cropBoundsYminYmaxXminXmax": np.load(bounds, allow_pickle=False).tolist()})
-    if len(included) < 3:
-        raise RuntimeError("Front and both profiles must preprocess successfully")
+    if not any(item["view"] == "front" for item in included):
+        raise DetectionError("Front must preprocess successfully")
     (root / "view_map.json").write_text(json.dumps({"included": included, "skipped": skipped}, indent=2))
     for prediction in ("normals", "uv_map"):
-        run([sys.executable, source / "scripts/network_inference.py",
-             "model.prediction_type=" + prediction, "video_name=head", "viz_uv_mesh=False"], root, cwd=source)
+        run_step(root, source / "scripts/network_inference.py",
+                 ["model.prediction_type=" + prediction, "video_name=head", "viz_uv_mesh=False"],
+                 prediction + "_prediction", cwd=source)
         for item in included:
             path = merged / f"p3dmm/{prediction}/{item['frame']:05d}.png"
             if not path.is_file():
+                step_context(root, prediction + "_prediction", item["view"])
                 raise RuntimeError("Pixel3DMM prediction missing; upstream may have caught an inference error")
     return included
 
 
 def fit(root: Path, included: list, config: dict) -> None:
+    step_context(root, "tracking")
     import torch
     from omegaconf import OmegaConf
     from pixel3dmm.tracking.tracker import Tracker
 
-    source = root / "pixel3dmm"
+    source = Path(os.environ["DT_CACHE_ROOT"]) / "pixel3dmm"
     overrides = {
-        "video_name": "head", "num_views": 1, "batch_size": len(included),
+        "video_name": "head", "num_views": 1, "batch_size": min(len(included), config["max_fit_batch_size"]),
         "iters": config["iters"], "global_iters": config["global_iters"],
         "is_discontinuous": True, "global_camera": False, "include_neck": False,
         "use_flame2023": config["flame_version"] == "2023",
@@ -117,11 +172,17 @@ def fit(root: Path, included: list, config: dict) -> None:
 
 def main(root: Path) -> None:
     os.environ["DT_WORKER_ACTIVE"] = "1"
-    config = json.loads((root / "config.json").read_text())
-    included = preprocess(root)
-    fit(root, included, config)
-    from export_fit import export_fit
-    export_fit(root, config)
+    step_context(root, "runtime_configuration")
+    from runtime_compat import configure
+    configure()
+    import torch
+    with torch.autocast(device_type="cuda", enabled=False):
+        config = json.loads((root / "config.json").read_text())
+        included = preprocess(root)
+        fit(root, included, config)
+        step_context(root, "export")
+        from export_fit import export_fit
+        export_fit(root, config)
 
 
 if __name__ == "__main__":
