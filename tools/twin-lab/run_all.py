@@ -15,7 +15,7 @@ from pathlib import Path
 
 LAB = Path(__file__).resolve().parent
 REPO = LAB.parents[1]
-STAGES = ("shape", "texture", "refine", "rig", "bundle")
+STAGES = ("shape", "texture", "refine", "bodyfix", "rig", "bundle")
 
 
 @dataclass
@@ -28,6 +28,8 @@ class Stage:
 
 def interpreter(stage: str, lab: Path) -> Path:
     relative = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+    if stage == "bodyfix":
+        return lab / "rig" / ".venv" / relative
     candidate = lab / stage / ".venv" / relative
     # Bundle can share the existing CPU rig environment, as documented.
     if stage == "bundle" and not candidate.is_file():
@@ -120,6 +122,20 @@ def build_stages(
         )
         scan = refine / "refined.glb"
     body_assets = REPO / "apps/web/public/assets/body"
+    # Keep this immediately before rig, after any optional refine/head stages.
+    if (lab / "bodyfix/bodyfix.py").is_file():
+        measurements_file = input_dir / "measurements.json"
+        corrected = out_dir / "bodyfix/bodyfixed.glb"
+        measurement_inputs = [measurements_file] if measurements_file.is_file() else []
+        add(
+            "bodyfix",
+            "bodyfix.py",
+            ["--in", str(scan), "--measurements", str(measurements_file), "--out", str(corrected)],
+            [scan, *measurement_inputs, *source_inputs(lab / "rig"),
+             *[body_assets / name for name in ("base.glb", "manifest.json", "morphs.bin", "rig.json", "measures.json")]],
+            [corrected, corrected.parent / "bodyfix_report.json"],
+        )
+        scan = corrected
     add(
         "rig",
         "rig_scan.py",

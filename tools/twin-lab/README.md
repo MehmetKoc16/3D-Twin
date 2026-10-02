@@ -38,10 +38,11 @@ python tools/twin-lab/run_all.py --from-stage texture --to-stage bundle --force
 python tools/twin-lab/run_all.py --from-stage bundle
 ```
 
-The order is **shape -> texture -> refine (when installed) -> rig -> bundle**. Each stage uses
+The order is **shape -> texture -> refine (when installed) -> head (when integrated) -> bodyfix (when installed) -> rig -> bundle**. Each stage uses
 its own `<stage>/.venv/Scripts/python.exe` on Windows or `<stage>/.venv/bin/python` on Unix.
 Set up shape, texture and rig using their instructions above / their READMEs. Bundle uses
-`bundle/.venv` when present, otherwise `rig/.venv`. Install its pinned dependencies once:
+`bundle/.venv` when present, otherwise `rig/.venv`. Bodyfix always reuses `rig/.venv`.
+Install the bundle's pinned dependencies once:
 
 ```powershell
 tools/twin-lab/rig/.venv/Scripts/python.exe -m pip install -r tools/twin-lab/bundle/requirements.txt
@@ -57,13 +58,25 @@ tools/twin-lab/rig/.venv/Scripts/python.exe -m pytest tools/twin-lab/bundle/test
 
 `front.png` is required. Existing `back.png`, `left.png`, and `right.png` beside it are
 passed automatically to shape (`--variant auto` selects multi-view) and texture. Outputs
-are placed under `<out-dir>/{shape,texture,refine,rig}/`, followed by `<out-dir>/twin.glb`.
+are placed under `<out-dir>/{shape,texture,refine,head,bodyfix,rig}/`, followed by `<out-dir>/twin.glb`.
 Refine is optional: when `refine/refine.py` exists, its expected CLI is
 `refine/.venv/Scripts/python.exe refine/refine.py --in <textured.glb> --out <refined.glb>`.
 It must preserve embedded texture/UVs and write the specified GLB. When absent, rig
-receives `texture/textured.glb`. See the refine stage's own README when installed.
+receives the last available intermediate. See the refine stage's own README when installed.
 
-`--from-stage` / `--to-stage` select an inclusive range from `shape`, `texture`, `refine`,
+Bodyfix reads `<input-dir>/measurements.json` (any subset of tape measurements),
+writes `bodyfix/bodyfixed.glb` and `bodyfix/bodyfix_report.json`, and passes the
+corrected mesh to rig. Without the measurements file it logs a no-op and copies
+the input byte for byte. It runs after refine today; the separately added head
+launcher block must precede bodyfix, so head's output flows into it.
+See [bodyfix usage, measurement definitions and clothing allowances](bodyfix/README.md).
+
+```powershell
+tools/twin-lab/rig/.venv/Scripts/python.exe tools/twin-lab/run_all.py --from-stage bodyfix --to-stage rig --dry-run
+tools/twin-lab/rig/.venv/Scripts/python.exe tools/twin-lab/bodyfix/bodyfix.py --in user-data/twin/out/refine/refined.glb --measurements user-data/twin/measurements.json --out user-data/twin/out/bodyfix/bodyfixed.glb
+```
+
+`--from-stage` / `--to-stage` select an inclusive range from `shape`, `texture`, `refine`, `head` (when integrated), `bodyfix`,
 `rig`, `bundle`; earlier-stage inputs must already exist. `--dry-run` prints commands
 without running stages, creating files, or requiring their environments. `--force`
 rebuilds the selected stages. Otherwise a stage is skipped when all required outputs
