@@ -58,11 +58,11 @@ def build() -> dict:
         cleanup cannot run; delete the runtime yourself.
     """, "instructions"), cell("code", """
         # Parameters: edit before Runtime > Run all.
-        FLAME_ZIP_DRIVE_PATH = "/content/drive/MyDrive/FLAME/FLAME2020.zip"
+        FLAME_ZIP_DRIVE_PATH = "/content/drive/MyDrive/flame/FLAME2020.zip"
         FLAME_VERSION = "2020"  # "2020" (default) or "2023" (no-jaw variant)
         # For 2023, point FLAME_ZIP_DRIVE_PATH to FLAME2023.zip AND provide 2020:
         # preprocessing/MICA and tracking landmark/mask assets still require 2020.
-        FLAME2020_ZIP_DRIVE_PATH = "/content/drive/MyDrive/FLAME/FLAME2020.zip"
+        FLAME2020_ZIP_DRIVE_PATH = "/content/drive/MyDrive/flame/FLAME2020.zip"
         ITERS = 1500
         GLOBAL_ITERS = 1500
     """, "parameters"), cell("markdown", """
@@ -145,9 +145,12 @@ def build() -> dict:
                 drive.mount("/content/drive")
                 mounted = True
                 for version, filename in selected.items():
-                    model_zip = Path(filename).resolve()
-                    if not model_zip.is_relative_to(Path("/content/drive").resolve()) or model_zip.suffix.lower() != ".zip":
-                        raise ValueError("Select a FLAME zip inside /content/drive")
+                    # Accept "/content/drive/...", "drive/..." (Colab "Copy path") and stray whitespace.
+                    # No resolve(): the Drive FUSE mount may resolve outside /content/drive.
+                    raw = str(filename).strip().strip('"').strip("'")
+                    model_zip = Path(raw) if raw.startswith("/") else Path("/content") / raw
+                    if not str(model_zip).startswith("/content/drive/") or ".." in model_zip.parts or model_zip.suffix.lower() != ".zip":
+                        raise ValueError(f"Select a FLAME .zip inside /content/drive (got {raw!r})")
                     if not model_zip.is_file():
                         raise FileNotFoundError("FLAME zip not found; check the parameter cell")
                     # Read-only Drive usage: this is the ONLY Drive file operation.
