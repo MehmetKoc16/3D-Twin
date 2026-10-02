@@ -60,7 +60,7 @@ def test_changed_parameters_recover_on_output_mesh(standin, model):
     tape = folder / "measurements.json"
     tape.write_text(json.dumps(data))
     out = folder / "full/bodyfixed.glb"
-    report = run(source, tape, out)
+    report = run(source, tape, out, remove_scan_hands=False)
     output = Document(out).vertices
     actual = measurements(model, np.vstack([output, model.shape(macro, mods)[model.nr:]]))
     for key in keys:
@@ -117,7 +117,7 @@ def test_partial_pipeline_scan(standin, model):
     tape = folder / "partial.json"
     tape.write_text(json.dumps({"waistCm": wanted}))
     out = folder / "partial/bodyfixed.glb"
-    report = run(source, tape, out)
+    report = run(source, tape, out, remove_scan_hands=False)
     actual = measurements(model, np.vstack([Document(out).vertices, positions[model.nr:]]))
     assert abs(actual["waist"] - CLOTHING_ALLOWANCE_CM["waist"] - wanted) < 1.5
     assert report["targetsCm"] == {"waist": wanted}
@@ -138,7 +138,7 @@ def test_remeshed_surface_correspondence(standin, model):
     tape = folder / "remeshed.json"
     tape.write_text(json.dumps({key + "Cm": known[key] - CLOTHING_ALLOWANCE_CM[key] for key in keys}))
     out = folder / "remeshed/bodyfixed.glb"
-    report = run(source, tape, out)
+    report = run(source, tape, out, remove_scan_hands=False)
     result = Document(out).vertices
     assert len(result) == len(vertices)
     # Subdivision appends midpoints: the first nr vertices remain independent

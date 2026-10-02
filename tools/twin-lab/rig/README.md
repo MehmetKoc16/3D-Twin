@@ -62,6 +62,16 @@ feet and hide it under them; the scan's own clothes remain where the new garment
 waistband); scans whose arms touch the torso keep a thin web at the armpit in the T-pose. Nude or minimal-clothing input
 views would fix the first, a different arm pose in the input views (A-pose, arms away from the body) the second.
 
+## Scans whose hands were removed (bodyfix)
+
+`bodyfix` cuts the scan's hands off (the web app draws MakeHuman hands) and marks the GLB with
+`asset.extras.dtScanHandsRemoved`. `rig_scan.py` then (`bridges.py`): (1) re-weights every vertex with a hand-family weight
+above 0.2 by harmonic inpainting over the scan surface from the vertices without hand weight (the wrist cap follows the
+forearm; the fitted hand has no fist to fit and can sit on a thigh, so nothing may follow a hand bone), and (2) heals small
+surface patches (< 2000 triangles) whose dominant bone is skeleton-distant from everything around them (the forearm end
+lying against a thigh is weighted to the thigh by the transfer), instead of letting `--cut-bridges` leave them floating.
+Tests: `tests/test_hand_weights.py`.
+
 ## Method (approach B, recommended)
 
 1. Articulated + parametric ICP: our MakeHuman body (macro variables + ~130 bounded modifier columns, same morph

@@ -24,28 +24,44 @@ finite numbers; unknown fields fail to catch misspellings. No measurements file,
 or an empty object, produces a byte-exact copy and an explicit NO-OP log/report.
 Adding, removing or editing the file invalidates the launcher's stage cache.
 
+Options: `--keep-hands` keeps the scan's own hands (default: they are removed, see Method 2).
+
 ## Method
 
 1. Fit shape and pose with the existing articulated MakeHuman ICP fitter;
    canonicalize its net modifier values using the rig export implementation.
-2. Construct scan-to-MH barycentric correspondences on normal-gated triangles
+2. **Remove the scan's hands** (`handcut.py`; the app draws MakeHuman hands anyway). Scan vertices whose nearest fitted-MH
+   surface point is dominated (> 0.5) by the hand/finger bones are "hand"; every triangle touching one is deleted, which
+   also cuts fists fused to the thighs. Pieces cut loose by this and small relative to the body are deleted (no orphan
+   fragments), and each new boundary loop (wrist opening, scar on the leg) is closed by a flat fan whose triangles
+   copy the UVs of the edge they close. The fit itself still uses the full scan; everything below works on the cleaned
+   mesh. The app's own hand hiding keeps working (it hides by skin weight, and nothing is left to hide but the wrist cap).
+   The report's `scanHands` lists the counts. Scans with several primitives skip this step.
+3. Construct scan-to-MH barycentric correspondences on normal-gated triangles
    incident to nearby surface vertices, and MH-to-scan landmark correspondences.
    Unpose scan coordinates through the fitted blended affine transforms for tape
    measurements. The saved scan keeps its original pose for the subsequent rig.
    If a scan retains MH vertex topology, use its exact surface anchors; arbitrary
    re-meshed scans use the geometric triangle search.
-3. Solve height first on the bounded height macro, then solve only the provided
+4. Solve height first on the bounded height macro, then solve only the provided
    measures' `measures.json` drivers by bounded least squares. Re-solve height
    inside each local residual. Non-driver modifiers, gender and muscle preserve
    the fitted character; the weight macro can change for a provided mass.
-4. Smooth the target-minus-fitted displacement on the welded MH surface twice,
-   then barycentrically transfer it to every original scan vertex. Repeat the
+5. Smooth the target-minus-fitted displacement on the welded MH surface twice,
+   then barycentrically transfer it to every scan vertex. On the arms and shoulders the sampled field is additionally
+   **diffused over the scan surface** (60 uniform-Laplacian steps on the position-welded edge graph, precomputed as one
+   sparse operator; blended in with a faded region from the arm/shoulder skin weights): loose sleeves and the lips of the
+   refine stage's armpit caps map to different body parts and used to receive very different displacements, which tore
+   wing-like flaps at the shoulders when the arm length or girth changed. The diffusion turns the jump into a gradient,
+   spreads a length change along the arm, and the cap (connected to both lips) moves with them; the armpit gap is not
+   connected, so arm and torso keep their own fields. Torso, neck, legs and feet keep the plain field so they hit
+   their tape targets exactly. Repeat the
    bounded solve against transferred scan landmarks to close transfer residuals.
    Head geometry above the neck receives a rigid translation with the neck,
    with a 5 cm smooth transition below it. Hands and feet blend 85% toward joint
    translation, retaining limited deformation for transitions. Feet additionally
    scale as blocks along their depth to accommodate the requested shoe size.
-5. Ground the scan and write `bodyfixed.glb` plus `bodyfix_report.json` beside it.
+6. Ground the scan and write `bodyfixed.glb` plus `bodyfix_report.json` beside it.
    Append replacement positions/normals to the original GLB; UVs, original BIN
    bytes, embedded textures/materials and JSON extras survive. Old tangents are
    removed because they no longer describe the new geometry.
@@ -79,7 +95,8 @@ accepted. Skins, animation, instancing, morph targets and sparse positions are
 rejected rather than silently discarded. This is an intermediate stage; rig and
 bundle subsequently produce the shared single-file `dtTwin` contract.
 
-Tests use `rig/make_standin.py`'s CC0 MakeHuman body and generated texture,
+Tests use `rig/make_standin.py`'s CC0 MakeHuman body and generated texture (`test_handcut.py`: fused-hand stand-in -> no
+bridges, fragments or open wrists; arm-length change -> no edge near the shoulder stretched more than 2x; field diffusion),
 including direct measurement of the corrected output, head rigidity, preserved
 texture/UV bytes, partial targets, missing-file copies, validation, shoe/mass and
 launcher ordering. All generated fixtures stay in ignored `bodyfix/outputs/`;

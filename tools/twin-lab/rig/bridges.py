@@ -111,3 +111,81 @@ def cut_bridges(indices, joints, weights, names, parents, max_dist=2, mode="drop
             out[t, k] = copies[key]
     stats = {"bad_triangles": int(bad.sum()), "triangles": int(len(tri)), "added_vertices": len(src) - n}
     return out.astype(np.uint32), np.array(src), np.array(nj), np.array(nw, dtype=np.float32), stats
+
+
+def inpaint_weights(W, faces, unknown):
+    """Harmonic inpainting of the weight rows `unknown` (bool mask) from the others, over the surface graph of `faces`.
+
+    Islands that touch no known vertex keep their previous row. Returns (new W, number of vertices that were solved).
+    """
+    import scipy.sparse as sp
+    from scipy.sparse.linalg import spsolve
+
+    W = np.array(W, dtype=np.float64)
+    n = len(W)
+    if not unknown.any() or unknown.all():
+        return W, 0
+    tri = np.asarray(faces, dtype=np.int64)
+    edges = np.unique(np.sort(np.vstack([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [0, 2]]]), axis=1), axis=0)
+    adjacency = sp.coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(n, n)).tocsr()
+    adjacency = adjacency + adjacency.T
+    laplacian = (sp.diags(np.asarray(adjacency.sum(axis=1)).ravel()) - adjacency).tocsr()
+    u = np.nonzero(unknown)[0]
+    f = np.nonzero(~unknown)[0]
+    # (L_UU + eps I) X_U = -L_UF X_F ; eps keeps islands that touch no known vertex solvable (their rows end up ~0)
+    system = (laplacian[u][:, u] + 1e-6 * sp.eye(len(u))).tocsc()
+    solved = np.maximum(np.asarray(spsolve(system, -(laplacian[u][:, f] @ W[f]))).reshape(len(u), -1), 0)
+    ok = solved.sum(axis=1) > 1e-6
+    W[u[ok]] = solved[ok]
+    return W, int(ok.sum())
+
+
+def reassign_hand_weights(W, faces, hand_cols, threshold=0.2):
+    """Scan hands were removed (bodyfix): no scan surface may follow a hand bone any more.
+
+    The fitted MakeHuman hand is unconstrained (there is no fist left to fit): it may sit on a thigh, a hip or beside the
+    wrist, and anything weighted to it would fly off when unposed or animated. Vertices with a hand-family weight above
+    `threshold` (the wrist cap, the forearm end, jeans under the misplaced hand) are re-weighted by harmonic inpainting
+    over the scan surface from the vertices that carry no hand weight: the cap follows the forearm it closes, jeans
+    follow the thigh (the surface itself, not the euclidean distance, decides: a fist beside a hip stays a forearm).
+    Smaller hand weights are dropped. W is (n, bones), faces index its rows; returns (W, vertices re-weighted).
+    """
+    W = np.array(W, dtype=np.float64)
+    hand = W[:, hand_cols].sum(axis=1)
+    unknown = hand > threshold
+    W[np.ix_(np.nonzero((hand > 0) & ~unknown)[0], hand_cols)] = 0
+    W[np.ix_(np.nonzero(unknown)[0], hand_cols)] = 0
+    W, count = inpaint_weights(W, faces, unknown)
+    W /= np.maximum(W.sum(axis=1, keepdims=True), 1e-9)
+    return W, count
+
+
+def heal_islands(W, faces, names, parents, max_dist=2, max_faces=2000):
+    """Small surface patches whose dominant bone is skeleton-distant from everything around them are mis-weighted.
+
+    With the scan hands gone, the weight transfer can still hand the last centimetres of a forearm that lies against the
+    thigh to the thigh bone. `cut_bridges` would then drop the connecting triangles and leave a floating patch. A patch
+    (connected through compatible triangles, fewer than `max_faces`) is instead re-weighted from the surface around it.
+    """
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    n = len(W)
+    dist = bone_distance_matrix(names, parents)
+    dom = np.argmax(W, axis=1)
+    tri = np.asarray(faces, dtype=np.int64)
+    d = dom[tri]
+    bad = (dist[d[:, 0], d[:, 1]] > max_dist) | (dist[d[:, 1], d[:, 2]] > max_dist) | (dist[d[:, 0], d[:, 2]] > max_dist)
+    good = tri[~bad]
+    edges = np.vstack([good[:, [0, 1]], good[:, [1, 2]], good[:, [0, 2]]])
+    _, label = connected_components(coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(n, n)),
+                                    directed=False)
+    sizes = np.bincount(label[good[:, 0]], minlength=label.max() + 1)
+    island = (sizes[label] > 0) & (sizes[label] < max_faces)
+    touched = np.zeros(n, dtype=bool)  # only patches that really border an incompatible neighbour
+    touched[tri[bad].ravel()] = True
+    keep = np.zeros(label.max() + 1, dtype=bool)
+    keep[np.unique(label[touched & island])] = True
+    unknown = island & keep[label]
+    W, count = inpaint_weights(W, faces, unknown)
+    return W, count

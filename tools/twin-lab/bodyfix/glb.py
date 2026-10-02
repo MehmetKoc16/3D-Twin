@@ -7,6 +7,7 @@ import struct
 from pathlib import Path
 
 import numpy as np
+import scipy.sparse as sp
 import trimesh
 
 from glbio import _accessor, _node_matrix, _split
@@ -56,23 +57,56 @@ class Document:
         if not np.isfinite(self.vertices).all() or np.ptp(self.vertices[:, 1]) < 0.1:
             raise ValueError("scan must have finite metre-scale, Y-up geometry")
 
-    def write(self, path: Path, vertices: np.ndarray) -> None:
+    def write(self, path: Path, vertices: np.ndarray, faces: np.ndarray | None = None,
+              transfer: sp.spmatrix | None = None, extras: dict | None = None) -> None:
+        """Write new positions. With `faces`/`transfer` the topology changes too (single-primitive scans only):
+        `transfer` (new x old) interpolates every per-vertex attribute (UVs, colours) onto the new vertices."""
         js = self.json
         binary = bytearray(self.binary)
+        if extras:  # e.g. {"dtScanHandsRemoved": true}: read by rig_scan.py
+            js.setdefault("asset", {}).setdefault("extras", {}).update(extras)
 
-        def add(values: np.ndarray, bounds: bool = False) -> int:
+        def add(values: np.ndarray, bounds: bool = False, kind: str | None = None) -> int:
             binary.extend(b"\0" * (-len(binary) % 4))
             view = len(js["bufferViews"])
-            data = np.asarray(values, dtype="<f4").tobytes()
+            if kind == "SCALAR":
+                data = np.asarray(values, dtype="<u4").tobytes()
+                target, component = 34963, 5125
+            else:
+                data = np.asarray(values, dtype="<f4").tobytes()
+                target, component = 34962, 5126
+                kind = {2: "VEC2", 3: "VEC3", 4: "VEC4"}[values.shape[1]]
             js["bufferViews"].append({"buffer": 0, "byteOffset": len(binary),
-                                      "byteLength": len(data), "target": 34962})
+                                      "byteLength": len(data), "target": target})
             binary.extend(data)
-            accessor = {"bufferView": view, "componentType": 5126, "count": len(values), "type": "VEC3"}
+            accessor = {"bufferView": view, "componentType": component, "count": len(values), "type": kind}
             if bounds:
                 accessor.update(min=values.min(axis=0).tolist(), max=values.max(axis=0).tolist())
             index = len(js["accessors"])
             js["accessors"].append(accessor)
             return index
+
+        if faces is not None:
+            if len(self.parts) != 1 or transfer is None or transfer.shape != (len(vertices), len(self.vertices)):
+                raise ValueError("topology edits need a single-primitive scan and a matching transfer matrix")
+            prim, world, _, _ = self.parts[0]
+            local = (vertices - world[:3, 3]) @ np.linalg.inv(world[:3, :3]).T
+            for key in list(prim["attributes"]):
+                if key in ("POSITION", "NORMAL"):
+                    continue
+                if key == "TANGENT":
+                    del prim["attributes"][key]
+                elif key.startswith(("TEXCOORD_", "COLOR_")):
+                    values = _accessor(js, self.binary, prim["attributes"][key])
+                    prim["attributes"][key] = add(np.asarray(transfer @ values))
+                else:
+                    raise ValueError(f"cannot edit the topology of a scan with {key}")
+            prim["indices"] = add(np.asarray(faces).reshape(-1), kind="SCALAR")
+            normal = trimesh.Trimesh(local, faces, process=False).vertex_normals
+            prim["attributes"]["POSITION"] = add(local, True)
+            prim["attributes"]["NORMAL"] = add(normal)
+            self._finish(path, js, binary)
+            return
 
         offset = 0
         for prim, world, old, faces in self.parts:
@@ -84,6 +118,10 @@ class Document:
             prim["attributes"]["NORMAL"] = add(normal)
             # Existing tangents describe the old surface; regenerate them downstream if needed.
             prim["attributes"].pop("TANGENT", None)
+        self._finish(path, js, binary)
+
+    @staticmethod
+    def _finish(path: Path, js: dict, binary: bytearray) -> None:
         js["buffers"][0]["byteLength"] = len(binary)
         encoded = json.dumps(js, separators=(",", ":"), allow_nan=False).encode("utf8")
         encoded += b" " * (-len(encoded) % 4)

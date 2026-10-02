@@ -17,7 +17,7 @@ import pickle
 import numpy as np
 import trimesh
 
-from glbio import GlbScene, Prim, read_glb, write_skinned_glb, write_static_glb
+from glbio import GlbScene, Prim, _split, read_glb, write_skinned_glb, write_static_glb
 from mh import MHModel
 from rigfit import Fitter, log, top4, transfer_weights
 from twin_export import canonicalize_fit, write_twin_package
@@ -61,6 +61,8 @@ def main() -> None:
     nrm = wm.face_normals[fid]
 
     model = MHModel()
+    # bodyfix marks scans whose hands it cut off (the app draws MakeHuman hands) in the GLB's asset extras
+    scan_hands_removed = bool(_split(open(args.scan, "rb").read())[0].get("asset", {}).get("extras", {}).get("dtScanHandsRemoved"))
     pkl = os.path.join(args.out, "fit.pkl")
     if args.reuse_fit and os.path.exists(pkl):
         with open(pkl, "rb") as fh:
@@ -73,6 +75,8 @@ def main() -> None:
     canonicalize_fit(model, res)
     log(f"canonical fit: shape deviation from the raw fit {res.stats['canonical_shape_dev_mm']}")
 
+    heads = model.rest_heads(res.rest_positions)
+    rots, posed = model.fk(heads, {b: _mat(v) for b, v in res.pose_rotvec.items()}, res.root_t)
     W, tstats = transfer_weights(model, res.posed_vertices, uverts, wm.faces, smooth_iters=args.smooth)
     if args.fingers == "merge":
         for side in ("l", "r"):
@@ -81,6 +85,15 @@ def main() -> None:
                 if name.endswith("_" + side) and name.split("_")[0] in ("index", "middle", "ring", "pinky", "thumb"):
                     W[:, hand] += W[:, bi]
                     W[:, bi] = 0.0
+    if scan_hands_removed:
+        from bridges import heal_islands, reassign_hand_weights
+
+        cols = [bi for name, bi in model.bone_index.items()
+                if name.endswith(("_l", "_r")) and name.split("_")[0] in ("hand", "thumb", "index", "middle", "ring", "pinky")]
+        W, nhand = reassign_hand_weights(W, wm.faces, cols)
+        log(f"scan hands were removed (bodyfix): {nhand} hand-weighted vertices took their neighbours' weights")
+        W, nisland = heal_islands(W, wm.faces, model.bone_names, list(model.parent))
+        log(f"healed {nisland} vertices of small patches weighted to skeleton-distant bones")
     jn, jw = top4(W)  # per unique vertex
     if args.cut_bridges:
         # drop influences of skeleton-distant bones (hand/thigh blends at contact) BEFORE unposing: an inverse blend of
@@ -91,8 +104,6 @@ def main() -> None:
         log(f"snapped {nsnap} vertices with skeleton-distant influences")
     log(f"weight transfer: nn distance median {tstats['nn_dist_median_cm']:.2f} cm, p99 {tstats['nn_dist_p99_cm']:.2f} cm")
 
-    heads = model.rest_heads(res.rest_positions)
-    rots, posed = model.fk(heads, {b: _mat(v) for b, v in res.pose_rotvec.items()}, res.root_t)
     if args.keep_pose:
         out_heads = posed
         rest_uverts = uverts

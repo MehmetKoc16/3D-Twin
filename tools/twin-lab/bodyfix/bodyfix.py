@@ -17,10 +17,11 @@ import numpy as np
 import trimesh
 
 from glb import Document
+from handcut import hand_mask, remove_hands
 from mh import MHModel
 from rigfit import Fitter
 from solver import measurements, parse_measurements, solve
-from transfer import Transfer
+from transfer import Transfer, forward_map
 from twin_export import CLOTHING_ALLOWANCE_CM, canonicalize_fit
 
 
@@ -35,7 +36,7 @@ def private_output(source: Path, measurements_path: Path, destination: Path) -> 
 
 
 def run(source: Path, measurements_path: Path, destination: Path, *,
-        allowance: dict[str, float] | None = None) -> dict:
+        allowance: dict[str, float] | None = None, remove_scan_hands: bool = True) -> dict:
     private_output(source, measurements_path, destination)
     allowances = dict(CLOTHING_ALLOWANCE_CM if allowance is None else allowance)
     if measurements_path.is_file():
@@ -56,7 +57,19 @@ def run(source: Path, measurements_path: Path, destination: Path, *,
         print("[bodyfix] Fitting MakeHuman to scan (CPU, rig environment)", flush=True)
         fitted = Fitter(model, document.vertices, normals).run()
         canonicalize_fit(model, fitted)
-        transfer = Transfer(model, fitted, document.vertices, document.faces)
+        # The app draws MakeHuman hands over the scan, so the scan's own hands (and fists fused to the thighs) are
+        # cut off first: nothing downstream can leave fist fragments behind or transfer hand motion into the legs.
+        scan, faces, edit = document.vertices, document.faces, None
+        hands: dict = {"removed": False}
+        if remove_scan_hands and len(document.parts) == 1:
+            forward = forward_map(model, fitted, scan, faces)
+            mask = hand_mask(model, scan, forward.barycentric, forward.vertices)
+            if mask.any():
+                edit = remove_hands(scan, faces, mask)
+                scan, faces = edit.vertices, edit.faces
+                hands = {"removed": True, **edit.stats}
+                print(f"[bodyfix] Scan hands removed: {edit.stats}", flush=True)
+        transfer = Transfer(model, fitted, scan, faces, inherit=edit.inherit if edit else None)
 
         def evaluate(target: np.ndarray) -> dict[str, float]:
             rest, _ = transfer.deform(target)
@@ -70,7 +83,10 @@ def run(source: Path, measurements_path: Path, destination: Path, *,
                                           evaluate=evaluate, allowance=allowances)
         rest, corrected = transfer.deform(target)
         corrected[:, 1] -= corrected[:, 1].min()
-        document.write(destination, corrected)
+        if edit is not None:
+            document.write(destination, corrected, faces, edit.transfer, extras={"dtScanHandsRemoved": True})
+        else:
+            document.write(destination, corrected)
         after_raw = measurements(model, transfer.landmarks(rest, target), rest)
         before = {key: value - allowances.get(key, 0) for key, value in before_raw.items()}
         after = {key: value - allowances.get(key, 0) for key, value in after_raw.items()}
@@ -90,6 +106,7 @@ def run(source: Path, measurements_path: Path, destination: Path, *,
             "massBasis": "MakeHuman signed volume at 1.01 kg/L; clothed proxy, soft term",
             "measurementBasis": "avatar-core definitions at barycentric scan landmarks in fitted rest pose; scan bbox floor/height",
             "scanHeightCm": float(np.ptp(corrected[:, 1]) * 100),
+            "scanHands": hands,
             "headPolicy": "rigid translation with neck, original shape retained above neck; 5 cm smooth transition",
             "fittedMacros": fitted.macro, "fittedModifiers": fitted.mods,
             "targetMacros": macro, "targetModifiers": mods,
@@ -107,9 +124,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--in", dest="source", type=Path, required=True)
     parser.add_argument("--measurements", type=Path, default=Path("user-data/twin/measurements.json"))
     parser.add_argument("--out", dest="destination", type=Path, required=True)
+    parser.add_argument("--keep-hands", action="store_true",
+                        help="keep the scan's own hands (default: remove them, the app draws MakeHuman hands)")
     args = parser.parse_args(argv)
     try:
-        run(args.source, args.measurements, args.destination)
+        run(args.source, args.measurements, args.destination, remove_scan_hands=not args.keep_hands)
     except (OSError, ValueError, np.linalg.LinAlgError) as error:
         print(f"[bodyfix] Failed: {error}", file=sys.stderr)
         return 1
