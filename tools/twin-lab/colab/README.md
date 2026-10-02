@@ -177,3 +177,18 @@ used Node's `--experimental-strip-types` and Vitest `--configLoader=native`.
 VRAM peaks/performance, real background removal/reconstruction, anatomical orientation,
 multi-photo camera fit quality and browser upload/download completion. The notebook
 must be smoke-tested by the user in Colab before treating it as an operational stage.
+
+## Pixel3DMM head fitting
+
+The separate [Pixel3DMM head notebook](pixel3dmm_head.ipynb) fits a shared FLAME
+identity to de-glassed front/left/right/back head photos on **L4/A100**.
+It uses a manually downloaded FLAME zip copied from Drive with read-only usage;
+photos are uploaded only to the session VM. The default is FLAME 2020; the 2023
+no-jaw option also needs 2020 for preprocessing. `head_fit.zip` contains neutral
+OBJ/PLY geometry, JSON/NPZ coefficients, per-view cameras, fitted PLY meshes and
+PNG overlays. Save it in `user-data/twin/head/flame/` (gitignored).
+This is personal non-commercial research under the owner's 2026-10-02 decision,
+with separate restricted model licences; no models/weights are committed.
+Automatic cleanup removes VM photos, outputs and FLAME files.
+See [setup, licences, validation and limitations](pixel3dmm_README.md).
+**Colab execution is untested.**
