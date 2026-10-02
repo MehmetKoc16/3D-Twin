@@ -9,6 +9,7 @@ and `packages/avatar-core`, runs only on the developer machine and needs a CUDA 
 | `shape/`   | image(s) -> watertight 3D shape (Hunyuan3D-2 shape model), cleanup, normalisation, cameras |
 | `texture/` | project the photos onto the mesh (own README)                                              |
 | `rig/`     | auto-rigging (own README)                                                                  |
+| `head/`    | optional: reshape + re-texture the head from 4 real head photos (`head/recon/`)            |
 
 Local-only artefacts (venvs, cloned third-party repos, model weights, run outputs) are git-ignored:
 `tools/twin-lab/**/.venv/`, `**/.cache/`, `**/weights/`, `**/outputs/`.
@@ -116,6 +117,21 @@ whole file, and use the embedded twin object instead of following its legacy
 extras are preserved. A single skinned primitive matching `rig.json` is required.
 The writer re-reads and validates the completed bundle before atomically replacing
 the destination. Its CLI reports only file size and validation status.
+
+## Head stage (`head/recon/`, optional)
+
+Needs four real photos in `user-data/twin/head/`: `front.jpg`, `back.jpg`, `profile_nose_right.jpg`, `profile_nose_left.jpg`
+(`--use-clean` switches the texture to de-glassed copies `clean/<name>.jpg` + frame masks `clean/<name>_mask.png`). Runs in the **refine** environment:
+
+```powershell
+tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/head/recon/head.py --in user-data/twin/out/refine/refined.glb --photos user-data/twin/head --out user-data/twin/out/head/head.glb
+```
+
+Method: pinhole camera per photo (yaw / pitch / roll / distance by silhouette IoU + front face landmarks), silhouette-contour
+and landmark driven thin-plate deformation of the head (fading to zero over the neck), then re-texturing of the head texels
+from the four photos (visibility + angle weights, colour matching, 3-D fill, neck colour seam). Outputs `head.glb`,
+`head_report.json` and `previews/` (`compare_<view>.png` = photo | twin | clay, `head_views.png` = before / after). Tests:
+`refine/.venv/Scripts/python.exe -m pytest tools/twin-lab/head/recon/tests`. Person masks use the shape environment (rembg).
 
 ## Shape stage (`shape/`)
 

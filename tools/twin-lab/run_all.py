@@ -15,7 +15,7 @@ from pathlib import Path
 
 LAB = Path(__file__).resolve().parent
 REPO = LAB.parents[1]
-STAGES = ("shape", "texture", "refine", "bodyfix", "rig", "bundle")
+STAGES = ("shape", "texture", "refine", "head", "bodyfix", "rig", "bundle")
 
 
 @dataclass
@@ -30,6 +30,8 @@ def interpreter(stage: str, lab: Path) -> Path:
     relative = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
     if stage == "bodyfix":
         return lab / "rig" / ".venv" / relative
+    if stage == "head":  # imports the refine / texture / rig stages: runs in the refine environment
+        return lab / "refine" / ".venv" / relative
     candidate = lab / stage / ".venv" / relative
     # Bundle can share the existing CPU rig environment, as documented.
     if stage == "bundle" and not candidate.is_file():
@@ -56,7 +58,7 @@ def source_inputs(folder: Path) -> list[Path]:
 
 
 def build_stages(
-    input_dir: Path, out_dir: Path, height_cm: float, *, lab: Path = LAB
+    input_dir: Path, out_dir: Path, height_cm: float, *, lab: Path = LAB, with_head: bool = False
 ) -> list[Stage]:
     views = [
         (name, input_dir / f"{name}.png")
@@ -121,6 +123,19 @@ def build_stages(
             [refine / "refined.glb"],
         )
         scan = refine / "refined.glb"
+    head_photos = input_dir / "head"
+    # Opt-in: the photo-based head stage still ghosts (double face) when the per-photo cameras
+    # are inaccurate; enable it explicitly with --with-head until it is reliable.
+    if with_head and (lab / "head/recon/head.py").is_file() and (head_photos / "front.jpg").is_file():
+        head_out = out_dir / "head" / "head.glb"
+        add(
+            "head",
+            "recon/head.py",
+            ["--in", str(scan), "--photos", str(head_photos), "--out", str(head_out)],
+            [scan, *sorted(p for p in head_photos.rglob("*") if p.suffix.lower() in {".jpg", ".png"})],
+            [head_out],
+        )
+        scan = head_out
     body_assets = REPO / "apps/web/public/assets/body"
     # Keep this immediately before rig, after any optional refine/head stages.
     if (lab / "bodyfix/bodyfix.py").is_file():
@@ -319,6 +334,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--height-cm", type=float, default=178.0)
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
+        "--with-head",
+        action="store_true",
+        help="run the experimental photo-based head stage (input-dir/head/*.jpg)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print commands without running, creating files or requiring venvs",
@@ -333,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     try:
         ensure_private_output(input_dir, out_dir)
-        stages = build_stages(input_dir, out_dir, args.height_cm, lab=LAB)
+        stages = build_stages(input_dir, out_dir, args.height_cm, lab=LAB, with_head=args.with_head)
         if first <= STAGES.index("refine") <= last and not any(
             stage.name == "refine" for stage in stages
         ):

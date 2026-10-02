@@ -58,8 +58,15 @@ def test_optional_refine_cli_and_own_interpreters(lab, tmp_path):
     refine = lab / "refine/refine.py"
     refine.parent.mkdir()
     refine.write_text("# Optional synthetic stage\n")
-    stages = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab)
+    for optional in ("head/recon/head.py", "bodyfix/bodyfix.py"):
+        (lab / optional).parent.mkdir(parents=True, exist_ok=True)
+        (lab / optional).write_text("# Optional synthetic stage\n")
+    (tmp_path / "input/head").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "input/head/front.jpg").write_bytes(b"synthetic")
+    stages = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab, with_head=True)
     assert [stage.name for stage in stages] == list(runner.STAGES)
+    default = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab)
+    assert "head" not in [stage.name for stage in default]  # head stage is opt-in (--with-head)
     command = stages[2].command
     assert command[2:] == [
         "--in",
@@ -68,7 +75,12 @@ def test_optional_refine_cli_and_own_interpreters(lab, tmp_path):
         str(tmp_path / "out/refine/refined.glb"),
     ]
     assert str(lab / "refine/.venv") in command[0]
-    assert stages[3].command[2] == str(tmp_path / "out/refine/refined.glb")
+    by_name = {stage.name: stage for stage in stages}
+    head_cmd = by_name["head"].command
+    assert head_cmd[head_cmd.index("--in") + 1] == str(tmp_path / "out/refine/refined.glb")
+    bodyfix_cmd = by_name["bodyfix"].command
+    assert bodyfix_cmd[bodyfix_cmd.index("--in") + 1] == str(tmp_path / "out/head/head.glb")
+    assert by_name["rig"].command[2] == str(tmp_path / "out/bodyfix/bodyfixed.glb")
     assert str(lab / "rig/.venv") in stages[-1].command[0]
     python = (
         lab
