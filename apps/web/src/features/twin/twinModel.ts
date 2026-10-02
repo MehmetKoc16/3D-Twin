@@ -7,6 +7,7 @@ import {
   type Material,
   type Object3D,
   type Texture,
+  type Group,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
@@ -16,6 +17,7 @@ import {
   remapSkinIndices,
 } from './twinBinding';
 import { TwinFormatError, type TwinDef } from './twinDef';
+import { loadTwinAccessories, disposeAccessory } from './twinAccessories';
 
 /**
  * The parsed `rigged.glb` of a twin, re-indexed to the avatar's bone order. Everything is copied out of the glTF, so
@@ -36,6 +38,7 @@ export interface TwinModel {
   /** Twin bone index -> avatar bone index. */
   remap: Int32Array;
   material: MeshStandardMaterial;
+  accessories?: Group[];
   dispose(): void;
 }
 
@@ -87,8 +90,11 @@ export async function loadTwinModel(
   appBoneNames: readonly string[],
 ): Promise<TwinModel> {
   let root: Object3D;
+  let accessories: Group[];
   try {
-    root = (await new GLTFLoader().parseAsync(buffer.slice(0), '')).scene;
+    const loaded = await new GLTFLoader().parseAsync(buffer.slice(0), '');
+    root = loaded.scene;
+    accessories = await loadTwinAccessories(loaded.parser);
   } catch (error) {
     throw new TwinFormatError(
       'glb',
@@ -132,10 +138,12 @@ export async function loadTwinModel(
     heads,
     remap,
     material,
+    accessories,
     dispose: () => {
       material.map?.dispose();
       material.dispose();
       geometry.dispose();
+      accessories.forEach(disposeAccessory);
     },
   };
 }

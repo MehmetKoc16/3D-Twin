@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isTwinActive, useTwinStore } from '../../store/twinStore';
 import './i18n';
+import { bundledAccessoryDefs, useTwinAccessoryStore } from './twinAccessories';
 
 const buttonClass =
   'rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400';
@@ -58,6 +59,12 @@ export function TwinPanel() {
   const [busy, setBusy] = useState(false);
   const { status, error, pack, pending, runtime, loadFiles, remove } = useTwinStore();
   const active = useTwinStore(isTwinActive);
+  const glasses = useTwinAccessoryStore((state) => state.glasses);
+  const setGlasses = useTwinAccessoryStore((state) => state.setGlasses);
+  const hasGlasses = useMemo(
+    () => (pack ? bundledAccessoryDefs(pack.glb).length > 0 : false),
+    [pack],
+  );
   const onPick = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = '';
@@ -170,6 +177,17 @@ export function TwinPanel() {
         >
           {t('twin.panel.noMapping')}
         </p>
+      )}
+      {hasGlasses && (
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-200">
+          <input
+            type="checkbox"
+            data-testid="twin-glasses"
+            checked={glasses}
+            onChange={(event) => setGlasses(event.target.checked)}
+          />
+          {t('twin.panel.glasses')}
+        </label>
       )}
       {active && runtime && (
         <div

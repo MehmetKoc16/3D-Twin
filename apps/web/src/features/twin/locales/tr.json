@@ -8,6 +8,7 @@
     "twinActive": "Gerçekçi ikiz gösteriliyor: pozlar, kamera ve gardırop aynı iskelete bağlı."
   },
   "panel": {
+    "glasses": "Gözlük",
     "title": "Gerçekçi ikiz",
     "description": "Kendi fotoğraflarınızdan yerelde üretilen, iskeletlenmiş 3B taramanızı standart mankenin yerine gösterin. Pozlar, yakınlaştırma ve gardırop aynen çalışır.",
     "privacy": "Gizlilik: dosyalar yalnızca bu tarayıcıda (IndexedDB) saklanır; hiçbir yere yüklenmez ve uygulamaya dahil edilmez. İstediğiniz zaman kaldırabilirsiniz.",

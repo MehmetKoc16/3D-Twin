@@ -8,6 +8,7 @@
     "twinActive": "Showing the realistic twin: poses, camera and wardrobe use the same skeleton."
   },
   "panel": {
+    "glasses": "Glasses",
     "title": "Realistic twin",
     "description": "Show your rigged 3D scan, generated locally from your own photos, instead of the standard mannequin. Poses, zoom and the wardrobe work as usual.",
     "privacy": "Privacy: the files are kept only in this browser (IndexedDB); they are never uploaded and never part of the app. You can remove them at any time.",

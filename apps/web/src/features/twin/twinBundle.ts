@@ -2,6 +2,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Mesh, MeshStandardMaterial } from 'three';
 import { parseTwinDef, TwinFormatError, type TwinDef } from './twinDef';
 import { parseMapping, validateMapping } from './twinMapping';
+import { loadTwinAccessories, disposeAccessory } from './twinAccessories';
 
 interface BundleParser {
   json: { asset?: { extras?: { dtTwin?: unknown } }; bufferViews?: unknown[] };
@@ -60,6 +61,9 @@ export async function parseTwinBundle(parser: BundleParser): Promise<TwinBundle 
   const mapping = parseMapping(buffer);
   if (def.mapping)
     validateMapping(mapping, def.mapping.twinVertexCount, def.mapping.renderVertexCount);
+  // Validate nested GLBs during picking/hydration, before marking the pack ready.
+  const accessories = await loadTwinAccessories(parser);
+  accessories.forEach(disposeAccessory);
   return { def, mapping, skinToneHex: raw.skinToneHex };
 }
 

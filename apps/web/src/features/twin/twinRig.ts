@@ -19,6 +19,7 @@ import { restAlignment, translatePositions, type RestAlignment } from './twinBin
 import type { TwinModel } from './twinModel';
 import { resolveSkinTone } from './twinSkinTone';
 import { TwinOpeningRepair } from './twinOpeningRepair';
+import { TwinAccessories } from './twinAccessories';
 import {
   compactTwinIndex,
   hiddenTwinVertices,
@@ -69,6 +70,7 @@ export class TwinRig {
   private hiddenTriangles = 0;
   private disposed = false;
   private readonly hands: TwinHands;
+  private readonly accessories: TwinAccessories;
   private readonly openingRepair: TwinOpeningRepair;
   private readonly rest: Float32Array;
   private handMask: Uint8Array;
@@ -105,6 +107,7 @@ export class TwinRig {
     this.handMask = new Uint8Array(model.vertexCount);
     this.pushWeights = new Float32Array(model.vertexCount);
     this.hands = new TwinHands(assets, skinToneHex);
+    this.accessories = new TwinAccessories(model.accessories ?? [], assets.skeleton);
     this.openingRepair = new TwinOpeningRepair(model.material, model.uv, skinToneHex);
     // Wardrobe refreshes in its synchronous subscriber first; this also catches size/colour changes without a new index.
     this.offWardrobe = useWardrobeStore.subscribe((state, previous) => {
@@ -178,6 +181,7 @@ export class TwinRig {
     this.mesh.bindMatrix.copy(this.assets.mesh.bindMatrix);
     this.mesh.bindMatrixInverse.copy(this.assets.mesh.bindMatrix).invert();
     this.mesh.visible = true;
+    this.accessories.show();
     this.assets.mesh.visible = false; // swap with the mannequin body in one go: it stays solved, only hidden
     this.refreshHidden(); // the garments were refitted to this solve before the twin was told
     return alignment;
@@ -341,6 +345,7 @@ export class TwinRig {
       hiddenTriangles: (): number => this.hiddenTriangles,
       handTriangles: (): number => (this.hands.mesh.geometry.getIndex()?.count ?? 0) / 3,
       handsVisible: (): boolean => this.hands.mesh.visible,
+      glassesVisible: (): boolean => this.accessories.visible,
       handColor: (): string =>
         `#${(this.hands.mesh.material as import('three').MeshStandardMaterial).color.getHexString()}`,
       repairedTexels: (): number => this.openingRepair.painted,
@@ -394,6 +399,7 @@ export class TwinRig {
     this.offWardrobe();
     this.surfaceCache.clear();
     this.hands.dispose();
+    this.accessories.dispose();
     this.openingRepair.restore();
     Reflect.deleteProperty(this.bodyGeometry, 'setIndex'); // back to the prototype method
     this.assets.mesh.visible = this.bodyWasVisible;

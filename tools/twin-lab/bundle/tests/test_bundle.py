@@ -1,11 +1,16 @@
 import io
 import json
 import struct
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 from conftest import bundle
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "head/glasses"))
+import make_glasses
 
 
 def save_glb(path, document, blob):
@@ -166,6 +171,38 @@ def test_synthetic_round_trip_preserves_data_and_forearm_median(synthetic):
     )
     assert result == {"vertices": 8, "bones": 53, "mappingBytes": 32}
     assert bundle.validate_bundle(out) == result
+
+
+def test_optional_glasses_round_trip_preserves_body_and_embeds_valid_rigid_mesh(synthetic):
+    rigged, twin, mapping, out = synthetic
+    accessory = out.parent / "glasses.glb"
+    accessory.write_bytes(make_glasses.encode_glasses(make_glasses.DEFAULTS, np.array([0, 0.12, 0.11]), "synthetic"))
+    original, old_blob = bundle.read_glb(rigged)
+    bundle.write_bundle(rigged, twin, mapping, out, glasses=accessory)
+    document, blob = bundle.read_glb(out)
+    extras = document["asset"]["extras"]["dtTwin"]
+    glasses = extras["accessories"][0]
+    assert glasses["id"] == "glasses" and glasses["bone"] == "head"
+    assert glasses["params"] == make_glasses.DEFAULTS
+    assert bundle.view_bytes(document, blob, glasses["mesh"]["bufferView"]) == accessory.read_bytes()
+    assert blob[:len(old_blob)] == old_blob
+    for key in ("meshes", "nodes", "skins", "accessors", "images", "materials"):
+        assert document[key] == original[key]
+    assert bundle.validate_bundle(out)["vertices"] == 8
+    glasses["params"]["thickness"] = 0.003
+    save_glb(out, document, blob)
+    with pytest.raises(ValueError, match="params differ"):
+        bundle.validate_bundle(out)
+
+
+def test_invalid_accessory_does_not_replace_destination(synthetic):
+    rigged, twin, mapping, out = synthetic
+    out.write_bytes(b"keep existing output")
+    accessory = out.parent / "bad.glb"
+    accessory.write_bytes(b"invalid")
+    with pytest.raises(ValueError):
+        bundle.write_bundle(rigged, twin, mapping, out, glasses=accessory)
+    assert out.read_bytes() == b"keep existing output"
 
 
 def test_optional_sampling_texture_does_not_replace_embedded_image(synthetic):

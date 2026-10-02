@@ -1,6 +1,9 @@
 // @ts-expect-error Node types are not in the browser app's tsconfig; Playwright runs this file in Node.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { expect, test, type Page, type Request } from '@playwright/test';
+// @ts-expect-error Playwright runs in Node, outside the browser app tsconfig.
+import { Buffer } from 'node:buffer';
+import { appendTestAccessory } from '../src/features/twin/twinAccessoryTestkit';
 
 test.use({ channel: 'chrome' });
 
@@ -16,6 +19,7 @@ interface TwinProbe {
   hiddenTriangles: () => number;
   handTriangles: () => number;
   handsVisible: () => boolean;
+  glassesVisible: () => boolean;
   handColor: () => string;
   repairedTexels: () => number;
   originalTexture: () => boolean;
@@ -59,6 +63,35 @@ function maxDistance(a: number[][], b: number[][]): number {
     ...a.map((p, i) => Math.hypot(p[0]! - b[i]![0]!, p[1]! - b[i]![1]!, p[2]! - b[i]![2]!)),
   );
 }
+
+test('synthetic glasses attach to the twin head, toggle and persist across reload', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const cc0 = new Uint8Array(readFileSync(`${fixture}/twin.glb`) as Uint8Array);
+  const buffer = Buffer.from(appendTestAccessory(cc0.buffer));
+  await page.goto('/');
+  await expect(page.getByTestId('avatar-ready')).toBeAttached({ timeout: 120_000 });
+  await page.getByTestId('model-twin').click();
+  await page
+    .getByTestId('twin-file-input')
+    .setInputFiles({ name: 'glasses-twin.glb', mimeType: 'model/gltf-binary', buffer });
+  await expect(page.getByTestId('twin-runtime')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('twin-glasses')).toBeChecked();
+  await expect.poll(() => page.evaluate(() => window.__dtTwin?.glassesVisible())).toBe(true);
+  await page.getByTestId('twin-glasses').uncheck();
+  await expect.poll(() => page.evaluate(() => window.__dtTwin?.glassesVisible())).toBe(false);
+  await page.reload();
+  await expect(page.getByTestId('avatar-ready')).toBeAttached({ timeout: 120_000 });
+  await page.getByTestId('model-twin').click();
+  await page.getByRole('tab', { name: 'Gerçekçi ikiz', exact: true }).click();
+  await expect(page.getByTestId('twin-glasses')).not.toBeChecked();
+  await expect.poll(() => page.evaluate(() => window.__dtTwin?.glassesVisible())).toBe(false);
+  await page.getByTestId('twin-glasses').check();
+  await expect.poll(() => page.evaluate(() => window.__dtTwin?.glassesVisible())).toBe(true);
+  await page.getByTestId('model-standard').click();
+  await expect.poll(() => page.evaluate(() => window.__dtTwin)).toBeUndefined();
+});
 
 test('realistic twin: load the stand-in, pose it, dress it, switch back, remove it', async ({
   page,
@@ -107,6 +140,7 @@ test('realistic twin: load the stand-in, pose it, dress it, switch back, remove 
   await expect(page.getByTestId('model-twin')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('twin-runtime')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('twin-file-glb')).toContainText('twin.glb');
+  await expect(page.getByTestId('twin-glasses')).toHaveCount(0); // the legacy stand-in has no accessory
   await expect(page.getByTestId('twin-file-mapping')).toContainText('twin.glb içinde');
   await expect
     .poll(() => page.evaluate(() => window.__dtTwin?.twinVisible() ?? false), { timeout: 30_000 })

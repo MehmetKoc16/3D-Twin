@@ -23,6 +23,20 @@ Tests and docs use the non-personal stand-in in `apps/web/e2e/fixtures/twin-stan
 Dev probe (`import.meta.env.DEV`): `window.__dtTwin` (skinned vertex positions, bone transforms, hidden triangle count,
 alignment) for `e2e/twin.spec.ts`.
 
+### Head accessories
+
+Optional `dtTwin.accessories` contains `{id:'glasses', bone:'head', mesh:{bufferView}, params}`.
+The buffer view embeds a complete GLB in head-local metres, rigidly skinned to an identity
+standalone head bone. `twinAccessories.ts` validates metadata, embedded resources, geometry,
+transforms and rigid weights before mounting ordinary meshes under the shared head bone.
+Frame PBR and optional transparent lens materials are preserved. Visibility starts only
+after the twin aligns; disposal detaches the accessory and frees its resources.
+The panel's Gözlük / Glasses checkbox defaults on when present and persists in localStorage
+(`dt:twin:accessories`). Legacy bundles show no checkbox. Standard mode has no accessory.
+Synthetic tests cover parsing, malformed/URL payloads, materials, shared-head posing, rest
+translation, persistence and disposal. E2E embeds a procedural triangle in the CC0 stand-in
+in memory, without altering fixtures. Generator/defaults: `tools/twin-lab/head/glasses/README.md`.
+
 ### Skin tone and clothing at garment openings
 
 The bundle's `skinToneHex` is preferred. Legacy twins sample their original baseColor texture at UVs of vertices with
