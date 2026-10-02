@@ -6,15 +6,18 @@ Sources checked 2026-10-02; full CUDA/Colab execution remains untested.
 
 from pathlib import Path
 import json
+import hashlib
 import os
 import shutil
 import signal
 import subprocess
-import sys
 import tarfile
+import traceback
 import urllib.request
 
 from io_utils import safe_extract, stage_flame
+from diagnostics import step_context
+from downloads import HF_REVISION, WEIGHTS, download_weight, fetch_https, plausible
 
 PIXEL_REVISION = "fcd1fa973c7715b02a8948dfc679dff53cf85924"
 MICA_REVISION = "af22e7a5810d474bc28a1433db533723d6bd2b07"
@@ -74,10 +77,10 @@ def apply_runtime_patches(root: Path) -> None:
 
 
 def cache_signature(architecture: str) -> dict:
-    return {"version": 1, "architecture": architecture, "pixel3dmm": PIXEL_REVISION,
+    return {"version": 2, "architecture": architecture, "pixel3dmm": PIXEL_REVISION,
             "MICA": MICA_REVISION, "facer": FACER_REVISION, "PIPNet": PIPNET_REVISION,
             "pytorch3d": PYTORCH3D_REVISION, "nvdiffrast": NVDIFFRAST_REVISION,
-            "torch": "2.7.1", "cuda": "11.8", "python": "3.9"}
+            "torch": "2.7.1", "cuda": "11.8", "python": "3.9", "hf_weights": HF_REVISION}
 
 
 def require_cache(root: Path, architecture: str, version: str = "2020") -> None:
@@ -123,41 +126,184 @@ def runtime_environment(root: Path, architecture: str, log_root: Path) -> dict:
     return env
 
 
-def mica_assets(root: Path) -> None:
-    """Called instead of upstream's credential-based MICA/FLAME install script."""
-    os.environ["DT_WORKER_ACTIVE"] = "1"
-    source = root / "pixel3dmm"
-    mica = source / "src/pixel3dmm/preprocessing/MICA"
-    models = root / "insightface/models"
-    destinations = [
-        ("1bYsI_spptzyuFmfLYqYkcJA6GZWZViNt", mica / "data/pretrained/mica.tar"),
-        ("16PWKI_RjjbE4_kqpElG-YFqe8FpXjads", models / "antelopev2.zip"),
-        ("1navJMy0DTr1_DHjLWu1i48owCPvXWfYc", models / "buffalo_l.zip"),
-    ]
-    for identifier, path in destinations:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        run([sys.executable, "-m", "gdown", identifier, "-O", path], root)
-        if path.suffix == ".zip":
-            target = path.with_suffix("")
-            safe_extract(path, target)
-            # Accommodate either flat or named-folder archives expected by insightface.
-            nested = target / target.name
-            if nested.is_dir():
-                for child in nested.iterdir():
-                    shutil.move(str(child), target / child.name)
-                nested.rmdir()
+class InstallSteps:
+    """One versioned checkpoint and log per costly operation; no photo inputs."""
+
+    def __init__(self, root: Path, architecture: str, log_root: Path, env: dict):
+        self.root, self.log_root, self.env = root, log_root, env
+        self.signature = cache_signature(architecture)
+        self.current = "install-initialization"
+
+    def log(self, message: str) -> None:
+        directory = self.log_root / "logs"
+        directory.mkdir(parents=True, exist_ok=True)
+        with (directory / (self.current + "-all.log")).open("a", encoding="utf-8") as stream:
+            stream.write(message + "\n")
+
+    def command(self, command, cwd=None) -> None:
+        run(command, self.root, cwd=cwd, env=self.env, step=self.current)
+
+    def perform(self, identifier: str, label: str, operation, required=()) -> None:
+        marker = self.root / "done" / (identifier + ".json")
+        expected = {"signature": self.signature, "step": identifier}
+        try:
+            completed = json.loads(marker.read_text(encoding="utf-8")) == expected
+        except (OSError, ValueError):
+            completed = False
+        if completed and all(path.exists() for path in required):
+            print("Reusing install step: " + label)
+            return
+        self.current = "install-" + identifier
+        step_context(self.log_root, "install: " + label, log_name=self.current + "-all.log")
+        print("Installing step: " + label)
+        try:
+            operation()
+            if not all(path.exists() for path in required):
+                raise RuntimeError("Install step output missing: " + label)
+        except BaseException:
+            directory = self.log_root / "logs"
+            directory.mkdir(parents=True, exist_ok=True)
+            with (directory / (self.current + "-all.log")).open("a", encoding="utf-8") as stream:
+                traceback.print_exc(file=stream)
+            raise
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        temporary = marker.with_suffix(".json.partial")
+        temporary.write_text(json.dumps(expected), encoding="utf-8")
+        temporary.replace(marker)
+
+    def clone(self, repo: str, revision: str, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if not (destination / ".git").is_dir():
+            self.command(["git", "clone", "https://github.com/" + repo + ".git", destination])
+        # Discard our tracked patches on a failed/stale step before reapplying.
+        self.command(["git", "-C", destination, "restore", "--worktree", "."])
+        self.command(["git", "-C", destination, "checkout", "--detach", revision])
+
+    def weight(self, name: str, destination: Path) -> None:
+        def fetch_gdown(url, temporary):
+            self.command([self.root / "env/bin/python", "-m", "gdown", "--no-cookies", "--fuzzy", url, "-O", temporary])
+
+        def operation():
+            download_weight(name, destination, self.root,
+                            {"https": fetch_https, "gdown": fetch_gdown}, self.log)
+
+        # Invalid/truncated payloads invalidate even an otherwise matching marker.
+        marker = self.root / "done" / ("download-" + name.replace(".", "-") + ".json")
+        if not plausible(destination, WEIGHTS[name]["minimum"]):
+            marker.unlink(missing_ok=True)
+        self.perform("download-" + name.replace(".", "-"), "download " + name, operation, [destination])
+
+
+REPLACEMENT_HASHES = {
+    "farl.py": "fc5e202baf47347f22b60c010f59632fa27d7ce186393aa98d58748a44c43695",
+    "facer_transform.py": "34950df2a248132ea3d4e8cf63d497f45076930877c9a53a005c5976078c2bed",
+    "mica_demo.py": "06c81c28623afcce95677da6088879bb2e2d40494d086ff7147173f98c015340",
+    "mica.py": "5b1c13e5b3cfb9f6bc89bda81c0743a5548d261347eab0001d192d548695993e",
+}
+
+
+def verify_upstream(source: Path) -> None:
+    """Check pinned adapter inputs without executing either upstream shell script."""
+    script = (source / "install_preprocessing_pipeline.sh").read_text(encoding="utf-8")
+    assumptions = ["FacePerceiver/facer.git", "Zielon/MICA.git", "jhb86253817/PIPNet.git",
+                   "facer/face_parsing/farl.py", "facer/transform.py", "micalib/models/mica.py",
+                   "FaceBoxesV2/utils", "pip_32_16_60_r18_l2_l1_10_1_nb10"]
+    assumptions.extend(url.split("/d/")[1].split("/")[0]
+                       for name in ("uv.ckpt", "normals.ckpt", "epoch59.pth")
+                       for transport, url in WEIGHTS[name]["sources"] if transport == "gdown")
+    if any(value not in script for value in assumptions):
+        raise RuntimeError("Pinned preprocessing installer layout/weight IDs differ from adapter assumptions")
+    replacement = source / "src/pixel3dmm/preprocessing/replacement_code"
+    for name, expected in REPLACEMENT_HASHES.items():
+        path = replacement / name
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise RuntimeError("Pinned replacement_code mismatch: " + name)
+
+
+def copy_replacements(replacement: Path, destination: Path, pairs) -> None:
+    for name, relative in pairs:
+        target = destination / relative
+        if not target.is_file():
+            raise RuntimeError("Pinned upstream destination missing: " + relative)
+        shutil.copyfile(replacement / name, target)
+
+
+def extract_insightface(archive: Path) -> None:
+    target = archive.with_suffix("")
+    safe_extract(archive, target)
+    nested = target / target.name
+    if nested.is_dir():
+        for child in nested.iterdir():
+            shutil.move(str(child), target / child.name)
+        nested.rmdir()
+    if not any(target.glob("*.onnx")):
+        raise RuntimeError("Insightface archive contains no ONNX models: " + archive.name)
+
+
+def patch_mica_detector(mica: Path) -> None:
     detector = mica / "utils/landmark_detector.py"
     replace_once_or_done(detector, "FaceAnalysis(name='antelopev2', providers=['CUDAExecutionProvider'])",
-                  "FaceAnalysis(name='antelopev2', root=os.environ['DT_INSIGHTFACE_ROOT'], providers=['CPUExecutionProvider'])")
+                         "FaceAnalysis(name='antelopev2', root=os.environ['DT_INSIGHTFACE_ROOT'], providers=['CPUExecutionProvider'])")
     text = detector.read_text(encoding="utf-8")
     if not text.startswith("import os\n"):
         detector.write_text("import os\n" + text, encoding="utf-8")
 
 
+def preprocessing_install(steps: InstallSteps) -> None:
+    """Same order/effects as upstream, using only env Python and checked steps."""
+    source = steps.root / "pixel3dmm"
+    base = source / "src/pixel3dmm/preprocessing"
+    replacement = base / "replacement_code"
+    python = steps.root / "env/bin/python"
+    steps.perform("verify-upstream", "verify pinned upstream adapter", lambda: verify_upstream(source))
+
+    facer = base / "facer"
+    steps.perform("facer-source", "facer clone and replacements", lambda: (
+        steps.clone("FacePerceiver/facer", FACER_REVISION, facer),
+        copy_replacements(replacement, facer, [("farl.py", "facer/face_parsing/farl.py"),
+                                              ("facer_transform.py", "facer/transform.py")])), [facer / "setup.py"])
+    steps.perform("facer", "facer editable install",
+                  lambda: steps.command([python, "-m", "pip", "install", "-e", facer]))
+
+    mica = base / "MICA"
+    steps.perform("mica", "MICA clone and replacements", lambda: (
+        steps.clone("Zielon/MICA", MICA_REVISION, mica),
+        copy_replacements(replacement, mica, [("mica_demo.py", "demo.py"),
+                                             ("mica.py", "micalib/models/mica.py")]),
+        patch_mica_detector(mica)), [mica / "demo.py", mica / "utils/landmark_detector.py"])
+    # In-process asset orchestration; no install.sh and no FLAME credentials.
+    steps.weight("mica.tar", mica / "data/pretrained/mica.tar")
+    for name in ("antelopev2", "buffalo_l"):
+        archive = steps.root / "insightface/models" / (name + ".zip")
+        steps.weight(archive.name, archive)
+        steps.perform("extract-" + name, "extract " + archive.name,
+                      lambda path=archive: extract_insightface(path), [archive.with_suffix("")])
+
+    pipnet = base / "PIPNet"
+    steps.perform("pipnet-source", "PIPNet clone", lambda: steps.clone("jhb86253817/PIPNet", PIPNET_REVISION, pipnet),
+                  [pipnet / "FaceBoxesV2/utils/build.py"])
+
+    def build_nms():
+        directory = pipnet / "FaceBoxesV2/utils"
+        make = (directory / "make.sh").read_text(encoding="utf-8")
+        build = (directory / "build.py").read_text(encoding="utf-8")
+        if "python3 build.py build_ext --inplace" not in make or "nms/cpu_nms.pyx" not in build:
+            raise RuntimeError("Pinned PIPNet nms build assumptions differ")
+        steps.command([python, "build.py", "build_ext", "--inplace"], cwd=directory)
+        if not any((directory / "nms").glob("cpu_nms*.so")):
+            raise RuntimeError("PIPNet nms extension was not produced")
+
+    steps.perform("pipnet", "PIPNet nms build", build_nms)
+    steps.weight("epoch59.pth", pipnet / "snapshots/WFLW/pip_32_16_60_r18_l2_l1_10_1_nb10/epoch59.pth")
+    for name in ("uv.ckpt", "normals.ckpt"):
+        steps.weight(name, source / "pretrained_weights" / name)
+
+
 def install(root: Path, architecture: str, log_root: Path) -> tuple:
-    """Python 3.9 + CUDA 11.8 isolated from the Colab kernel; no restart needed."""
+    """Checkpoints survive failed installs; no credentials or photo data enter logs."""
     env = runtime_environment(root, architecture, log_root)
     if (root / "install_complete.json").is_file():
+        step_context(log_root, "install: cache validation", log_name="install-cache-validation-all.log")
         require_cache(root, architecture)
         assets = root / "pixel3dmm/src/pixel3dmm/preprocessing/MICA/data"
         if (root / "FLAME2023.zip").is_file() and not (assets / "FLAME2023/flame2023_no_jaw.pkl").is_file():
@@ -165,43 +311,49 @@ def install(root: Path, architecture: str, log_root: Path) -> tuple:
         apply_runtime_patches(root)
         print("Reusing installed VM cache; no environment install or weight downloads.")
         return root / "env/bin/python", env
-    print("Installing isolated Python 3.9 / CUDA 11.8; native builds can take tens of minutes.")
-    archive = root / "micromamba.tar.bz2"
-    urllib.request.urlretrieve("https://micro.mamba.pm/api/micromamba/linux-64/2.0.5", archive)
-    with tarfile.open(archive) as bundle:
-        member = bundle.getmember("bin/micromamba")
-        if not member.isfile():
-            raise RuntimeError("Unexpected micromamba package")
-        with bundle.extractfile(member) as binary, (root / "micromamba").open("wb") as output:
-            shutil.copyfileobj(binary, output)
-    mamba = root / "micromamba"
-    mamba.chmod(0o755)
+    print("Installing isolated Python 3.9 / CUDA 11.8; completed sub-steps are reused.")
+    steps = InstallSteps(root, architecture, log_root, env)
     prefix = root / "env"
-    cuda_packages = ["cuda-nvcc", "cuda-cccl", "cuda-cudart", "cuda-cudart-dev",
-                     "libcusparse", "libcusparse-dev", "libcublas", "libcublas-dev",
-                     "libcurand", "libcurand-dev", "libcusolver", "libcusolver-dev"]
-    operation = "install" if (prefix / "bin/python").is_file() else "create"
-    run([mamba, operation, "-y", "--no-rc", "-r", root / "mamba", "-p", prefix,
-         "-c", "conda-forge", "-c", "nvidia/label/cuda-11.8.0",
-         "python=3.9", "pip", "gcc_linux-64=11", "gxx_linux-64=11",
-         *["nvidia/label/cuda-11.8.0::" + package for package in cuda_packages]], root, env=env)
     python = prefix / "bin/python"
 
-    def pip(*args):
-        run([python, "-m", "pip", "install", *args], root, env=env)
+    def create_env():
+        archive = root / "micromamba.tar.bz2"
+        urllib.request.urlretrieve("https://micro.mamba.pm/api/micromamba/linux-64/2.0.5", archive)
+        with tarfile.open(archive) as bundle:
+            member = bundle.getmember("bin/micromamba")
+            if not member.isfile():
+                raise RuntimeError("Unexpected micromamba package")
+            with bundle.extractfile(member) as binary, (root / "micromamba").open("wb") as output:
+                shutil.copyfileobj(binary, output)
+        mamba = root / "micromamba"
+        mamba.chmod(0o755)
+        packages = ["cuda-nvcc", "cuda-cccl", "cuda-cudart", "cuda-cudart-dev", "libcusparse", "libcusparse-dev",
+                    "libcublas", "libcublas-dev", "libcurand", "libcurand-dev", "libcusolver", "libcusolver-dev"]
+        operation = "install" if python.is_file() else "create"
+        steps.command([mamba, operation, "-y", "--no-rc", "-r", root / "mamba", "-p", prefix,
+                       "-c", "conda-forge", "-c", "nvidia/label/cuda-11.8.0", "python=3.9", "pip",
+                       "gcc_linux-64=11", "gxx_linux-64=11",
+                       *["nvidia/label/cuda-11.8.0::" + package for package in packages]])
 
-    run(["apt-get", "update", "-qq"], root, env=env)
-    run(["apt-get", "install", "-y", "git", "build-essential", "ffmpeg", "libgl1",
-         "libegl1-mesa-dev", "libgles2-mesa-dev"], root, env=env)
-    pip("pip==25.1.1", "setuptools==68.2.2", "wheel", "numpy==1.23.5", "scipy==1.11.4", "Cython<3")
-    pip("torch==2.7.1", "torchvision==0.22.1", "torchaudio==2.7.1",
-        "--index-url", "https://download.pytorch.org/whl/cu118")
+    steps.perform("env", "environment create", create_env, [python])
+
+    def apt():
+        steps.command(["apt-get", "update", "-qq"])
+        steps.command(["apt-get", "install", "-y", "git", "build-essential", "ffmpeg", "libgl1",
+                       "libegl1-mesa-dev", "libgles2-mesa-dev"])
+
+    steps.perform("apt", "system packages", apt)
+
+    def pip(*args):
+        steps.command([python, "-m", "pip", "install", *args])
+
+    steps.perform("bootstrap", "pip and numerical build tools", lambda: pip(
+        "pip==25.1.1", "setuptools==68.2.2", "wheel", "numpy==1.23.5", "scipy==1.11.4", "Cython<3"))
+    steps.perform("torch", "torch cu118", lambda: pip(
+        "torch==2.7.1", "torchvision==0.22.1", "torchaudio==2.7.1", "--index-url", "https://download.pytorch.org/whl/cu118"))
     source = root / "pixel3dmm"
-    if not (source / ".git").is_dir():
-        run(["git", "clone", "https://github.com/SimonGiebenhain/pixel3dmm.git", source], root, env=env)
-    else:
-        run(["git", "-C", source, "restore", "--worktree", "."], root, env=env)
-    run(["git", "-C", source, "checkout", "--detach", PIXEL_REVISION], root, env=env)
+    steps.perform("pixel-source", "Pixel3DMM clone", lambda: steps.clone("SimonGiebenhain/pixel3dmm", PIXEL_REVISION, source),
+                  [source / "requirements.txt"])
     constraints = root / "constraints.txt"
     constraints.write_text(
         "numpy==1.23.5\nscipy==1.11.4\nscikit-image==0.22.0\nopencv-python==4.10.0.84\n"
@@ -211,37 +363,38 @@ def install(root: Path, architecture: str, log_root: Path) -> tuple:
     env["PIP_CONSTRAINT"] = str(constraints)
     requirements = root / "requirements.txt"
     requirements.write_text((source / "requirements.txt").read_text().replace("numpy==1.23", "numpy==1.23.5"))
-    pip("chumpy==0.70", "--no-build-isolation")
-    pip("-r", str(requirements), "gdown==5.2.0", "trimesh>=4.6,<5", "onnxruntime==1.19.2", "ninja", "iopath")
-    for repo, revision in [("facebookresearch/pytorch3d", PYTORCH3D_REVISION), ("NVlabs/nvdiffrast", NVDIFFRAST_REVISION)]:
-        pip("git+https://github.com/" + repo + ".git@" + revision, "--no-build-isolation")
-    pip("-e", str(source))
 
-    # Execute upstream's installer after narrowly adapting its VM copy. Do not
-    # execute the credential prompts or its FLAME downloads at any point.
-    script = source / "install_preprocessing_pipeline.sh"
-    for old, new in [
-        ("git clone git@github.com:FacePerceiver/facer.git", "if [ ! -d facer/.git ]; then git clone https://github.com/FacePerceiver/facer.git; fi\ngit -C facer checkout --detach " + FACER_REVISION),
-        ("git clone git@github.com:Zielon/MICA.git", "if [ ! -d MICA/.git ]; then git clone https://github.com/Zielon/MICA.git; fi\ngit -C MICA checkout --detach " + MICA_REVISION),
-        ("git clone https://github.com/jhb86253817/PIPNet.git", "if [ ! -d PIPNet/.git ]; then git clone https://github.com/jhb86253817/PIPNet.git; fi\ngit -C PIPNet checkout --detach " + PIPNET_REVISION),
-    ]:
-        replace_exact(script, old, new)
-    script.write_text("#!/bin/bash\nset -euo pipefail\n" + script.read_text().replace("gdown --id ", "gdown ").replace("mkdir ", "mkdir -p "))
-    replacement = source / "src/pixel3dmm/preprocessing/replacement_code/install_mica_download_flame.sh"
-    replacement.write_text('#!/bin/bash\nset -euo pipefail\nexec "$DT_PYTHON" "$DT_SESSION/helpers/setup_runtime.py" mica-assets "$DT_SESSION"\n')
-    run(["bash", script], root, cwd=source, env=env)
+    def install_requirements():
+        pip("chumpy==0.70", "--no-build-isolation")
+        pip("-r", str(requirements), "gdown==5.2.0", "trimesh>=4.6,<5", "onnxruntime==1.19.2", "ninja", "iopath")
+
+    steps.perform("requirements", "requirements", install_requirements)
+    for identifier, repo, revision in [("pytorch3d", "facebookresearch/pytorch3d", PYTORCH3D_REVISION),
+                                       ("nvdiffrast", "NVlabs/nvdiffrast", NVDIFFRAST_REVISION)]:
+        steps.perform(identifier, identifier + " build", lambda repo=repo, revision=revision:
+                      pip("git+https://github.com/" + repo + ".git@" + revision, "--no-build-isolation"))
+    steps.perform("pixel-editable", "Pixel3DMM editable install", lambda: pip("-e", str(source)))
+    preprocessing_install(steps)
     assets = source / "src/pixel3dmm/preprocessing/MICA/data"
-    stage_flame(root / "FLAME2020.zip", assets, "2020")
-    if (root / "FLAME2023.zip").exists():
-        stage_flame(root / "FLAME2023.zip", assets, "2023")
+
+    def stage_models():
+        stage_flame(root / "FLAME2020.zip", assets, "2020")
+        if (root / "FLAME2023.zip").is_file():
+            stage_flame(root / "FLAME2023.zip", assets, "2023")
+
+    # stage_model() also restages a changed Drive archive before install().
+    steps.perform("flame", "stage local FLAME", stage_models, [assets / "FLAME2020/generic_model.pkl"])
+    step_context(log_root, "install: runtime patches", log_name="install-runtime-patches-all.log")
+    steps.current = "install-runtime-patches"
     apply_runtime_patches(root)
-    run([python, "-m", "pip", "check"], root, env=env)
-    run([python, "-c", "import torch, pytorch3d, nvdiffrast.torch, facer, insightface; assert torch.cuda.is_available()"], root, env=env)
-    (root / "install_complete.json").write_text(json.dumps(cache_signature(architecture)), encoding="utf-8")
+
+    def verify():
+        steps.command([python, "-m", "pip", "check"])
+        steps.command([python, "-c", "import torch, pytorch3d, nvdiffrast.torch, facer, insightface; assert torch.cuda.is_available()"])
+
+    steps.perform("verify", "dependency and CUDA checks", verify)
+    completion = root / "install_complete.json"
+    temporary = completion.with_suffix(".json.partial")
+    temporary.write_text(json.dumps(cache_signature(architecture)), encoding="utf-8")
+    temporary.replace(completion)
     return python, env
-
-
-if __name__ == "__main__":
-    if sys.argv[1] != "mica-assets":
-        raise ValueError("Unknown installation operation")
-    mica_assets(Path(sys.argv[2]))

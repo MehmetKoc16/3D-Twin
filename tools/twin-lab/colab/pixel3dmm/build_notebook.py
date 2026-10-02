@@ -17,7 +17,7 @@ def cell(kind: str, source: str, identifier: str) -> dict:
 def build() -> dict:
     embedded = {name: (HERE / name).read_text(encoding="utf-8") for name in
                 ("io_utils.py", "camera.py", "setup_runtime.py", "worker.py", "export_fit.py",
-                 "diagnostics.py", "runtime_compat.py", "notebook_session.py")}
+                 "diagnostics.py", "runtime_compat.py", "notebook_session.py", "downloads.py")}
     cells = [cell("markdown", """
         # Multi-image FLAME head fit with Pixel3DMM
 
@@ -37,7 +37,15 @@ def build() -> dict:
 
         Drive is mounted with read-only **usage**, not a read-only permission grant:
         Colab's Drive mount can write. This notebook only reads the selected FLAME
-        archive(s), copies them into the VM and immediately unmounts Drive.
+        archive(s) and optional model weights, copies them into the VM and unmounts Drive.
+        To avoid Drive download limits, you may put downloaded weights in
+        **MyDrive/flame/weights/** using these exact filenames: `mica.tar`,
+        `epoch59.pth`, `antelopev2.zip`, `buffalo_l.zip`, `uv.ckpt`, `normals.ckpt`.
+        They are copied during the same Drive mount and preferred over network sources.
+        UV/normal weights use the author's pinned HuggingFace release first;
+        insightface uses its official v0.7 GitHub release first. Remaining sources
+        use gdown with three attempts/backoff. Final failure names the file, official
+        source URL and Drive destination. Only model files belong in this folder.
         Never place/upload your photos in Drive for this workflow. When prompted,
         select de-glassed `front.png`, `left.png`, `right.png`, `back.png` together
         (.jpg/.jpeg also accepted). Left/right mean the subject's left/right profile.
@@ -101,11 +109,21 @@ def build() -> dict:
         ## Copy FLAME, install, upload, fit and download
 
         Drive authorization is only needed to read the model zip(s). No FLAME
-        username/password is requested. The credential sections of upstream's
-        preprocessing installer are replaced in the VM with model-weight downloads.
+        username/password is requested. Python reproduces the pinned preprocessing
+        install steps; neither upstream shell installer is executed.
+        Named checkpoints cover environment creation, system packages/build tools,
+        torch, requirements, PyTorch3D/nvdiffrast, Pixel3DMM editable installation,
+        facer, MICA, PIPNet nms, extraction and each weight download. Re-run
+        **install-and-fit** after an installation failure: completed compatible
+        steps are skipped and the failed step resumes. Fit only requires a fully
+        completed installation. An unfinished install mounts Drive again to look
+        for newly supplied weights; FLAME is reused if its selection is unchanged.
         Worker stdout/stderr and each preprocessing step go to private session logs.
         Failures print the failed step/view and the last 120 filtered traceback lines
-        BEFORE cleanup. Numeric arrays, image bytes and arbitrary debug output are excluded.
+        BEFORE cleanup. Install failures additionally show the failing sub-step's
+        last 60 log lines, with credentials redacted, progress collapsed and lines
+        capped at 300 characters. This is permitted only before photo upload;
+        all later failures retain strict traceback-only filtering.
         Clear saved outputs before sharing. The installed cache survives success/failure;
         only photos, derived outputs and logs are automatically removed.
 

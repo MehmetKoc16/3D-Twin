@@ -11,6 +11,7 @@ import json
 import sys
 import subprocess
 import notebook_session
+import downloads
 
 import numpy as np
 import pytest
@@ -19,7 +20,7 @@ from camera import camera_matrices, projection_matrix
 from io_utils import cleanup_session, safe_extract, stage_flame, upload_views
 from setup_runtime import replace_exact
 import setup_runtime
-from diagnostics import traceback_tail, print_diagnostics, step_context
+from diagnostics import traceback_tail, print_diagnostics, step_context, install_log_tail
 from notebook_session import cleanup_everything, private_config
 from worker import DetectionError, is_detection_failure, skip_optional
 from build_notebook import build
@@ -372,10 +373,11 @@ def test_failed_fit_prints_diagnostics_before_private_cleanup_and_keeps_models(t
     events = []
     original_print = notebook_session.print_diagnostics
 
-    def print_before_cleanup(root):
+    def print_before_cleanup(root, **kwargs):
         assert root.exists() and (root / "logs").exists()
+        assert kwargs == {"allow_install_logs": False}
         events.append("diagnostics")
-        original_print(root)
+        original_print(root, **kwargs)
 
     def cleanup_after_diagnostics(root):
         assert events == ["diagnostics"]
@@ -393,3 +395,220 @@ def test_failed_fit_prints_diagnostics_before_private_cleanup_and_keeps_models(t
     assert events == ["diagnostics", "cleanup"]
     assert not session.exists() and (cache / "FLAME2020.zip").exists()
     assert not (tmp_path / ".config/pixel3dmm/.env").exists()
+
+
+def test_install_checkpoints_resume_failed_step_in_order(tmp_path):
+    events = []
+    steps = setup_runtime.InstallSteps(tmp_path, "7.5", tmp_path, {})
+
+    def run_attempt(fail):
+        for identifier in ("env", "torch", "requirements", "pytorch3d", "nvdiffrast", "pixel-editable", "facer", "mica", "pipnet"):
+            def operation(name=identifier):
+                events.append(name)
+                if name == fail:
+                    raise RuntimeError("synthetic build failure")
+            steps.perform(identifier, identifier, operation)
+
+    with pytest.raises(RuntimeError, match="synthetic build"):
+        run_attempt("facer")
+    assert events == ["env", "torch", "requirements", "pytorch3d", "nvdiffrast", "pixel-editable", "facer"]
+    assert not (tmp_path / "done/facer.json").exists()
+    events.clear()
+    run_attempt(None)
+    assert events == ["facer", "mica", "pipnet"]
+    assert json.loads((tmp_path / "done/pipnet.json").read_text())["signature"] == setup_runtime.cache_signature("7.5")
+    assert json.loads((tmp_path / "current_step.json").read_text())["step"] == "install: pipnet"
+
+
+def test_stale_corrupt_and_missing_artifact_markers_are_ignored(tmp_path):
+    events = []
+    artifact = tmp_path / "artifact"
+
+    def operation():
+        events.append("build")
+        artifact.write_text("synthetic")
+
+    steps = setup_runtime.InstallSteps(tmp_path, "7.5", tmp_path, {})
+    steps.perform("torch", "torch", operation, [artifact])
+    steps.perform("torch", "torch", operation, [artifact])
+    assert events == ["build"]
+    setup_runtime.InstallSteps(tmp_path, "8.9", tmp_path, {}).perform("torch", "torch", operation, [artifact])
+    assert events == ["build", "build"]
+    (tmp_path / "done/torch.json").write_text("corrupt")
+    steps.perform("torch", "torch", operation, [artifact])
+    artifact.unlink()
+    steps.perform("torch", "torch", operation, [artifact])
+    assert len(events) == 4
+
+
+def test_preprocessing_substep_order_and_individual_weight_steps(tmp_path):
+    events = []
+    steps = SimpleNamespace(root=tmp_path,
+        perform=lambda identifier, label, operation, required=(): events.append(identifier),
+        weight=lambda name, destination: events.append("weight:" + name))
+    setup_runtime.preprocessing_install(steps)
+    assert events == ["verify-upstream", "facer-source", "facer", "mica", "weight:mica.tar",
+                      "weight:antelopev2.zip", "extract-antelopev2", "weight:buffalo_l.zip", "extract-buffalo_l",
+                      "pipnet-source", "pipnet", "weight:epoch59.pth", "weight:uv.ckpt", "weight:normals.ckpt"]
+
+
+def test_pipnet_build_uses_env_python_and_checks_artifact(tmp_path):
+    directory = tmp_path / "pixel3dmm/src/pixel3dmm/preprocessing/PIPNet/FaceBoxesV2/utils"
+    (directory / "nms").mkdir(parents=True)
+    (directory / "make.sh").write_text("python3 build.py build_ext --inplace")
+    (directory / "build.py").write_text("nms/cpu_nms.pyx")
+    calls = []
+
+    def command(args, cwd):
+        calls.append((args, cwd))
+        (directory / "nms/cpu_nms.synthetic.so").write_bytes(b"synthetic")
+
+    def perform(identifier, label, operation, required=()):
+        if identifier == "pipnet":
+            operation()
+
+    steps = SimpleNamespace(root=tmp_path, perform=perform, command=command, weight=lambda *args: None)
+    setup_runtime.preprocessing_install(steps)
+    assert calls == [([tmp_path / "env/bin/python", "build.py", "build_ext", "--inplace"], directory)]
+
+
+@pytest.mark.parametrize("name", ["uv.ckpt", "normals.ckpt", "antelopev2.zip", "buffalo_l.zip", "mica.tar", "epoch59.pth"])
+def test_weight_source_order_retries_and_atomic_download(tmp_path, monkeypatch, name):
+    spec = {**downloads.WEIGHTS[name], "minimum": 1}
+    monkeypatch.setitem(downloads.WEIGHTS, name, spec)
+    calls, delays = [], []
+
+    def fetch(url, temporary):
+        calls.append(url)
+        if url == spec["sources"][-1][1] and calls.count(url) == 3:
+            temporary.write_bytes(b"synthetic-valid-weight")
+        else:
+            raise subprocess.CalledProcessError(1, ["synthetic-download"])
+
+    destination = tmp_path / "weights" / name
+    downloads.download_weight(name, destination, tmp_path, {"https": fetch, "gdown": fetch},
+                              lambda message: None, sleep=delays.append)
+    assert calls == [url for transport, url in spec["sources"] for _ in range(3)]
+    assert delays == [1, 2] * len(spec["sources"])
+    assert destination.read_bytes() == b"synthetic-valid-weight"
+    assert not destination.with_name(name + ".partial").exists()
+    downloads.download_weight(name, destination, tmp_path,
+                              {"https": lambda *args: pytest.fail("cached"), "gdown": lambda *args: pytest.fail("cached")},
+                              lambda message: None)
+
+
+def test_download_failure_names_file_source_and_drive_destination(tmp_path, monkeypatch):
+    monkeypatch.setitem(downloads.WEIGHTS, "uv.ckpt", {**downloads.WEIGHTS["uv.ckpt"], "minimum": 1})
+    logs = []
+
+    def fail(url, temporary):
+        temporary.write_bytes(b"<html>synthetic error page</html>")
+
+    with pytest.raises(RuntimeError) as error:
+        downloads.download_weight("uv.ckpt", tmp_path / "uv.ckpt", tmp_path,
+                                  {"https": fail, "gdown": fail}, logs.append, sleep=lambda delay: None)
+    assert "Missing weight: uv.ckpt" in str(error.value)
+    assert downloads.HF_BASE + "uv.ckpt" in str(error.value)
+    assert "MyDrive/flame/weights/uv.ckpt" in str(error.value)
+    assert not (tmp_path / "uv.ckpt").exists()
+    assert not (tmp_path / "uv.ckpt.partial").exists()
+
+
+def test_drive_weight_folder_is_preferred_without_network(tmp_path, monkeypatch):
+    folder = tmp_path / "synthetic-Drive/MyDrive/flame/weights"
+    folder.mkdir(parents=True)
+    (folder / "mica.tar").write_bytes(b"synthetic-model-placeholder")
+    (folder / "unrelated.txt").write_text("synthetic ignored file")
+    monkeypatch.setitem(downloads.WEIGHTS, "mica.tar", {**downloads.WEIGHTS["mica.tar"], "minimum": 1})
+    cache = tmp_path / "cache"
+    assert downloads.copy_drive_weights(cache, folder) == ["mica.tar"]
+    destination = cache / "models/mica.tar"
+    downloads.download_weight("mica.tar", destination, cache,
+                              {"gdown": lambda *args: pytest.fail("Drive copy must win")}, lambda message: None)
+    assert destination.read_bytes() == b"synthetic-model-placeholder"
+    assert not (cache / "drive_weights/unrelated.txt").exists()
+
+
+def test_unfinished_install_checks_drive_weights_in_same_mount(tmp_path, monkeypatch):
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "FLAME2020.zip").write_bytes(b"synthetic")
+    selected = {"2020": "/content/drive/MyDrive/flame/FLAME2020.zip"}
+    (cache / "selected_archives.json").write_text(json.dumps(selected))
+    events = []
+    google = ModuleType("google")
+    colab = ModuleType("google.colab")
+    colab.drive = SimpleNamespace(mount=lambda path: events.append("mount"),
+                                  flush_and_unmount=lambda: events.append("unmount"))
+    google.colab = colab
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.colab", colab)
+    monkeypatch.setattr(notebook_session, "copy_drive_weights", lambda root: events.append("copy_weights"))
+    notebook_session.copy_flame_archives(cache, selected)
+    assert events == ["mount", "copy_weights", "unmount"]
+    events.clear()
+    (cache / "install_complete.json").write_text("synthetic-ready")
+    notebook_session.copy_flame_archives(cache, selected)
+    assert events == []
+
+
+def test_install_tail_collapses_progress_redacts_credentials_and_bounds_lines(tmp_path):
+    log = tmp_path / "install.log"
+    log.write_bytes(("old\n" * 70 + "\x1b[31m10%\r50%\r100%\x1b[0m\r\n"
+                     "token=SECRET_ONE\n--password SECRET_TWO\ncredential: SECRET_THREE\n"
+                     "Authorization: Bearer SECRET_FOUR\nhttps://user:SECRET_FIVE@example.com/a\n"
+                     + "x" * 450 + "\n").encode())
+    lines = install_log_tail(log)
+    assert len(lines) == 60 and max(map(len, lines)) == 300
+    assert "100%" in lines and "10%" not in lines and "50%" not in lines
+    assert "\x1b" not in "\n".join(lines) and "SECRET_" not in "\n".join(lines)
+
+
+@pytest.mark.parametrize("step", ["photo_upload", "cropping_landmarks", "tracking", "export", "archive_download"])
+def test_post_upload_steps_never_print_raw_logs_even_if_flag_incorrect(tmp_path, capsys, step):
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs/install-synthetic-all.log").write_text("PRIVATE_PAYLOAD_SENTINEL\nRuntimeError: synthetic failure\n")
+    step_context(tmp_path, step, log_name="install-synthetic-all.log")
+    print_diagnostics(tmp_path, allow_install_logs=True)
+    output = capsys.readouterr().out
+    assert "PRIVATE_PAYLOAD_SENTINEL" not in output
+    assert "RuntimeError: synthetic failure" in output
+    assert "Last 60 installation" not in output
+
+
+def test_install_log_requires_explicit_preupload_flag(tmp_path, capsys):
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs/install-facer-all.log").write_text("Resolver failed SYNTHETIC_INSTALL_LINE\n")
+    step_context(tmp_path, "install: facer editable install", log_name="install-facer-all.log")
+    print_diagnostics(tmp_path)
+    assert "SYNTHETIC_INSTALL_LINE" not in capsys.readouterr().out
+    print_diagnostics(tmp_path, allow_install_logs=True)
+    assert "Resolver failed SYNTHETIC_INSTALL_LINE" in capsys.readouterr().out
+
+
+def test_install_failure_prints_raw_tail_before_cleanup_without_upload(tmp_path, monkeypatch, capsys):
+    session = tmp_path / "dt-pixel3dmm-session-synthetic"
+    session.mkdir()
+    google = ModuleType("google")
+    colab = ModuleType("google.colab")
+    colab.files = SimpleNamespace(upload=lambda *args, **kwargs: pytest.fail("Install failed before upload"))
+    google.colab = colab
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.colab", colab)
+    monkeypatch.setattr(notebook_session.tempfile, "mkdtemp", lambda **kwargs: str(session))
+    monkeypatch.setattr(notebook_session, "copy_flame_archives", lambda *args: None)
+
+    def install(cache, architecture, root):
+        (root / "logs").mkdir()
+        (root / "logs/install-pipnet-all.log").write_text("Compiler failed SYNTHETIC_BUILD_LINE\n")
+        step_context(root, "install: PIPNet nms build", log_name="install-pipnet-all.log")
+        raise subprocess.CalledProcessError(1, ["synthetic-build"])
+
+    monkeypatch.setattr(notebook_session, "install", install)
+    monkeypatch.setattr(notebook_session, "cleanup_session", lambda root: cleanup_session(root, tmp_path))
+    with pytest.raises(subprocess.CalledProcessError):
+        notebook_session.run_session(tmp_path / "cache", {}, "2020", "7.5", 1, 1, 1, prepare=True)
+    output = capsys.readouterr().out
+    assert "Failed step: install: PIPNet nms build" in output
+    assert "Compiler failed SYNTHETIC_BUILD_LINE" in output
+    assert not session.exists()

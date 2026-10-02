@@ -5,10 +5,12 @@ import gc
 import json
 import shutil
 import tempfile
+import traceback
 
 from diagnostics import print_diagnostics, print_warnings, step_context
 from io_utils import cleanup_session, download_and_wait, upload_views
 from setup_runtime import apply_runtime_patches, install, require_cache, run, runtime_environment
+from downloads import copy_drive_weights
 
 
 def private_config(path: Path, cache: Path, parent: Path = Path("/content")) -> bool:
@@ -42,11 +44,14 @@ def copy_flame_archives(cache: Path, selected: dict) -> None:
     previous = json.loads(record.read_text()) if record.is_file() else {}
     missing = {version: filename for version, filename in selected.items()
                if not (cache / ("FLAME" + version + ".zip")).is_file() or previous.get(version) != filename}
-    if not missing:
+    # An unfinished install mounts again so the user can add a missing weight
+    # without recopied FLAME or a fresh runtime. Ready-cache fits need no mount.
+    if not missing and (cache / "install_complete.json").is_file():
         print("Reusing copied FLAME archives; no Drive mount needed.")
         return
     drive.mount("/content/drive")
     try:
+        copy_drive_weights(cache)
         for version, filename in missing.items():
             # Preserve the lead's FUSE-safe check, relative paths and default flame/ folder.
             raw = str(filename).strip().strip('"').strip("'")
@@ -55,7 +60,7 @@ def copy_flame_archives(cache: Path, selected: dict) -> None:
                 raise ValueError(f"Select a FLAME .zip inside /content/drive (got {raw!r})")
             if not model_zip.is_file():
                 raise FileNotFoundError("FLAME zip not found; check the parameter cell")
-            # Read-only Drive usage: the only Drive file operation is this copy.
+            # Read-only Drive usage: copy model archives/optional weights only.
             destination = cache / ("FLAME" + version + ".zip")
             temporary = destination.with_suffix(".zip.partial")
             try:
@@ -89,9 +94,12 @@ def run_session(cache: Path, selected: dict, version: str, architecture: str, it
     session = Path(tempfile.mkdtemp(prefix="dt-pixel3dmm-session-", dir="/content"))
     uploaded = {}
     config_created = False
+    # Explicit boundary: no general log tail once installation/cache checks end.
+    installation_finished = not prepare
     env_file = Path.home() / ".config/pixel3dmm/.env"
     try:
-        step_context(session, "installation" if prepare else "cache_validation")
+        step_context(session, "install: copy Drive model files" if prepare else "cache_validation",
+                     log_name="install-drive-copy-all.log" if prepare else None)
         if prepare:
             copy_flame_archives(cache, selected)
             python, worker_env = install(cache, architecture, session)
@@ -102,6 +110,7 @@ def run_session(cache: Path, selected: dict, version: str, architecture: str, it
             worker_env = runtime_environment(cache, architecture, session)
             print("Fit-only retry: reusing the installed VM cache and copied FLAME files.")
         require_cache(cache, architecture, version)
+        installation_finished = True
         if env_file.exists():
             if private_config(env_file, cache):
                 env_file.unlink()
@@ -134,8 +143,15 @@ def run_session(cache: Path, selected: dict, version: str, architecture: str, it
         print("head_fit.zip transferred to your browser. Save it to user-data/twin/head/flame/.")
     except BaseException:
         # These diagnostics must run while per-step logs still exist.
+        if not installation_finished:
+            context = json.loads((session / "current_step.json").read_text())
+            name = context.get("log")
+            if isinstance(name, str) and name.startswith("install-") and Path(name).name == name:
+                (session / "logs").mkdir(exist_ok=True)
+                with (session / "logs" / name).open("a", encoding="utf-8") as stream:
+                    traceback.print_exc(file=stream)
         print_warnings(session)
-        print_diagnostics(session)
+        print_diagnostics(session, allow_install_logs=not installation_finished)
         raise
     finally:
         uploaded.clear()
