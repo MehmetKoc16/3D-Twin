@@ -34,8 +34,15 @@ Dependency direction: `apps/web` -> `avatar-core`. `avatar-core` never imports f
 
 ## Licensing rule
 
-Only CC0, CC-BY, MIT, Apache-2.0 or BSD assets. Never add SMPL, SMPL-X, FLAME (pre-2023) or Mixamo raw files.
+Files COMMITTED to the repo: only CC0, CC-BY, MIT, Apache-2.0 or BSD assets. Never commit SMPL, SMPL-X, FLAME
+(pre-2023), MICA or Mixamo files, or any other non-commercial / research-only model, weight or derived data.
 CC-BY assets must be credited in `CREDITS.md`.
+
+This is a personal, non-commercial project (owner's decision, 2026-10-02). Research-only / non-commercial models
+(e.g. FLAME, SMPL-X, MICA, Pixel3DMM, LHM) MAY be used locally or on Colab by the twin-lab tools, provided that:
+their files and weights are downloaded into gitignored caches (never committed); the code that uses them documents
+the licence and how to obtain the files; their outputs about the user stay in `user-data/`. The web app's shipped
+assets stay permissive-only.
 
 ## Privacy rule
 
