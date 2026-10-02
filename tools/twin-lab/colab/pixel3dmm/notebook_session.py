@@ -13,6 +13,10 @@ from setup_runtime import apply_runtime_patches, install, require_cache, run, ru
 from downloads import copy_drive_weights
 
 
+def result_dir(parent: Path) -> Path:
+    return parent / "dt-pixel3dmm-result"
+
+
 def private_config(path: Path, cache: Path, parent: Path = Path("/content")) -> bool:
     if not path.is_file():
         return False
@@ -139,6 +143,13 @@ def run_session(cache: Path, selected: dict, version: str, architecture: str, it
             cwd=cache / "pixel3dmm", env=worker_env, step="worker")
         print_warnings(session)
         step_context(session, "archive_download")
+        # Browsers may silently block files.download(); keep a copy outside the
+        # session until the final privacy cell so the fit is never lost.
+        kept = result_dir(session.parent) / "head_fit.zip"
+        kept.parent.mkdir(exist_ok=True)
+        shutil.copyfile(session / "head_fit.zip", kept)
+        print(f"Result kept at {kept} until the final privacy cell. If no browser download appears, "
+              "open the Files panel, refresh, and use the file's menu > Download.")
         download_and_wait(session / "head_fit.zip")
         print("head_fit.zip transferred to your browser. Save it to user-data/twin/head/flame/.")
     except BaseException:
@@ -168,6 +179,9 @@ def cleanup_everything(cache: Path, parent: Path = Path("/content"), config_file
         raise ValueError("Refusing unsafe cache cleanup")
     for session in parent.glob("dt-pixel3dmm-session-*"):
         cleanup_session(session, parent)
+    kept = result_dir(parent)
+    if kept.is_dir() and not kept.is_symlink():
+        shutil.rmtree(kept)
     config = Path.home() / ".config/pixel3dmm/.env" if config_file is None else config_file
     if private_config(config, cache, parent):
         config.unlink()

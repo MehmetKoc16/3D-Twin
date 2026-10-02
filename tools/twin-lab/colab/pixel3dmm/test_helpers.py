@@ -318,10 +318,13 @@ def test_private_session_cleanup_keeps_cache_and_final_cleanup_deletes_it(tmp_pa
         "PIXEL3DMM_TRACKING_OUTPUT": str(session / "tracking"),
     }.items()))
     assert private_config(config, cache, tmp_path)
+    kept = tmp_path / "dt-pixel3dmm-result"
+    kept.mkdir()
+    (kept / "head_fit.zip").write_bytes(b"synthetic")
     cleanup_session(session, tmp_path)
-    assert cache.exists()
+    assert cache.exists() and kept.exists()  # kept result survives per-fit cleanup
     cleanup_everything(cache, tmp_path, config)
-    assert not cache.exists() and not config.exists()
+    assert not cache.exists() and not config.exists() and not kept.exists()
 
 
 def test_final_cleanup_preserves_unrelated_config_and_refuses_unowned_cache(tmp_path):
