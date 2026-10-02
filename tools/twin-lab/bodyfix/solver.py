@@ -29,7 +29,8 @@ def positive(value: object, name: str) -> float:
 def parse_measurements(data: object) -> tuple[dict[str, float], float | None]:
     if not isinstance(data, dict):
         raise ValueError("measurements must be a JSON object")
-    unknown = set(data) - set(FIELDS) - {"weightKg", "shoe"}
+    # Free-text metadata ("source", "notes") is allowed and ignored; typos in real fields still fail.
+    unknown = set(data) - set(FIELDS) - {"weightKg", "shoe", "source", "notes"}
     if unknown:
         raise ValueError(f"unknown measurement fields: {', '.join(sorted(unknown))}")
     targets = {measure: positive(data[field], field) for field, measure in FIELDS.items() if field in data}
