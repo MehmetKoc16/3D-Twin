@@ -46,19 +46,14 @@ def source_inputs(folder: Path) -> list[Path]:
         directories[:] = [
             name
             for name in directories
-            if not name.startswith(".")
-            and name not in {"weights", "outputs", "tests", "__pycache__"}
+            if not name.startswith(".") and name not in {"weights", "outputs", "tests", "__pycache__"}
         ]
-        result.extend(
-            Path(root) / name
-            for name in files
-            if name.endswith(".py") or name == "requirements.txt"
-        )
+        result.extend(Path(root) / name for name in files if name.endswith(".py") or name == "requirements.txt")
     return sorted(result)
 
 
 def build_stages(
-    input_dir: Path, out_dir: Path, height_cm: float, *, lab: Path = LAB, with_head: bool = False
+    input_dir: Path, out_dir: Path, height_cm: float, *, lab: Path = LAB, head: str = "auto", with_head: bool = False
 ) -> list[Stage]:
     views = [
         (name, input_dir / f"{name}.png")
@@ -71,13 +66,9 @@ def build_stages(
     rig = out_dir / "rig"
     stages = []
 
-    def add(
-        name: str, script: str, args: list[str], inputs: list[Path], outputs: list[Path]
-    ) -> None:
+    def add(name: str, script: str, args: list[str], inputs: list[Path], outputs: list[Path]) -> None:
         command = [str(interpreter(name, lab)), str(lab / name / script), *args]
-        stages.append(
-            Stage(name, command, [*inputs, *source_inputs(lab / name)], outputs)
-        )
+        stages.append(Stage(name, command, [*inputs, *source_inputs(lab / name)], outputs))
 
     view_args = [part for name, path in views for part in (f"--{name}", str(path))]
     add(
@@ -124,9 +115,71 @@ def build_stages(
         )
         scan = refine / "refined.glb"
     head_photos = input_dir / "head"
-    # Opt-in: the photo-based head stage still ghosts (double face) when the per-photo cameras
-    # are inaccurate; enable it explicitly with --with-head until it is reliable.
-    if with_head and (lab / "head/recon/head.py").is_file() and (head_photos / "front.jpg").is_file():
+    if head not in {"auto", "flame", "recon", "none"}:
+        raise ValueError(f"Unknown head mode: {head}")
+    if with_head:
+        if head not in {"auto", "recon"}:
+            raise ValueError("--with-head conflicts with --head; use --head recon")
+        head = "recon"
+    fit = head_photos / "flame/fit"
+    if head == "auto":
+        head = "flame" if (fit / "head_neutral.obj").is_file() else "none"
+    if head == "flame":
+        head_out = out_dir / "head/head.glb"
+        photos = head_photos / "colab_upload"
+        assets = REPO / "user-data/flame"
+        neutral_name = (
+            "head_neutral.obj"
+            if (fit / "head_neutral.obj").is_file() or not (fit / "head_neutral.ply").is_file()
+            else "head_neutral.ply"
+        )
+        fit_inputs = [
+            fit / name
+            for name in (
+                neutral_name,
+                "parameters.json",
+                "cameras.json",
+                "provenance.json",
+                "fitted_views/front.ply",
+                "fitted_views/right.ply",
+            )
+        ]
+        # Also track optional fit files so later replacements invalidate the cache.
+        fit_inputs += sorted(p for p in fit.rglob("*") if p.is_file() and p not in fit_inputs)
+        asset_inputs = []
+        for archive, filename in (
+            ("FLAME_masks.zip", "FLAME_masks.pkl"),
+            ("mediapipe_landmark_embedding.zip", "mediapipe_landmark_embedding.npz"),
+        ):
+            asset_inputs.append(assets / (filename if (assets / filename).is_file() else archive))
+        add(
+            "head",
+            "flame/flame_head.py",
+            [
+                "--in",
+                str(scan),
+                "--fit",
+                str(fit),
+                "--photos",
+                str(photos),
+                "--flame-assets",
+                str(assets),
+                "--out",
+                str(head_out),
+            ],
+            [
+                scan,
+                *fit_inputs,
+                *[photos / f"{name}.jpg" for name in ("front", "right")],
+                *asset_inputs,
+                *source_inputs(lab / "refine"),
+                *source_inputs(lab / "texture"),
+                lab / "rig/glbio.py",
+            ],
+            [head_out, head_out.parent / "flame_head_report.json"],
+        )
+        scan = head_out
+    elif head == "recon":
         head_out = out_dir / "head" / "head.glb"
         add(
             "head",
@@ -146,8 +199,15 @@ def build_stages(
             "bodyfix",
             "bodyfix.py",
             ["--in", str(scan), "--measurements", str(measurements_file), "--out", str(corrected)],
-            [scan, *measurement_inputs, *source_inputs(lab / "rig"),
-             *[body_assets / name for name in ("base.glb", "manifest.json", "morphs.bin", "rig.json", "measures.json")]],
+            [
+                scan,
+                *measurement_inputs,
+                *source_inputs(lab / "rig"),
+                *[
+                    body_assets / name
+                    for name in ("base.glb", "manifest.json", "morphs.bin", "rig.json", "measures.json")
+                ],
+            ],
             [corrected, corrected.parent / "bodyfix_report.json"],
         )
         scan = corrected
@@ -216,11 +276,7 @@ def is_fresh(stage: Stage, stamp: Path) -> bool:
             height = float(stage.command[stage.command.index("--height-cm") + 1])
             if meta.get("normalization", {}).get("heightCm") != height:
                 return False
-            views = {
-                flag[2:]
-                for flag in stage.command
-                if flag in {"--front", "--back", "--left", "--right"}
-            }
+            views = {flag[2:] for flag in stage.command if flag in {"--front", "--back", "--left", "--right"}}
             if set(meta.get("inputs", {})) != views:
                 return False
         except (OSError, ValueError, StopIteration):
@@ -240,18 +296,12 @@ def ensure_private_output(input_dir: Path, out_dir: Path) -> None:
         if relative.parts[:1] != ("user-data",) and not (
             relative.parts[:2] == ("tools", "twin-lab") and "outputs" in relative.parts
         ):
-            raise ValueError(
-                "Output inside the repo must be under user-data/ or twin-lab/**/outputs/"
-            )
-    if input_dir.is_relative_to(REPO / "user-data") and not out_dir.is_relative_to(
-        REPO / "user-data"
-    ):
+            raise ValueError("Output inside the repo must be under user-data/ or twin-lab/**/outputs/")
+    if input_dir.is_relative_to(REPO / "user-data") and not out_dir.is_relative_to(REPO / "user-data"):
         raise ValueError("Personal outputs must stay under user-data/")
 
 
-def execute(
-    stages: list[Stage], out_dir: Path, *, force: bool = False, dry_run: bool = False
-) -> None:
+def execute(stages: list[Stage], out_dir: Path, *, force: bool = False, dry_run: bool = False) -> None:
     logs = out_dir / "logs"
     dirty = False
     for stage in stages:
@@ -268,20 +318,14 @@ def execute(
         log_path = logs / f"{stage.name}.log"
         if fresh:
             log_path.write_text(f"[{stage.name}] {action}\n", encoding="utf-8")
-            stamp.write_text(
-                json.dumps(signature(stage), indent=2) + "\n", encoding="utf-8"
-            )
+            stamp.write_text(json.dumps(signature(stage), indent=2) + "\n", encoding="utf-8")
             continue
         missing = [path for path in stage.inputs if not path.is_file()]
         if missing:
-            raise ValueError(
-                f"[{stage.name}] Missing input: {missing[0]}; run the preceding stage first"
-            )
+            raise ValueError(f"[{stage.name}] Missing input: {missing[0]}; run the preceding stage first")
         python_path, script = map(Path, stage.command[:2])
         if not python_path.is_file():
-            raise ValueError(
-                f"[{stage.name}] Missing interpreter: {python_path}; set up this stage's .venv"
-            )
+            raise ValueError(f"[{stage.name}] Missing interpreter: {python_path}; set up this stage's .venv")
         if not script.is_file():
             raise ValueError(f"[{stage.name}] Missing script: {script}")
         for output in stage.outputs:
@@ -311,16 +355,10 @@ def execute(
             elapsed = time.perf_counter() - started
             log.write(f"\nExit {code}; elapsed {elapsed:.2f}s\n")
         if code:
-            raise ValueError(
-                f"[{stage.name}] Failed with exit code {code} after {elapsed:.2f}s; log: {log_path}"
-            )
+            raise ValueError(f"[{stage.name}] Failed with exit code {code} after {elapsed:.2f}s; log: {log_path}")
         if not all(path.is_file() for path in stage.outputs):
-            raise ValueError(
-                f"[{stage.name}] Exited successfully but expected output is missing; log: {log_path}"
-            )
-        stamp.write_text(
-            json.dumps(signature(stage), indent=2) + "\n", encoding="utf-8"
-        )
+            raise ValueError(f"[{stage.name}] Exited successfully but expected output is missing; log: {log_path}")
+        stamp.write_text(json.dumps(signature(stage), indent=2) + "\n", encoding="utf-8")
         dirty = True
         print(f"[{stage.name}] DONE in {elapsed:.2f}s; log: {log_path}", flush=True)
 
@@ -334,9 +372,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--height-cm", type=float, default=178.0)
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
+        "--head",
+        choices=("auto", "flame", "recon", "none"),
+        default="auto",
+        help="auto uses a local FLAME fit when present, otherwise skips head",
+    )
+    parser.add_argument(
         "--with-head",
         action="store_true",
-        help="run the experimental photo-based head stage (input-dir/head/*.jpg)",
+        help="deprecated alias for --head recon",
     )
     parser.add_argument(
         "--dry-run",
@@ -353,17 +397,15 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     try:
         ensure_private_output(input_dir, out_dir)
-        stages = build_stages(input_dir, out_dir, args.height_cm, lab=LAB, with_head=args.with_head)
-        if first <= STAGES.index("refine") <= last and not any(
-            stage.name == "refine" for stage in stages
-        ):
+        if args.with_head:
+            print("[head] --with-head is deprecated; use --head recon", file=sys.stderr)
+        stages = build_stages(input_dir, out_dir, args.height_cm, lab=LAB, head=args.head, with_head=args.with_head)
+        if first <= STAGES.index("refine") <= last and not any(stage.name == "refine" for stage in stages):
             print(
                 "[refine] SKIP (refine/refine.py does not exist); rig uses textured.glb",
                 flush=True,
             )
-        selected = [
-            stage for stage in stages if first <= STAGES.index(stage.name) <= last
-        ]
+        selected = [stage for stage in stages if first <= STAGES.index(stage.name) <= last]
         execute(selected, out_dir, force=args.force, dry_run=args.dry_run)
     except (OSError, ValueError) as exc:
         print(f"Pipeline failed: {exc}", file=sys.stderr)

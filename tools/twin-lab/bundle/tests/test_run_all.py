@@ -21,9 +21,7 @@ def lab(tmp_path):
     return folder
 
 
-def test_dry_run_prints_commands_without_creating_outputs(
-    lab, tmp_path, monkeypatch, capsys
-):
+def test_dry_run_prints_commands_without_creating_outputs(lab, tmp_path, monkeypatch, capsys):
     inputs, out = tmp_path / "input", tmp_path / "out"
     inputs.mkdir()
     for name in ("front", "back", "left", "right"):
@@ -66,7 +64,7 @@ def test_optional_refine_cli_and_own_interpreters(lab, tmp_path):
     stages = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab, with_head=True)
     assert [stage.name for stage in stages] == list(runner.STAGES)
     default = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab)
-    assert "head" not in [stage.name for stage in default]  # head stage is opt-in (--with-head)
+    assert "head" not in [stage.name for stage in default]  # auto skips when no FLAME fit exists
     command = stages[2].command
     assert command[2:] == [
         "--in",
@@ -82,14 +80,76 @@ def test_optional_refine_cli_and_own_interpreters(lab, tmp_path):
     assert bodyfix_cmd[bodyfix_cmd.index("--in") + 1] == str(tmp_path / "out/head/head.glb")
     assert by_name["rig"].command[2] == str(tmp_path / "out/bodyfix/bodyfixed.glb")
     assert str(lab / "rig/.venv") in stages[-1].command[0]
-    python = (
-        lab
-        / "bundle/.venv"
-        / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    )
+    python = lab / "bundle/.venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     python.parent.mkdir(parents=True)
     python.touch()
     assert runner.interpreter("bundle", lab) == python
+
+
+@pytest.mark.parametrize(
+    "mode,has_fit,expected",
+    [
+        ("auto", False, None),
+        ("auto", True, "flame/flame_head.py"),
+        ("none", True, None),
+        ("flame", False, "flame/flame_head.py"),
+        ("recon", False, "recon/head.py"),
+        ("recon", True, "recon/head.py"),
+    ],
+)
+def test_head_modes_feed_bodyfix(lab, tmp_path, mode, has_fit, expected):
+    for name in ("head/flame/flame_head.py", "head/recon/head.py", "bodyfix/bodyfix.py"):
+        path = lab / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Synthetic stage\n")
+    inputs, out = tmp_path / "input", tmp_path / "out"
+    if has_fit:
+        path = inputs / "head/flame/fit/head_neutral.obj"
+        path.parent.mkdir(parents=True)
+        path.write_text("synthetic placeholder; never decoded")
+    stages = {s.name: s for s in runner.build_stages(inputs, out, 178, lab=lab, head=mode)}
+    body = stages["bodyfix"].command
+    if expected is None:
+        assert "head" not in stages
+        assert body[body.index("--in") + 1] == str(out / "texture/textured.glb")
+    else:
+        command = stages["head"].command
+        assert command[1] == str(lab / "head" / expected)
+        assert str(lab / "refine/.venv") in command[0]
+        assert body[body.index("--in") + 1] == str(out / "head/head.glb")
+        if mode == "flame" or (mode == "auto" and has_fit):
+            assert command[command.index("--fit") + 1] == str(inputs / "head/flame/fit")
+            assert command[command.index("--photos") + 1] == str(inputs / "head/colab_upload")
+            assert inputs / "head/flame/fit/cameras.json" in stages["head"].inputs
+            assert inputs / "head/colab_upload/right.jpg" in stages["head"].inputs
+            assert out / "head/flame_head_report.json" in stages["head"].outputs
+
+
+def test_head_alias_conflicts_and_explicit_missing_input(lab, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(runner, "LAB", lab)
+    monkeypatch.setattr(runner, "REPO", tmp_path / "repo")
+    args = [
+        "--input-dir",
+        str(tmp_path / "input"),
+        "--out-dir",
+        str(tmp_path / "out"),
+        "--from-stage",
+        "head",
+        "--to-stage",
+        "head",
+        "--dry-run",
+    ]
+    assert runner.main([*args, "--with-head"]) == 0
+    captured = capsys.readouterr()
+    assert "deprecated" in captured.err and "recon" in captured.out
+    assert runner.main([*args, "--with-head", "--head", "none"]) == 1
+    assert "conflicts" in capsys.readouterr().err
+    # Explicit selection remains a stage even without inputs; execute reports missing
+    # inputs instead of silently passing the old scan to bodyfix.
+    stages = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab, head="flame")
+    head = next(s for s in stages if s.name == "head")
+    with pytest.raises(ValueError, match="Missing input"):
+        runner.execute([head], tmp_path / "out")
 
 
 def test_from_and_to_stage_dry_run(lab, tmp_path, monkeypatch, capsys):
@@ -129,9 +189,7 @@ def synthetic_stage(tmp_path, name="synthetic", exit_code=0):
         else "import pathlib, sys\nprint('synthetic stage log')\n"
         "pathlib.Path(sys.argv[1]).write_text('synthetic output')\n"
     )
-    return runner.Stage(
-        name, [sys.executable, str(script), str(out)], [source, script], [out]
-    )
+    return runner.Stage(name, [sys.executable, str(script), str(out)], [source, script], [out])
 
 
 def make_fresh(stage):
@@ -222,9 +280,7 @@ def test_private_output_guards_without_reading_personal_data(tmp_path):
 
 
 def test_existing_shape_cache_checks_height_and_view_set(tmp_path):
-    image, mesh, meta = [
-        tmp_path / name for name in ("front.png", "mesh.glb", "meta.json")
-    ]
+    image, mesh, meta = [tmp_path / name for name in ("front.png", "mesh.glb", "meta.json")]
     image.write_bytes(b"synthetic placeholder")
     stage = runner.Stage(
         "shape",
@@ -233,9 +289,7 @@ def test_existing_shape_cache_checks_height_and_view_set(tmp_path):
         [mesh, meta],
     )
     make_fresh(stage)
-    meta.write_text(
-        json.dumps({"normalization": {"heightCm": 178}, "inputs": {"front": {}}})
-    )
+    meta.write_text(json.dumps({"normalization": {"heightCm": 178}, "inputs": {"front": {}}}))
     stamp = tmp_path / "shape.state.json"
     assert runner.is_fresh(stage, stamp)
     stage.command[-1] = "180.0"

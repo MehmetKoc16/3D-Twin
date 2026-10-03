@@ -1,0 +1,249 @@
+"""Perspective-visible photo baking and deterministic atlas fallback."""
+
+import cv2
+import numpy as np
+from scipy import ndimage
+from scipy.spatial import cKDTree
+from twinrefine.scan import welded_vertex_normals
+from twintex.colorspace import linear_to_srgb, srgb_to_linear
+from twintex.raster import rasterize_uv, zbuffer
+
+
+def uv_atlas(vertices, faces, size, use_xatlas=True):
+    if use_xatlas:
+        try:
+            import xatlas
+        except ImportError:
+            pass
+        else:
+            atlas = xatlas.Atlas()
+            atlas.add_mesh(vertices.astype(np.float32), faces.astype(np.uint32))
+            pack = xatlas.PackOptions()
+            pack.resolution, pack.padding = size, 6
+            atlas.generate(pack_options=pack)
+            mapping, indices, uv = atlas[0]
+            # xatlas uses a Cartesian UV axis; glTF uses a top-left image origin.
+            uv = np.asarray(uv, np.float32)
+            uv[:, 1] = 1 - uv[:, 1]
+            return mapping.astype(int), indices.astype(int), uv, "xatlas"
+    # An independent right-triangle chart per face cannot fold or overlap. Its
+    # density is deliberately conservative; this is a fallback, not a facial unwrap.
+    side = int(np.ceil(np.sqrt(len(faces))))
+    if size / side < 5:
+        raise ValueError("Fallback atlas needs at least five pixels per triangle chart")
+    cell = 1 / side
+    base = np.column_stack((np.arange(len(faces)) % side, np.arange(len(faces)) // side)) * cell
+    pad = 1.5 / size
+    uv = np.stack((base + pad, base + [cell - pad, pad], base + [pad, cell - pad]), axis=1).reshape(-1, 2)
+    return faces.ravel(), np.arange(len(faces) * 3).reshape(-1, 3), uv.astype(np.float32), "triangle-grid"
+
+
+def sample(image, pixels):
+    """Image-edge pixels to OpenCV's integer sample-center convention."""
+    pixels = np.asarray(pixels, np.float32) - 0.5
+    if len(pixels) == 0:
+        return np.empty((0, image.shape[2] if image.ndim == 3 else 1), image.dtype)
+    # OpenCV remap uses signed 16-bit row indices internally.
+    return np.concatenate(
+        [
+            cv2.remap(
+                image,
+                chunk[:, 0].reshape(-1, 1),
+                chunk[:, 1].reshape(-1, 1),
+                cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REPLICATE,
+            ).reshape(len(chunk), -1)
+            for chunk in (pixels[start : start + 24000] for start in range(0, len(pixels), 24000))
+        ]
+    )
+
+
+def visibility(mesh, faces, camera, resolution=768):
+    projection = camera.project(mesh)
+    scale = np.array([resolution / camera.size[0], resolution / camera.size[1]])
+    xyz = np.column_stack((projection[:, :2] * scale, -1 / np.maximum(projection[:, 2], 1e-9)))
+    front = faces[(projection[faces, 2] > 0).all(1)]
+    # Inverse depth is linear in screen barycentrics; ordinary depth is not.
+    inverse, fid = zbuffer(xyz, front, resolution, resolution)
+    depth = np.full_like(inverse, np.inf)
+    np.divide(-1, inverse, out=depth, where=np.isfinite(inverse) & (inverse < 0))
+    valid = fid >= 0
+    filled = np.where(valid, depth, 0)
+    discontinuity = np.zeros_like(valid)
+    for axis in (0, 1):
+        difference = np.abs(np.diff(filled, axis=axis)) > 0.006
+        if axis == 0:
+            discontinuity[:-1] |= difference
+            discontinuity[1:] |= difference
+        else:
+            discontinuity[:, :-1] |= difference
+            discontinuity[:, 1:] |= difference
+    edge_distance = ndimage.distance_transform_edt(valid & ~discontinuity).astype(np.float32)
+    return depth, edge_distance, scale
+
+
+def project_samples(points, normals, photo, camera, depth, edge_distance, scale):
+    p = camera.project(points)
+    xy = p[:, :2] * scale
+    x, y = np.floor(xy[:, 0]).astype(int), np.floor(xy[:, 1]).astype(int)
+    inside = (p[:, 2] > 0) & (x >= 0) & (y >= 0) & (x < depth.shape[1]) & (y < depth.shape[0])
+    x, y = np.clip(x, 0, depth.shape[1] - 1), np.clip(y, 0, depth.shape[0] - 1)
+    visible = inside & np.isfinite(depth[y, x]) & (np.abs(p[:, 2] - depth[y, x]) < 0.0025)
+    direction = camera.center - points
+    direction /= np.maximum(np.linalg.norm(direction, axis=1, keepdims=True), 1e-12)
+    angle = np.clip(np.einsum("ij,ij->i", normals, direction), 0, 1) ** 3
+    weight = visible * angle * np.clip(edge_distance[y, x] / 12, 0, 1) ** 2
+    original = camera.to_original(p[:, :2])
+    weight *= (
+        (original[:, 0] >= 0.5)
+        & (original[:, 1] >= 0.5)
+        & (original[:, 0] < photo.shape[1] - 0.5)
+        & (original[:, 1] < photo.shape[0] - 0.5)
+    )
+    return sample(photo, original), weight.astype(np.float32)
+
+
+def multiband(images, weights, levels=5):
+    """Laplacian image pyramids with Gaussian confidence weights."""
+    totals = None
+    normalizers = None
+    for image, weight in zip(images, weights, strict=True):
+        gaussian, confidence = [image], [weight]
+        for _ in range(levels - 1):
+            gaussian.append(cv2.pyrDown(gaussian[-1]))
+            confidence.append(cv2.pyrDown(confidence[-1]))
+        laplacian = [
+            gaussian[i] - cv2.pyrUp(gaussian[i + 1], dstsize=(gaussian[i].shape[1], gaussian[i].shape[0]))
+            for i in range(levels - 1)
+        ] + [gaussian[-1]]
+        if totals is None:
+            totals = [np.zeros_like(x) for x in laplacian]
+            normalizers = [np.zeros_like(x) for x in confidence]
+        for i in range(levels):
+            totals[i] += laplacian[i] * confidence[i][:, :, None]
+            normalizers[i] += confidence[i]
+    blended = [x / np.maximum(w[:, :, None], 1e-12) for x, w in zip(totals, normalizers, strict=True)]
+    result = blended[-1]
+    for i in range(levels - 2, -1, -1):
+        result = cv2.pyrUp(result, dstsize=(blended[i].shape[1], blended[i].shape[0])) + blended[i]
+    return result
+
+
+def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, size):
+    fid, bary = rasterize_uv(uv * size, atlas_faces, size, size)
+    y, x = np.nonzero(fid >= 0)
+    tri = faces[fid[y, x]]
+    lam = bary[y, x]
+    points = np.einsum("ij,ijk->ik", lam, neutral[tri])
+    images, weights = [], []
+    names = ["front", "right", "mirrored_right"]
+    for name in names:
+        print(f"[flame] projecting {name}", flush=True)
+        view = "right" if name == "mirrored_right" else name
+        mesh, camera = fitted[view], cameras[view]
+        depth, edge_distance, scale = visibility(mesh, faces, camera)
+        normal = welded_vertex_normals(mesh, faces)
+        image = np.zeros((size, size, 3), np.float32)
+        weight = np.zeros((size, size), np.float32)
+        for start in range(0, len(y), 24000):
+            end = start + 24000
+            ti = symmetry[tri[start:end]] if name == "mirrored_right" else tri[start:end]
+            q = np.einsum("ij,ijk->ik", lam[start:end], mesh[ti])
+            n = np.einsum("ij,ijk->ik", lam[start:end], normal[ti])
+            n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+            color, w = project_samples(q, n, photos[view], camera, depth, edge_distance, scale)
+            if name == "mirrored_right":
+                # Symmetry augments only the side opposite the fitted right camera.
+                side = np.sign(camera.center[0]) or 1
+                w *= np.clip(-points[start:end, 0] * side / 0.012, 0, 1)
+            image[y[start:end], x[start:end]] = srgb_to_linear(color.astype(np.float32) / 255)
+            weight[y[start:end], x[start:end]] = w
+        images.append(image)
+        weights.append(weight)
+    # Match gains and low-frequency offsets only on shared visible skin, excluding
+    # very dark glasses/mouth and near-white highlights. Preserve all photographed detail.
+    gains = {}
+    for i in (1, 2):
+        overlap = (weights[0] > 0.08) & (weights[i] > 0.08)
+        l0, li = images[0].mean(2), images[i].mean(2)
+        overlap &= (l0 > 0.05) & (li > 0.05) & (l0 < 0.75) & (li < 0.75)
+        if overlap.sum() >= 32:
+            a, b = images[0][overlap], images[i][overlap]
+            gain = np.clip(np.std(a, axis=0) / np.maximum(np.std(b, axis=0), 0.02), 0.7, 1.4)
+            offset = np.clip(np.median(a, axis=0) - gain * np.median(b, axis=0), -0.12, 0.12)
+        else:
+            gain, offset = np.ones(3), np.zeros(3)
+        # Colour offsets should not turn black photographed frames/pupils into skin.
+        shadow_gate = np.clip(images[i].mean(2) / 0.06, 0, 1) ** 2
+        images[i] = np.clip(images[i] * gain + offset * shadow_gate[:, :, None], 0, 1)
+        gains[names[i]] = {
+            "gain": gain.tolist(),
+            "offset_linear": offset.tolist(),
+            "overlap_texels": int(overlap.sum()),
+        }
+    total = sum(weights)
+    observed = total[y, x] > 1e-5
+    if observed.sum() < 32:
+        raise ValueError("Cameras produced too few visible photo texels")
+    raw = sum(im * w[:, :, None] for im, w in zip(images, weights, strict=True)) / np.maximum(total[:, :, None], 1e-12)
+    # Fill each source in surface space before pyramids; UV chart neighbours are
+    # not necessarily anatomical neighbours. Never let black margins enter the blend.
+    fallback = raw[y, x].copy()
+    observed_ids = np.flatnonzero(observed)
+    # Fill uses a bounded surface sample; measured texels retain full photo detail.
+    observed_ids = observed_ids[:: max(1, len(observed_ids) // 80000)]
+    fallback_ids = cKDTree(points[observed_ids]).query(neutral, eps=0.15)[1]
+    vertex_fill = raw[y[observed_ids], x[observed_ids]][fallback_ids]
+    fallback[~observed] = np.einsum("ij,ijk->ik", lam[~observed], vertex_fill[tri[~observed]])
+    eye = np.zeros(len(neutral), bool)
+    eye[np.concatenate((masks["left_eyeball"], masks["right_eyeball"]))] = True
+    unobserved_eye = eye[tri].all(1) & ~observed
+    fallback[unobserved_eye] = srgb_to_linear(np.array([0.80, 0.77, 0.73], np.float32))
+    for i in range(3):
+        print(f"[flame] surface-space fill {names[i]}", flush=True)
+        usable = weights[i][y, x] > 1e-5
+        if usable.sum() >= 32:
+            usable_ids = np.flatnonzero(usable)
+            usable_ids = usable_ids[:: max(1, len(usable_ids) // 80000)]
+            nearest = cKDTree(points[usable_ids]).query(neutral, eps=0.15)[1]
+            vertex_fill = images[i][y[usable_ids], x[usable_ids]][nearest]
+            fill = fallback.copy()
+            fill[~usable] = np.einsum("ij,ijk->ik", lam[~usable], vertex_fill[tri[~usable]])
+        else:
+            fill = fallback
+        images[i][y[~usable], x[~usable]] = fill[~usable]
+        # Pad charts before downsampling to prevent background colour bleeding.
+        nearest = ndimage.distance_transform_edt(fid < 0, return_distances=False, return_indices=True)
+        images[i][fid < 0] = images[i][nearest[0][fid < 0], nearest[1][fid < 0]]
+    result = multiband(images, weights)
+    result[y[~observed], x[~observed]] = fallback[~observed]
+    # Small positive floor is only a numerical fallback; dark photographed glasses
+    # are otherwise preserved. Padding fills the entire canvas for valid mipmaps.
+    result = np.clip(result, 0.001, 1)
+    nearest = ndimage.distance_transform_edt(fid < 0, return_distances=False, return_indices=True)
+    result[fid < 0] = result[nearest[0][fid < 0], nearest[1][fid < 0]]
+    texture = np.clip(np.rint(linear_to_srgb(result) * 255), 1, 255).astype(np.uint8)
+    return texture, {
+        "texture_fill_ratio": 1.0,
+        "photo_observed_ratio": float(observed.mean()),
+        "atlas_surface_texels": len(y),
+        "gains": gains,
+        "view_weight_share": {n: float(w.sum() / max(total.sum(), 1e-9)) for n, w in zip(names, weights, strict=True)},
+    }
+
+
+def pack_atlases(scan_atlas, flame_atlas, scan_uv, flame_uv):
+    """Use a square canvas because shared renderers currently assume square atlases."""
+    sh, sw = scan_atlas.shape[:2]
+    fh, fw = flame_atlas.shape[:2]
+    side = max(sw + fw + 16, sh, fh)
+    atlas = np.empty((side, side, 3), np.uint8)
+    atlas[:] = np.median(flame_atlas.reshape(-1, 3), axis=0).astype(np.uint8)
+    atlas[:sh, :sw] = scan_atlas
+    atlas[:fh, sw + 16 : sw + 16 + fw] = flame_atlas
+    # Replicate border pixels in the empty padding for mipmaps.
+    atlas[:sh, sw : sw + 8] = scan_atlas[:, -1:]
+    atlas[:fh, sw + 8 : sw + 16] = flame_atlas[:, :1]
+    suv = scan_uv * [sw / side, sh / side]
+    fuv = flame_uv * [fw / side, fh / side] + [(sw + 16) / side, 0]
+    return atlas, suv, fuv
