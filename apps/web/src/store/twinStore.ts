@@ -33,6 +33,8 @@ export interface TwinPack {
   def: TwinDef;
   /** Present for a single-file bundle; legacy packs use the scan material colour. */
   skinToneHex?: string;
+  /** Bundle flag: the twin's own hands are MakeHuman hands, keep them (no mannequin-hand swap). */
+  hasMakeHumanHands?: boolean;
   /** rigged.glb bytes. */
   glb: ArrayBuffer;
   /** Twin vertex -> nearest body render vertex; null when no mapping file was given. */

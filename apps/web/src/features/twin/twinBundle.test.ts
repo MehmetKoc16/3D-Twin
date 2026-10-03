@@ -51,3 +51,30 @@ describe('single-file twin contract', () => {
     await expect(loadTwinBundle(bundleBytes(true))).rejects.toThrow(/embed/);
   });
 });
+
+describe('dtHasMakeHumanHands flag', () => {
+  const withExtras = (extras: Record<string, unknown>) => ({
+    ...parser(),
+    json: { asset: { extras: { dtTwin: bundleExtras(), ...extras } }, bufferViews: [{}] },
+  });
+
+  it('is false for bundles without the flag, true when set', async () => {
+    expect((await parseTwinBundle(parser()))?.hasMakeHumanHands).toBe(false);
+    expect(
+      (await parseTwinBundle(withExtras({ dtHasMakeHumanHands: false })))?.hasMakeHumanHands,
+    ).toBe(false);
+    const bundle = await parseTwinBundle(
+      withExtras({ dtHasMakeHumanHands: true, dtScanHandsRemoved: false }),
+    );
+    expect(bundle?.hasMakeHumanHands).toBe(true);
+  });
+
+  it.each([
+    { dtHasMakeHumanHands: 'yes' },
+    { dtHasMakeHumanHands: 1 },
+    { dtHasMakeHumanHands: null },
+    { dtScanHandsRemoved: 'no' },
+  ])('rejects a non-boolean flag %#', async (extras) => {
+    await expect(parseTwinBundle(withExtras(extras))).rejects.toThrow(/must be a boolean/);
+  });
+});

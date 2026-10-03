@@ -119,6 +119,7 @@ export class TwinMode {
             this.assets.skeleton.bones.map((bone) => bone.name),
             pack.glb,
           ),
+        { keepOwnHands: pack.hasMakeHumanHands === true },
       );
       this.appliedRevision = state.revision;
       this.requestSolve();

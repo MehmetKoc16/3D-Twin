@@ -41,6 +41,11 @@ export const FOOTPRINT_BAND_M = 0.03;
 /** Largest rest-head difference (m) between the twin's skeleton and the avatar's before the two files are declared foreign. */
 export const MAX_HEAD_RESIDUAL_M = 0.005;
 
+export interface TwinRigOptions {
+  /** Keep the twin's own hands (bundle flag `dtHasMakeHumanHands`): no hand hiding, no mannequin-hand swap. */
+  keepOwnHands?: boolean;
+}
+
 /**
  * The realistic twin in the avatar scene. A SkinnedMesh with the twin's own vertices and skin weights bound to the
  * avatar's skeleton, exactly like a garment: PoseDriver, the camera focus presets and the worn garments all follow the
@@ -70,6 +75,7 @@ export class TwinRig {
   private hiddenTriangles = 0;
   private disposed = false;
   private readonly hands: TwinHands;
+  private readonly keepOwnHands: boolean;
   private readonly accessories: TwinAccessories;
   private readonly openingRepair: TwinOpeningRepair;
   private readonly rest: Float32Array;
@@ -97,7 +103,9 @@ export class TwinRig {
       model,
       assets.skeleton.bones.map((bone) => bone.name),
     ),
+    options: TwinRigOptions = {},
   ) {
+    this.keepOwnHands = options.keepOwnHands === true;
     this.bodyGeometry = assets.mesh.geometry;
     this.bodyVertexCount = this.bodyGeometry.getAttribute('position').count;
     if (mapping) validateMapping(mapping, model.vertexCount, this.bodyVertexCount);
@@ -168,15 +176,18 @@ export class TwinRig {
     this.alignment = alignment;
     if (alignment.maxResidual > MAX_HEAD_RESIDUAL_M) return alignment; // foreign files: the caller rejects them, nothing is shown
     translatePositions(this.model.position, alignment.offset, this.rest);
-    this.handMask = handVertexMask(
-      this.rest,
-      this.model.skinIndex,
-      this.model.skinWeight,
-      this.assets.skeleton.bones.map((b) => b.name),
-      appHeads,
-      SCAN_WRIST_M,
-    );
-    this.hands.update(appHeads);
+    if (!this.keepOwnHands) {
+      // Scan twins: hide the scan's fused hands and show the mannequin's. Template-character twins keep their own.
+      this.handMask = handVertexMask(
+        this.rest,
+        this.model.skinIndex,
+        this.model.skinWeight,
+        this.assets.skeleton.bones.map((b) => b.name),
+        appHeads,
+        SCAN_WRIST_M,
+      );
+      this.hands.update(appHeads);
+    }
     this.position.needsUpdate = true;
     this.mesh.bindMatrix.copy(this.assets.mesh.bindMatrix);
     this.mesh.bindMatrixInverse.copy(this.assets.mesh.bindMatrix).invert();

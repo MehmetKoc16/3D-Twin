@@ -1,4 +1,5 @@
 import {
+  DoubleSide,
   MeshStandardMaterial,
   SkinnedMesh,
   SRGBColorSpace,
@@ -63,6 +64,9 @@ function copyAttribute(attribute: BufferAttribute | InterleavedBufferAttribute):
   return out;
 }
 
+/** glTF `alphaMode: BLEND` is rendered as MASK with this cutoff (the glTF default `alphaCutoff`). */
+export const BLEND_AS_MASK_CUTOFF = 0.5;
+
 function firstMaterial(material: Material | Material[]): Material | undefined {
   return Array.isArray(material) ? material[0] : material;
 }
@@ -70,6 +74,14 @@ function firstMaterial(material: Material | Material[]): Material | undefined {
 /**
  * The twin's baked colour: standard shading with a neutral, matte response (no skin composite, no sheen). The
  * texture is the pipeline's delit albedo, so the app's lights shade it like everything else.
+ *
+ * Alpha: GLTFLoader turns `alphaMode: MASK` into `alphaTest = alphaCutoff` (default 0.5) and `BLEND` into
+ * `transparent = true`. A cut-out material (hair cards of the template-character twin) keeps that `alphaTest`, reading
+ * the base-colour texture's alpha channel, and `doubleSided` keeps both faces. `BLEND` is treated as MASK at 0.5:
+ * hair cards need no sorted translucency, and a transparent draw would need per-frame sorting against the garments and
+ * hands and would break depth writes. The shadow pass needs no custom depth material: three's shadow renderer already
+ * applies `alphaTest` with the material's *current* `map` (also after TwinOpeningRepair swaps it), so cut-out hair
+ * casts a cut-out shadow instead of a block. Opaque materials are untouched.
  */
 export function twinMaterial(source: Material | undefined): MeshStandardMaterial {
   const map: Texture | null = source instanceof MeshStandardMaterial ? source.map : null;
@@ -77,6 +89,11 @@ export function twinMaterial(source: Material | undefined): MeshStandardMaterial
   const material = new MeshStandardMaterial({ map, roughness: 0.88, metalness: 0 });
   if (!map && source instanceof MeshStandardMaterial) material.color.copy(source.color);
   material.name = 'twin';
+  if (source instanceof MeshStandardMaterial) {
+    if (source.alphaTest > 0) material.alphaTest = source.alphaTest;
+    else if (source.transparent) material.alphaTest = BLEND_AS_MASK_CUTOFF;
+    if (source.side === DoubleSide) material.side = DoubleSide;
+  }
   return material;
 }
 

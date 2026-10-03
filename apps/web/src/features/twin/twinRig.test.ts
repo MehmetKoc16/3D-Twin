@@ -11,8 +11,44 @@ import type { TwinRuntimeInfo } from '../../store/twinStore';
 import { bodyIndex, envelope, fakeAssets, fakeModel, mapping } from './twinTestkit';
 import { MAX_HEAD_RESIDUAL_M, TwinRig } from './twinRig';
 import { TwinOpeningRepair } from './twinOpeningRepair';
+import { TwinHands } from './twinHands';
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('TwinRig hands', () => {
+  /** Every twin vertex is skinned to a hand bone, so the scan-hand swap would hide the whole mesh. */
+  function handSetup(options?: { keepOwnHands?: boolean }) {
+    const assets = fakeAssets();
+    assets.skeleton.bones[2]!.name = 'hand_l';
+    const model = fakeModel();
+    model.skinIndex.fill(2);
+    const update = vi.spyOn(TwinHands.prototype, 'update');
+    const rig = new TwinRig(assets, model, null, undefined, '#c99a7e', options);
+    rig.onSolve(envelope(true));
+    return { rig, update };
+  }
+
+  it('swaps in the mannequin hands by default: scan hand triangles are hidden', () => {
+    const { rig, update } = handSetup();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(rig.mesh.geometry.drawRange.count).toBe(0);
+    rig.dispose();
+  });
+
+  it('keeps the twin own hands when keepOwnHands is set (dtHasMakeHumanHands)', () => {
+    const { rig, update } = handSetup({ keepOwnHands: true });
+    expect(update).not.toHaveBeenCalled();
+    expect(rig.mesh.geometry.drawRange.count).toBe(15);
+    expect(rig.mesh.visible).toBe(true);
+    rig.dispose();
+  });
+
+  it('keepOwnHands false behaves like the default', () => {
+    const { rig } = handSetup({ keepOwnHands: false });
+    expect(rig.mesh.geometry.drawRange.count).toBe(0);
+    rig.dispose();
+  });
+});
 
 describe('TwinRig', () => {
   it('pushes clothing coverage and its margin inward once, recomputes normals, and restores on take-off', () => {

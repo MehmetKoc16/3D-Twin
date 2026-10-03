@@ -5,7 +5,12 @@ import { parseMapping, validateMapping } from './twinMapping';
 import { loadTwinAccessories, disposeAccessory } from './twinAccessories';
 
 interface BundleParser {
-  json: { asset?: { extras?: { dtTwin?: unknown } }; bufferViews?: unknown[] };
+  json: {
+    asset?: {
+      extras?: { dtTwin?: unknown; dtHasMakeHumanHands?: unknown; dtScanHandsRemoved?: unknown };
+    };
+    bufferViews?: unknown[];
+  };
   getDependency(type: 'bufferView', index: number): Promise<ArrayBuffer>;
 }
 
@@ -13,6 +18,11 @@ export interface TwinBundle {
   def: TwinDef;
   mapping: Uint32Array;
   skinToneHex: string;
+  /**
+   * `asset.extras.dtHasMakeHumanHands`: the twin's own hands already are MakeHuman hands with the right skin
+   * texture, so the rig keeps them instead of swapping in the mannequin's hands. False when absent.
+   */
+  hasMakeHumanHands: boolean;
 }
 
 const record = (v: unknown): v is Record<string, unknown> =>
@@ -24,6 +34,12 @@ export async function parseTwinBundle(parser: BundleParser): Promise<TwinBundle 
   if (raw === undefined) return null;
   if (!record(raw)) throw new TwinFormatError('json', 'invalid dtTwin extras');
   if (raw.version !== 1) throw new TwinFormatError('version', 'unsupported dtTwin version');
+  const extras = parser.json.asset?.extras;
+  for (const key of ['dtHasMakeHumanHands', 'dtScanHandsRemoved'] as const) {
+    const flag = extras?.[key];
+    if (flag !== undefined && typeof flag !== 'boolean')
+      throw new TwinFormatError('json', `asset.extras.${key} must be a boolean`);
+  }
   const def = parseTwinDef(raw.twin);
   if (typeof raw.skinToneHex !== 'string' || !/^#[\da-f]{6}$/i.test(raw.skinToneHex))
     throw new TwinFormatError('json', 'dtTwin.skinToneHex must be #rrggbb');
@@ -64,7 +80,12 @@ export async function parseTwinBundle(parser: BundleParser): Promise<TwinBundle 
   // Validate nested GLBs during picking/hydration, before marking the pack ready.
   const accessories = await loadTwinAccessories(parser);
   accessories.forEach(disposeAccessory);
-  return { def, mapping, skinToneHex: raw.skinToneHex };
+  return {
+    def,
+    mapping,
+    skinToneHex: raw.skinToneHex,
+    hasMakeHumanHands: extras?.dtHasMakeHumanHands === true,
+  };
 }
 
 /** Inspect only the JSON header before invoking the loader; legacy GLBs need no second parse. */
