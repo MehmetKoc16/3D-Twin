@@ -1,5 +1,18 @@
+import { Raycaster } from 'three';
 import { describe, expect, it } from 'vitest';
-import { BODY_WRIST_M, handVertexMask, SCAN_WRIST_M } from './twinHands';
+import { fakeAssets } from './twinTestkit';
+import { BODY_WRIST_M, handVertexMask, SCAN_WRIST_M, TwinHands } from './twinHands';
+
+describe('TwinHands raycasting', () => {
+  it('survives a pointer raycast before the hands are ever built (keepOwnHands never calls update)', () => {
+    const assets = fakeAssets();
+    const hands = new TwinHands(assets, '#c8a080');
+    const raycaster = new Raycaster();
+    raycaster.ray.set({ x: 0, y: 0, z: 5 } as never, { x: 0, y: 0, z: -1 } as never);
+    expect(() => raycaster.intersectObject(hands.mesh, false)).not.toThrow();
+    hands.dispose();
+  });
+});
 
 describe('hand selection', () => {
   const names = [

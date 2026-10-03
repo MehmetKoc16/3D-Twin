@@ -63,7 +63,13 @@ if (!bundle && !['rigged.glb', 'twin.json'].every((f) => existsSync(path.resolve
 const browser = await chromium.launch({ channel: 'chrome' });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const problems = [];
-page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+page.on('pageerror', (e) =>
+  problems.push(
+    `pageerror: ${e.message} ${String(e.stack)
+      .replace(/\s+at /g, ' | at ')
+      .slice(0, 600)}`,
+  ),
+);
 page.on('console', (m) => {
   if (m.type() === 'error' && !m.location().url.endsWith('/favicon.ico'))
     problems.push(`console: ${m.text().slice(0, 200)}`);

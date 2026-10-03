@@ -59,6 +59,8 @@ export class TwinHands {
     skinToneHex: string,
   ) {
     this.material = new MeshStandardMaterial({ color: skinToneHex, roughness: 0.6, metalness: 0 });
+    // Empty but valid geometry: pointer raycasts ignore `visible`, and three reads `attributes.position.count`.
+    this.geometry.setAttribute('position', new BufferAttribute(new Float32Array(0), 3));
     this.mesh = new SkinnedMesh(this.geometry, this.material);
     this.mesh.name = 'twin:hands';
     this.mesh.visible = false;
