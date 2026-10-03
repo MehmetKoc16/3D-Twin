@@ -1,8 +1,9 @@
 """Colours and atlas tiles for the MakeHuman parts (eyes, brows, lashes, hair) of the single-material twin.
 
-The web app draws the twin with one opaque material, so alpha-masked cards cannot rely on cut-outs: every card is
-composited over a flat base colour (skin for brows, dark scalp for hair) and baked into one RGB atlas strip. The
-parts are tintable neutral-grey maps, exactly as in the app's part pipeline (``irisRecolor.ts`` is ported here).
+The twin is one glTF material (``alphaMode: MASK``, ``alphaCutoff`` 0.5, ``doubleSided``) whose base colour texture
+carries alpha: skin texels are opaque and every card keeps the MakeHuman texture's real alpha, so the cards are real
+cut-outs. Each part becomes an RGBA tile of the atlas strip. The parts are tintable neutral-grey maps, exactly as in
+the app's part pipeline (``irisRecolor.ts`` is ported here).
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 from flamehead.colour import to_lab
+from scipy import ndimage
 from twintex.colorspace import linear_to_srgb, srgb_to_linear
 
 from .register import smoothstep
@@ -24,6 +26,41 @@ DEFAULT_IRIS_SRGB = np.array([76, 52, 34], float)  # dark brown
 def srgb_hex(rgb) -> str:
     c = np.clip(np.rint(np.asarray(rgb, float)), 0, 255).astype(int)
     return "#" + "".join(f"{int(v):02x}" for v in c)
+
+
+def plausible_iris(measured_srgb, override_hex: str | None = None) -> dict:
+    """Iris colour for the eye texture: an explicit override, or the measurement clamped to a natural dark brown.
+
+    Dim photos give a near-grey iris (low Lab chroma). Such a measurement keeps its lightness (clamped to 24..38) but
+    gets the chroma and a brown hue of a natural dark-brown iris. A clearly chromatic measurement only has its
+    lightness clamped (the app's recolour keeps the texture's own detail on top of it).
+    """
+    from flamehead.colour import from_lab
+
+    if override_hex:
+        text = override_hex.strip().lstrip("#")
+        if len(text) != 6:
+            raise ValueError("--iris-hex must be #rrggbb")
+        rgb = np.array([int(text[i : i + 2], 16) for i in (0, 2, 4)], float)
+        return {"srgb": rgb, "method": "override", "measured_hex": None}
+    if measured_srgb is None:
+        return {"srgb": DEFAULT_IRIS_SRGB.copy(), "method": "default", "measured_hex": None}
+    measured = np.asarray(measured_srgb, float)
+    lab = to_lab(measured.astype(np.float32).reshape(1, 3) / 255.0)[0].astype(float)
+    chroma = float(np.hypot(lab[1], lab[2]))
+    hue = float(np.degrees(np.arctan2(lab[2], lab[1])))
+    lightness = float(np.clip(lab[0], 24.0, 38.0))
+    method = "measured"
+    if chroma < 12.0:
+        # near-grey: natural dark brown (Lab hue 45..70 deg, chroma 14..18), measured lightness
+        hue = float(np.clip(hue if chroma > 3.0 else 58.0, 45.0, 70.0))
+        chroma = float(np.clip(14.0 + (12.0 - chroma) * 0.35, 14.0, 18.0))
+        method = "near-grey measurement -> dark brown"
+    elif lightness != lab[0]:
+        method = "lightness clamped"
+    new = np.array([lightness, chroma * np.cos(np.radians(hue)), chroma * np.sin(np.radians(hue))], np.float32)
+    rgb = np.clip(from_lab(new.reshape(1, 3))[0] * 255, 0, 255)
+    return {"srgb": rgb, "method": method, "measured_hex": srgb_hex(measured)}
 
 
 def lab_to_srgb255(lab) -> np.ndarray:
@@ -60,12 +97,19 @@ def covered_linear_mean(texture: np.ndarray, cutoff: float) -> float:
     return float(max(0.02, srgb_to_linear(value.astype(np.float32)).mean()))
 
 
-def card_tile(part: Part, colour_linear: np.ndarray | None, base_srgb, cutoff: float | None = None) -> np.ndarray:
-    """RGB tile of an alpha-masked part: tinted strands over ``base_srgb`` (soft threshold around the cutoff)."""
+def bleed_colour(rgb: np.ndarray, alpha: np.ndarray, cutoff: float = 0.5) -> np.ndarray:
+    """Copy the colour of the nearest opaque texel into transparent texels (no dark halos at filtered cut-out edges)."""
+    solid = alpha >= cutoff
+    if solid.all() or not solid.any():
+        return rgb
+    _, (iy, ix) = ndimage.distance_transform_edt(~solid, return_indices=True)
+    return rgb[iy, ix]
+
+
+def card_tile(part: Part, colour_linear: np.ndarray | None, cutoff: float | None = None) -> np.ndarray:
+    """RGBA tile of a part: tinted strands with the texture's own alpha (255 everywhere for OPAQUE parts)."""
     texture = part.texture
     cutoff = part.meta["material"].get("alphaCutoff", 0.5) if cutoff is None else cutoff
-    alpha = texture[..., 3] / 255.0
-    cover = smoothstep((alpha - (cutoff - 0.12)) / 0.24)
     if colour_linear is not None and part.tintable:
         factor = covered_linear_mean(texture, cutoff)
         grey = srgb_to_linear(texture[..., :3].astype(np.float32) / 255.0)
@@ -73,9 +117,13 @@ def card_tile(part: Part, colour_linear: np.ndarray | None, base_srgb, cutoff: f
     else:
         strand = srgb_to_linear(texture[..., :3].astype(np.float32) / 255.0)
         strand = np.clip(strand * np.asarray(part.base_color, np.float32), 0, 1) if part.tintable else strand
-    base = srgb_to_linear(np.asarray(base_srgb, np.float32).reshape(1, 1, 3) / 255.0)
-    mixed = strand * cover[..., None] + base * (1 - cover[..., None])
-    return np.clip(np.rint(linear_to_srgb(mixed) * 255), 0, 255).astype(np.uint8)
+    rgb = np.clip(np.rint(linear_to_srgb(strand) * 255), 0, 255).astype(np.uint8)
+    if part.alpha_mode == "MASK":
+        alpha = texture[..., 3]
+        rgb = bleed_colour(rgb, alpha / 255.0, cutoff)
+    else:
+        alpha = np.full(texture.shape[:2], 255, np.uint8)
+    return np.dstack((rgb, alpha))
 
 
 def triangle_coverage(part: Part, cutoff: float | None = None) -> np.ndarray:
@@ -95,13 +143,14 @@ def triangle_coverage(part: Part, cutoff: float | None = None) -> np.ndarray:
 
 def eye_tile(part: Part, iris_srgb) -> np.ndarray:
     iris = part.meta["irisUv"]
-    return recolor_iris(part.texture, iris["center"], iris["radius"], iris_srgb)[..., :3]
+    tinted = recolor_iris(part.texture, iris["center"], iris["radius"], iris_srgb)
+    return np.dstack((tinted[..., :3], np.full(tinted.shape[:2], 255, np.uint8)))
 
 
 @dataclass
 class Tile:
     name: str
-    image: np.ndarray  # (h, w, 3) uint8
+    image: np.ndarray  # (h, w, 3 or 4) uint8
     uv_min: np.ndarray  # source UV box covered by the part's triangles
     uv_max: np.ndarray
     origin: tuple[int, int] = (0, 0)  # filled by pack_strip: (x, y) in the atlas
@@ -132,7 +181,10 @@ def pack_strip(tiles: list[Tile], atlas_width: int, strip_height: int, y_offset:
 
     ``origin`` of every tile becomes its position in the full atlas, whose strip starts at row ``y_offset``.
     """
-    strip = np.zeros((strip_height, atlas_width, 3), np.uint8)
+    channels = tiles[0].image.shape[2] if tiles else 3
+    strip = np.zeros((strip_height, atlas_width, channels), np.uint8)
+    if channels == 4:
+        strip[..., 3] = 255  # unused strip texels are opaque (never referenced)
     x = 0
     for tile in tiles:
         h, w = tile.image.shape[:2]

@@ -288,3 +288,41 @@ def vertex_photo_check(
         "matched_median_de": float(np.median(matched)),
         "shuffled_mean_de": float(shuffled.mean()),
     }
+
+
+def head_island_triangles(template: Template, head: HeadMesh) -> np.ndarray:
+    """Compact triangles of the head UV island, in the order ``FaceBake.texel_face`` indexes them."""
+    return head.faces[head.face_island == template.head_island]
+
+
+def neck_weights(
+    template: Template,
+    fit: HeadFit,
+    flame: FlameFit,
+    head: HeadMesh,
+    face: FaceBake,
+    *,
+    smooth_iterations: int = 8,
+) -> dict:
+    """Per-texel weight of FLAME's neck region (under the jaw), for matching the neck to the body skin.
+
+    ``raw`` is the interpolated 0/1 membership, ``smooth`` the same after a few mesh-graph smoothing steps (about a
+    centimetre) so the hand-over to the photographed jaw has no edge. ``chin_y`` is the lowest point of FLAME's face
+    region: every head texel below it is under the chin.
+    """
+    masks = flame_masks_on_head(template, fit, flame, head)
+    membership = np.zeros(len(head.ids), np.float64)
+    membership[masks["neck"]] = 1.0
+    edges = np.concatenate((head.faces[:, [0, 1]], head.faces[:, [1, 2]], head.faces[:, [2, 0]]))
+    graph = sp.coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(len(head.ids),) * 2)
+    graph = (graph + graph.T).tocsr()
+    walk = sp.diags(1 / np.maximum(np.asarray(graph.sum(1)).ravel(), 1)) @ graph
+    smooth = membership.copy()
+    for _ in range(smooth_iterations):
+        smooth = 0.5 * smooth + 0.5 * (walk @ smooth)
+    tri = head_island_triangles(template, head)[face.texel_face]
+    raw = np.einsum("ij,ij->i", face.texel_bary, membership[tri])
+    soft = np.einsum("ij,ij->i", face.texel_bary, smooth[tri])
+    moved = (template.base + fit.displacement)[head.welded]
+    chin_y = float(moved[masks["face"], 1].min()) if len(masks["face"]) else float(moved[:, 1].min())
+    return {"raw": raw, "smooth": soft, "chin_y": chin_y, "vertices": int(len(masks["neck"]))}

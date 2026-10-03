@@ -14,7 +14,7 @@ import numpy as np
 # The package directory is this script's folder.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hybridbody.pipeline import run, verify_report  # noqa: E402
+from hybridbody.pipeline import DEFAULT_HAIR, run, verify_report  # noqa: E402
 
 
 def main(argv=None):
@@ -29,7 +29,15 @@ def main(argv=None):
     parser.add_argument("--photos", type=Path, help="folder with front.jpg and right.jpg (default colab_upload)")
     parser.add_argument("--flame-assets", type=Path, help="FLAME masks / MediaPipe embedding (default user-data/flame)")
     parser.add_argument("--out", type=Path, required=True, help="hybrid.glb path (under user-data/)")
-    parser.add_argument("--hair", default="hair-short", help="MakeHuman CC0 hair part id from parts/index.json")
+    parser.add_argument(
+        "--hair",
+        default=DEFAULT_HAIR,
+        help="MakeHuman CC0 hair part id from parts/index.json (default: short sides, volume on top, swept back)",
+    )
+    parser.add_argument(
+        "--iris-hex",
+        help="iris colour #rrggbb (default: measured from the photo; a near-grey measurement becomes dark brown)",
+    )
     parser.add_argument(
         "--brows",
         action="store_true",
@@ -51,6 +59,7 @@ def main(argv=None):
             flame_assets=args.flame_assets,
             hair=args.hair,
             brows=args.brows,
+            iris_hex=args.iris_hex,
             texture_size=args.texture_size,
             previews=not args.no_previews,
             preview_dir=args.preview_dir,

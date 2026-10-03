@@ -12,7 +12,8 @@ from .partstex import Tile
 from .template import Part
 
 KIND = {"body": 0, "eyes": 1, "eyebrows": 2, "eyelashes": 3, "hair": 4}
-BACK_OFFSET = 1.5e-4  # metres: the reversed copy of a double-sided card sits just behind it (never welds with it)
+BACK_OFFSET = 1.5e-4  # metres: optional reversed copy of a card (``double_sided``; the material is double sided itself)
+ALPHA_CUTOFF = 0.5
 
 
 @dataclass
@@ -78,7 +79,7 @@ def assemble(
     atlas_size: tuple[int, int],
     *,
     drop_vertices: np.ndarray | None = None,
-    double_sided=("eyebrows", "eyelashes", "hair"),
+    double_sided=(),
 ) -> Assembled:
     """Concatenate the body (minus ``drop_vertices`` faces) and the bound parts; UVs are atlas coordinates."""
     width, height = atlas_size
@@ -157,10 +158,45 @@ def mesh_validity(mesh: Assembled, decimals: int = 5) -> dict:
     }
 
 
-def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: str = "image/jpeg") -> dict:
-    """Write one skinless textured primitive (the rig stage skins it) and validate a re-read."""
+def encode_png(atlas: np.ndarray) -> bytes:
+    """Lossless PNG (RGBA when the atlas has an alpha channel)."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.fromarray(atlas, "RGBA" if atlas.shape[2] == 4 else "RGB").save(
+        buffer, format="PNG", compress_level=9, optimize=True
+    )
+    return buffer.getvalue()
+
+
+def material_json() -> dict:
+    """The single twin material: alpha cut-out cards (hair, lashes) in the base colour texture's alpha channel."""
+    return {
+        "name": "twin",
+        "pbrMetallicRoughness": {
+            "baseColorTexture": {"index": 0},
+            "metallicFactor": 0.0,
+            "roughnessFactor": 0.88,
+        },
+        "alphaMode": "MASK",
+        "alphaCutoff": ALPHA_CUTOFF,
+        "doubleSided": True,
+    }
+
+
+def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: str | None = None) -> dict:
+    """Write one skinless textured primitive (the rig stage skins it) and validate a re-read.
+
+    An RGBA atlas is stored as PNG (the alpha channel drives the cut-outs); an RGB atlas as JPEG unless ``mime`` says
+    otherwise.
+    """
     normals = welded_vertex_normals(mesh.positions, mesh.faces)
-    data, mime = encode_atlas(atlas, mime)
+    if atlas.shape[2] == 4:
+        data, mime = encode_png(atlas), "image/png"
+    else:
+        data, mime = encode_atlas(atlas, mime or "image/jpeg")
     prim = Prim(
         mesh.positions.astype(np.float32),
         mesh.faces.astype(np.uint32),
@@ -171,17 +207,7 @@ def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: s
     )
     scene = GlbScene(
         [prim],
-        [
-            {
-                "name": "twin",
-                "pbrMetallicRoughness": {
-                    "baseColorTexture": {"index": 0},
-                    "metallicFactor": 0.0,
-                    "roughnessFactor": 0.88,
-                },
-                "doubleSided": False,
-            }
-        ],
+        [material_json()],
         [{"sampler": 0, "source": 0}],
         [{"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071}],
         [{"data": data, "mimeType": mime}],
@@ -197,5 +223,7 @@ def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: s
     return {
         "bytes": len(open(path, "rb").read()),
         "image_bytes": len(data),
+        "image_mime": mime,
+        "material": js["materials"][0],
         "extras_keys": sorted(js["asset"]["extras"]),
     }

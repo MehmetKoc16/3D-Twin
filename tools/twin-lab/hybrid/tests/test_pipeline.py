@@ -52,8 +52,8 @@ def run_result(model, tmp_path_factory):
 def test_brows_are_optional_and_follow_the_deformed_head(model, run_result, tmp_path):
     _, _, default, _, _ = run_result
     assert "eyebrows" not in default["parts"]["slices"] and default["parts"]["eyebrows"]["enabled"] is False
-    _, out, report, _, _ = execute(model, tmp_path, brows=True, hair="hair-tousled")
-    assert "eyebrows" in report["parts"]["slices"] and report["parts"]["hair"]["id"] == "hair-tousled"
+    _, out, report, _, _ = execute(model, tmp_path, brows=True, hair="hair-short")
+    assert "eyebrows" in report["parts"]["slices"] and report["parts"]["hair"]["id"] == "hair-short"
     clearance = report["parts"]["eyebrows"]["clearance_to_head"]
     assert clearance["median_mm"] > -2 and clearance["median_mm"] < 12  # brow cards ride on the deformed skin
     lashes = report["parts"]["eyelashes"]["clearance_to_head"]
@@ -109,7 +109,7 @@ def test_face_asset_is_written_next_to_the_glb(run_result):
     document = json.loads((folder / "face-asset.json").read_text())
     assert document["schema"] == "dt-face-asset/1"
     assert report["face_asset"]["offsets"] == document["headOffsets"]["count"]
-    assert document["headOffsets"]["count"] > 1000 and document["parts"]["hair"]["id"] == "hair-short"
+    assert document["headOffsets"]["count"] > 1000 and document["parts"]["hair"]["id"] == "hair-tousled"
     assert (folder / "face-offsets.bin").stat().st_size == 16 * document["headOffsets"]["count"]
     assert (folder / "face-texture.png").is_file()
 
@@ -129,3 +129,31 @@ def test_rig_stage_accepts_the_hybrid_as_a_verified_native_a_pose(run_result, mo
     assert fit.stats["pose_source"] == "verified-native-A-pose"
     js, _ = _split((folder / "rigged.glb").read_bytes())
     assert len(js["meshes"]) == 1 and len(js["skins"]) == 1 and len(js["skins"][0]["joints"]) == 53
+
+
+def test_glb_uses_the_alpha_mask_material_with_an_rgba_png_atlas(run_result):
+    import io
+
+    from glbio import _split
+    from PIL import Image
+
+    _, out, report, _, _ = run_result
+    js, blob = _split(out.read_bytes())
+    material = js["materials"][0]
+    assert (material["alphaMode"], material["alphaCutoff"], material["doubleSided"]) == ("MASK", 0.5, True)
+    image = js["images"][0]
+    assert image["mimeType"] == "image/png"
+    view = js["bufferViews"][image["bufferView"]]
+    atlas = np.asarray(Image.open(io.BytesIO(blob[view["byteOffset"] : view["byteOffset"] + view["byteLength"]])))
+    assert atlas.shape[2] == 4 and atlas.shape[1] <= 4096
+    body_rows = atlas.shape[1]
+    assert (atlas[:body_rows, :, 3] == 255).all()  # skin is opaque
+    assert report["glb"]["image_mime"] == "image/png"
+
+
+def test_neck_below_the_chin_matches_the_body_skin(run_result):
+    _, _, report, _, _ = run_result
+    neck = report["texture"]["neck"]
+    after = neck["after"]["below_chin"]
+    assert after["texels"] > 0 and abs(after["delta_l_vs_body"]) < 3
+    assert report["texture"]["scalp_tint"]["covered_texel_fraction"] >= 0

@@ -39,7 +39,7 @@ def test_eye_offsets_align_centre_in_xy_and_front_pole_in_z_with_clamping():
     assert np.abs(clamped).max() <= 0.004 + 1e-12 and set(report) == {"left", "right"}
 
 
-def make_mesh():
+def make_mesh(**kwargs):
     positions, faces, uv, _ = sphere_template(subdivisions=2)
     hair = synthetic_part()
     hair.category = "hair"
@@ -58,12 +58,20 @@ def make_mesh():
             ("hair", hair, hair.positions + [0.0, 1.7, 0.0], hair_tile),
         ],
         (64, 80),
+        **kwargs,
     )
     return mesh, positions, faces
 
 
-def test_assemble_concatenates_parts_and_adds_offset_back_faces_for_cards():
+def test_assemble_concatenates_parts_without_back_copies_by_default():
     mesh, positions, faces = make_mesh()
+    assert mesh.parts["hair"]["vertices"][1] - mesh.parts["hair"]["vertices"][0] == 3
+    assert len(mesh.faces) == len(faces) + 2
+    assert mesh.uv.shape == (len(mesh.positions), 2) and (mesh.kind[len(positions) :] > 0).all()
+
+
+def test_assemble_can_add_offset_back_faces_for_cards():
+    mesh, positions, faces = make_mesh(double_sided=("eyebrows", "eyelashes", "hair"))
     assert mesh.parts["body"]["vertices"] == (0, len(positions))
     assert mesh.parts["hair"]["vertices"][1] - mesh.parts["hair"]["vertices"][0] == 6  # 3 front + 3 back
     assert len(mesh.faces) == len(faces) + 2 * 2
@@ -79,7 +87,7 @@ def test_assemble_concatenates_parts_and_adds_offset_back_faces_for_cards():
 def test_without_drops_a_part_and_renumbers():
     mesh, _, _ = make_mesh()
     bare = mesh.without("hair")
-    assert len(bare.positions) == len(mesh.positions) - 6 and bare.faces.max() < len(bare.positions)
+    assert len(bare.positions) == len(mesh.positions) - 3 and bare.faces.max() < len(bare.positions)
     assert (bare.kind != KIND["hair"]).all()
 
 
@@ -112,3 +120,22 @@ def test_write_glb_roundtrip_keeps_one_textured_primitive_and_extras(tmp_path):
     assert len(js["meshes"]) == 1 and len(js["materials"]) == 1 and js["images"][0]["mimeType"] == "image/jpeg"
     assert info["extras_keys"] == ["dtHasMakeHumanHands", "dtHybrid"]
     np.testing.assert_allclose(scene.prims[0].uv, mesh.uv.astype(np.float32), atol=1e-6)
+    assert js["materials"][0].get("alphaMode") == "MASK" and js["materials"][0]["doubleSided"] is True
+
+
+def test_write_glb_stores_an_rgba_atlas_as_png_with_the_mask_material(tmp_path):
+    import io
+
+    from PIL import Image
+
+    mesh, _, _ = make_mesh()
+    atlas = np.full((80, 64, 4), 255, np.uint8)
+    atlas[70:, :, 3] = 0
+    info = write_glb(tmp_path / "h.glb", mesh, atlas, {"dtHybrid": {"version": 1}})
+    scene = read_glb(str(tmp_path / "h.glb"))
+    js, _ = _split((tmp_path / "h.glb").read_bytes())
+    material = js["materials"][0]
+    assert material["alphaMode"] == "MASK" and material["alphaCutoff"] == 0.5 and material["doubleSided"] is True
+    assert js["images"][0]["mimeType"] == "image/png" and info["image_mime"] == "image/png"
+    back = np.asarray(Image.open(io.BytesIO(scene.images[0]["data"])))
+    assert back.shape == (80, 64, 4) and (back == atlas).all()

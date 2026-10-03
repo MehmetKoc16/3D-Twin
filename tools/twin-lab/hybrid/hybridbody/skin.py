@@ -146,3 +146,80 @@ def seam_blend(
     mixed = lab * alpha[:, None] + np.asarray(tone_lab, np.float32) * (1 - alpha[:, None])
     out[texel_y, texel_x] = np.clip(np.rint(from_lab(mixed) * 255), 1, 255).astype(np.uint8)
     return out, {"radius_mm": radius * 1000, "blended_texels": int((alpha < 1).sum())}
+
+
+def fade_to_tone(
+    texture: np.ndarray, texel_y: np.ndarray, texel_x: np.ndarray, weight: np.ndarray, tone_lab
+) -> np.ndarray:
+    """Mix the listed texels toward the flat body tone: ``weight`` 1 = body tone, 0 = unchanged."""
+    out = texture.copy()
+    lab = to_lab(texture[texel_y, texel_x])
+    mixed = lab * (1 - weight[:, None]) + np.asarray(tone_lab, np.float32) * weight[:, None]
+    out[texel_y, texel_x] = np.clip(np.rint(from_lab(mixed) * 255), 1, 255).astype(np.uint8)
+    return out
+
+
+def neck_luminance(texture, texel_y, texel_x, points, selection: np.ndarray, tone_lab) -> dict:
+    """Mean Lab of the selected texels versus the body skin tone (numbers only)."""
+    if not selection.any():
+        return {"texels": 0}
+    lab = to_lab(texture[texel_y[selection], texel_x[selection]]).astype(np.float64)
+    mean = lab.mean(0)
+    return {
+        "texels": int(selection.sum()),
+        "mean_lab": mean.tolist(),
+        "delta_l_vs_body": float(mean[0] - tone_lab[0]),
+        "delta_e76_vs_body": float(np.linalg.norm(mean - np.asarray(tone_lab, np.float64))),
+        "min_l": float(lab[:, 0].min()),
+        "p05_l": float(np.percentile(lab[:, 0], 5)),
+        "y_range_m": [float(points[selection, 1].min()), float(points[selection, 1].max())],
+    }
+
+
+def sample_hair_surface(positions: np.ndarray, faces: np.ndarray, spacing: float = 0.003) -> np.ndarray:
+    """Points spread over the triangles of a part (about ``spacing`` metres apart), vertices included."""
+    tri = positions[faces]
+    area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
+    counts = np.clip(np.ceil(area / (spacing * spacing * 0.5)).astype(int), 1, 64)
+    rng = np.random.default_rng(5)
+    owner = np.repeat(np.arange(len(faces)), counts)
+    r = rng.random((len(owner), 2))
+    flip = r.sum(1) > 1
+    r[flip] = 1 - r[flip]
+    samples = tri[owner, 0] + r[:, :1] * (tri[owner, 1] - tri[owner, 0]) + r[:, 1:] * (tri[owner, 2] - tri[owner, 0])
+    return np.vstack((samples, positions))
+
+
+def hair_cover(
+    points: np.ndarray,
+    normals: np.ndarray,
+    hair_samples: np.ndarray,
+    *,
+    reach: tuple = (0.002, 0.006, 0.012, 0.02, 0.03, 0.04),
+    near: float = 0.004,
+) -> np.ndarray:
+    """0..1 per texel: how much hair stands above the texel, looking outward along its normal (a short ray march)."""
+    tree = cKDTree(hair_samples)
+    nearest = np.full(len(points), np.inf)
+    for t in reach:
+        nearest = np.minimum(nearest, tree.query(points + normals * t, workers=-1)[0])
+    return 1.0 - smoothstep((nearest - near) / near)
+
+
+def tint_scalp(
+    texture: np.ndarray,
+    texel_y: np.ndarray,
+    texel_x: np.ndarray,
+    cover: np.ndarray,
+    tint_lab,
+    blur_px: float = 2.0,
+) -> np.ndarray:
+    """Darken the texels under the hair toward ``tint_lab`` (gaps between cut-out cards then read as hair)."""
+    h, w = texture.shape[:2]
+    weight = np.zeros((h, w), np.float32)
+    weight[texel_y, texel_x] = cover
+    support = np.zeros((h, w), np.float32)
+    support[texel_y, texel_x] = 1.0
+    soft = ndimage.gaussian_filter(weight, blur_px) / np.maximum(ndimage.gaussian_filter(support, blur_px), 1e-3)
+    alpha = np.clip(soft[texel_y, texel_x], 0, 1)
+    return fade_to_tone(texture, texel_y, texel_x, alpha, tint_lab)

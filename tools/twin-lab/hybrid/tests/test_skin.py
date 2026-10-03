@@ -97,3 +97,17 @@ def test_rasterize_bands_cover_the_same_texels_as_one_pass():
 
     fid, _ = rasterize_uv(uv * size, faces, size, size)
     np.testing.assert_array_equal(banded, fid >= 0)
+
+
+def test_fade_to_tone_and_scalp_tint_only_touch_listed_texels():
+    from hybridbody.skin import fade_to_tone, hair_cover, tint_scalp
+
+    texture = np.full((8, 8, 3), 40, np.uint8)
+    ys, xs = np.array([1, 2]), np.array([1, 2])
+    out = fade_to_tone(texture, ys, xs, np.array([1.0, 0.0]), (70.0, 5.0, 8.0))
+    assert out[1, 1].mean() > 100 and (out[2, 2] == texture[2, 2]).all() and (out[5, 5] == texture[5, 5]).all()
+    dark = tint_scalp(np.full((8, 8, 3), 200, np.uint8), ys, xs, np.array([1.0, 1.0]), (10.0, 0.0, 0.0), blur_px=0.1)
+    assert dark[1, 1].mean() < 60 and dark[6, 6].mean() == 200
+    hair = np.array([[0.0, 0.02, 0.0]])
+    cover = hair_cover(np.zeros((2, 3)), np.array([[0.0, 1.0, 0.0], [0.0, -1.0, 0.0]]), hair)
+    assert cover[0] > 0.9 and cover[1] < 0.1  # hair above the texel, not below it

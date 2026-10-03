@@ -9,6 +9,7 @@ from hybridbody.partstex import (
     eye_tile,
     make_tile,
     pack_strip,
+    plausible_iris,
     recolor_iris,
     robust_colour,
     sample_ring,
@@ -39,18 +40,36 @@ def test_recolor_iris_tints_only_the_iris_and_keeps_pupil_and_sclera():
     assert out.dtype == np.uint8 and (out[..., 3] == 255).all()
 
 
-def test_card_tile_composites_strands_over_the_base_with_a_soft_cutoff():
+def test_card_tile_keeps_the_real_alpha_and_bleeds_colour_into_cut_outs():
     part = synthetic_part()
     texture = np.zeros((8, 8, 4), np.uint8)
     texture[..., :3] = 200
     texture[:, :4, 3] = 255  # left half covered, right half empty
     part.texture = texture
+    part.alpha_mode = "MASK"
     part.meta = {"material": {"alphaCutoff": 0.5}}
-    tile = card_tile(part, np.array([0.05, 0.03, 0.02]), (230, 180, 160))
-    assert tile[0, 0].sum() < 400 and abs(int(tile[0, 7, 0]) - 230) <= 2
-    assert tile[0, 0, 0] < tile[0, 7, 0]
-    assert tile.shape == (8, 8, 3)
+    tile = card_tile(part, np.array([0.05, 0.03, 0.02]))
+    assert tile.shape == (8, 8, 4)
+    assert (tile[:, :4, 3] == 255).all() and (tile[:, 4:, 3] == 0).all()
+    assert tile[0, 0, :3].sum() < 400  # tinted dark
+    assert (tile[0, 7, :3] == tile[0, 3, :3]).all()  # transparent texels carry the neighbouring strand colour
     assert 0 < covered_linear_mean(texture, 0.5) <= 1
+    part.alpha_mode = "OPAQUE"
+    assert (card_tile(part, np.array([0.05, 0.03, 0.02]))[..., 3] == 255).all()
+
+
+def test_plausible_iris_turns_a_near_grey_measurement_into_dark_brown():
+    grey = plausible_iris([0x52, 0x4C, 0x49])
+    rgb = grey["srgb"]
+    assert rgb[0] > rgb[1] > rgb[2] and rgb[0] - rgb[2] > 25 and rgb.max() < 140
+    assert grey["method"].startswith("near-grey") and grey["measured_hex"] == "#524c49"
+    blue = plausible_iris([60, 90, 140])  # chromatic: only the lightness is clamped
+    assert blue["srgb"][2] > blue["srgb"][0]
+    assert plausible_iris([10, 10, 10])["srgb"].max() > 25  # very dark measurement is lifted to the lightness floor
+    assert srgb_hex(plausible_iris(None, "#3b2a1e")["srgb"]) == "#3b2a1e"
+    assert plausible_iris(None)["method"] == "default"
+    with pytest.raises(ValueError):
+        plausible_iris(None, "#12")
 
 
 def test_triangle_coverage_counts_strand_samples_per_triangle():
@@ -92,15 +111,19 @@ def test_ring_sampling_and_robust_colour_reject_glints_and_black():
     assert srgb_hex([255, 0, 128.4]) == "#ff0080"
 
 
-def test_real_hair_and_eye_tiles_are_opaque_rgb():
+def test_real_hair_tiles_are_rgba_cut_outs_and_eye_tiles_opaque():
     hair = load_part(PARTS_ASSETS, "hair-short")
-    tile = card_tile(hair, np.array([0.05, 0.034, 0.025]), (30, 20, 15))
-    assert tile.shape[2] == 3 and tile.shape[:2] == hair.texture.shape[:2]
-    lab = to_lab(tile)
+    tile = card_tile(hair, np.array([0.05, 0.034, 0.025]))
+    assert tile.shape[2] == 4 and tile.shape[:2] == hair.texture.shape[:2]
+    assert (tile[..., 3] == hair.texture[..., 3]).all() and (tile[..., 3] < 128).mean() > 0.2
+    lab = to_lab(tile[..., :3])
     assert 8 < lab[..., 0].mean() < 40  # dark brown overall
+    solid = load_part(PARTS_ASSETS, "hair-tousled")
+    assert (card_tile(solid, np.array([0.05, 0.034, 0.025]))[..., 3] == 255).all()
     eyes = load_part(PARTS_ASSETS, "eyes-default")
     iris = eyes.meta["irisUv"]
     brown = eye_tile(eyes, np.array([90.0, 60.0, 40.0]))
+    assert brown.shape[2] == 4 and (brown[..., 3] == 255).all()
     h, w = brown.shape[:2]
     px = brown[int(iris["center"][1] * h), int((iris["center"][0] + iris["radius"] * 0.7) * w)]
     assert px[0] > px[2]

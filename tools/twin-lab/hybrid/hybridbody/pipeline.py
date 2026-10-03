@@ -14,12 +14,21 @@ from flamehead.camera import load_cameras
 from flamehead.colour import to_lab
 from mh import BODY_DIR, MHModel
 from twin_export import evaluate_measure
+from twinrefine.scan import welded_vertex_normals
 
 from . import BODY_ASSETS, PARTS_ASSETS, REPO, log
 from .assemble import assemble, eye_offsets, mesh_validity, write_glb
 from .body import neck_definition, solved_body
 from .faceasset import write_face_asset
-from .facetex import bake_face, blend_unobserved, build_head_mesh, load_photos, vertex_photo_check
+from .facetex import (
+    bake_face,
+    blend_unobserved,
+    build_head_mesh,
+    head_island_triangles,
+    load_photos,
+    neck_weights,
+    vertex_photo_check,
+)
 from .headfit import build_template, fit_head, load_flame_fit, read_face_map, seam_vertices
 from .partstex import (
     DEFAULT_HAIR_LINEAR,
@@ -28,18 +37,30 @@ from .partstex import (
     lab_to_srgb255,
     make_tile,
     pack_strip,
+    plausible_iris,
     srgb_hex,
-    triangle_coverage,
 )
 from .photocolours import hair_colour, iris_colour
-from .register import Surface
-from .skin import Underwear, match_mean, pad_texture, paint_body, seam_blend
+from .register import Surface, smoothstep
+from .skin import (
+    Underwear,
+    fade_to_tone,
+    hair_cover,
+    match_mean,
+    neck_luminance,
+    pad_texture,
+    paint_body,
+    sample_hair_surface,
+    seam_blend,
+    tint_scalp,
+)
 from .template import load_part
 
 # Bones whose weight marks "waist and upper legs": the painted boxer shorts stay off arms and hands.
 UNDERWEAR_BONES = ("pelvis", "thigh_l", "thigh_r", "spine_01")
 PART_IDS = {"eyes": "eyes-default", "eyebrows": "eyebrows-default", "eyelashes": "eyelashes-default"}
-PRUNE_COVERAGE = {"hair": 0.35, "eyelashes": 0.2}
+DEFAULT_HAIR = "hair-tousled"  # short sides, volume on top swept up and back, no fringe over the forehead
+SCALP_TINT = 0.45  # dark scalp under the hair: hair colour x this (linear-ish factor on sRGB)
 TILE_WIDTHS = {"hair": 1024, "eyes": 512, "eyebrows": 1024, "eyelashes": 1024}
 FALLBACK_SKIN_LAB = np.array([58.35, 7.98, 10.71])
 
@@ -103,6 +124,7 @@ class PartsBuild:
     strip: np.ndarray
     colours: dict
     report: dict
+    hair_srgb: np.ndarray
 
 
 def build_parts(
@@ -113,17 +135,10 @@ def build_parts(
     ids = {**PART_IDS, "hair": hair}
     names = tuple(n for n in ("eyes", "eyebrows", "eyelashes", "hair") if brows or n != "eyebrows")
     loaded = {n: load_part(PARTS_ASSETS, ids[n]) for n in names}
-    # The single opaque material has no cut-outs: drop cards that carry (almost) no strands.
-    pruned = {}
-    for category, threshold in PRUNE_COVERAGE.items():
-        keep = triangle_coverage(loaded[category]) >= threshold
-        pruned[category] = {"triangles_before": int(len(keep)), "triangles_after": int(keep.sum())}
-        loaded[category] = loaded[category].compact(keep)
     bound = {n: part.bind(final) for n, part in loaded.items()}
     shift, eye_report = eye_offsets(bound["eyes"], flame_eyes)
     bound["eyes"] = bound["eyes"] + shift
 
-    skin_srgb = lab_to_srgb255(tone)
     hair_linear = (
         np.power(np.asarray(hair_photo["srgb"]) / 255.0, 2.2) if hair_photo["from_photo"] else DEFAULT_HAIR_LINEAR
     )
@@ -131,12 +146,12 @@ def build_parts(
     brow_srgb = np.power(hair_linear * 0.9, 1 / 2.2) * 255
     iris_srgb = np.asarray(iris["srgb"], float)
     images = {
-        "hair": card_tile(loaded["hair"], hair_linear, hair_srgb * 0.45),
+        "hair": card_tile(loaded["hair"], hair_linear),
         "eyes": eye_tile(loaded["eyes"], iris_srgb),
-        "eyelashes": card_tile(loaded["eyelashes"], None, skin_srgb * 0.55),
+        "eyelashes": card_tile(loaded["eyelashes"], None),
     }
     if brows:
-        images["eyebrows"] = card_tile(loaded["eyebrows"], hair_linear * 0.9, skin_srgb)
+        images["eyebrows"] = card_tile(loaded["eyebrows"], hair_linear * 0.9)
     tiles = {
         n: make_tile(n, images[n], loaded[n].uv, TILE_WIDTHS[n] * size // 4096, strip_height)
         for n in ("hair", "eyes", "eyebrows", "eyelashes")
@@ -161,6 +176,8 @@ def build_parts(
             "iris_hex": srgb_hex(iris_srgb),
             "from_photo": iris["from_photo"],
             "samples": iris["samples"],
+            "method": iris.get("method"),
+            "measured_hex": iris.get("measured_hex"),
             "placement": eye_report,
         },
         "eyelashes": {"id": ids["eyelashes"], "clearance_to_head": clearance["eyelashes"]},
@@ -169,10 +186,11 @@ def build_parts(
             if brows
             else {"enabled": False, "reason": "the photographed brows are baked into the face texture"}
         ),
-        "pruned_cards": pruned,
+        "triangles": {n: int(len(loaded[n].faces)) for n in names},
+        "pruned_cards": "none: cards keep the MakeHuman alpha as real cut-outs",
     }
     colours = {"hair": srgb_hex(hair_srgb), "eyebrows": srgb_hex(brow_srgb), "iris": srgb_hex(iris_srgb)}
-    return PartsBuild(names, loaded, bound, tiles, strip, colours, report)
+    return PartsBuild(names, loaded, bound, tiles, strip, colours, report, hair_srgb)
 
 
 def run(
@@ -183,11 +201,12 @@ def run(
     fit=None,
     photos=None,
     flame_assets=None,
-    hair="hair-short",
+    hair=DEFAULT_HAIR,
     brows=False,
     texture_size=4096,
     previews=True,
     preview_dir=None,
+    iris_hex=None,
 ):
     started = time.perf_counter()
     out = Path(out)
@@ -240,8 +259,30 @@ def run(
     photo_images = load_photos(photos, cameras)
     front_view, _ = read_mesh(fit / "fitted_views/front.ply")
     right_view, _ = read_mesh(fit / "fitted_views/right.ply")
-    iris = iris_colour(flame, front_view, cameras["front"], photo_images["front"])
+    iris_measured = iris_colour(flame, front_view, cameras["front"], photo_images["front"])
+    choice = plausible_iris(iris_measured["srgb"] if iris_measured["from_photo"] else None, iris_hex)
+    iris = {**iris_measured, "srgb": choice["srgb"].tolist(), "method": choice["method"]}
+    iris["measured_hex"] = srgb_hex(iris_measured["srgb"]) if iris_measured["from_photo"] else None
+    log(f"iris {iris['measured_hex']} -> {srgb_hex(choice['srgb'])} ({choice['method']})")
     hair_photo = hair_colour(flame, {"front": front_view, "right": right_view}, cameras, photo_images)
+
+    # ------------------------------------------------------------------------------------------ parts
+    log("binding the MakeHuman parts to the deformed head")
+    aligned = head_fit.aligned_flame
+    flame_eyes = {"left": aligned[flame.masks["left_eyeball"]], "right": aligned[flame.masks["right_eyeball"]]}
+    head_positions = final[: model.nr][head.ids]
+    parts = build_parts(
+        final,
+        tone,
+        size,
+        flame_eyes,
+        head_positions,
+        head.faces,
+        hair=hair,
+        brows=brows,
+        hair_photo=hair_photo,
+        iris=iris,
+    )
 
     canvas = np.zeros((size, size, 3), np.uint8)
     covered = np.zeros((size, size), bool)
@@ -258,30 +299,74 @@ def run(
     seam_w = seam_vertices(template, torso_island)
     moved = template.base + head_fit.displacement
     texture, seam_blur = seam_blend(texture, face.texel_points, face.texel_y, face.texel_x, moved[seam_w], tone)
+
+    # Under the jaw the photos only carry the chin shadow (and beard stubble): take the body skin there.
+    ty, tx, points = face.texel_y, face.texel_x, face.texel_points
+    nw = neck_weights(template, head_fit, flame, head, face)
+    neck_sets = {
+        "flame_neck_region": nw["raw"] > 0.5,
+        "below_chin": points[:, 1] < nw["chin_y"],
+    }
+    neck_before = {k: neck_luminance(texture, ty, tx, points, v, tone) for k, v in neck_sets.items()}
+    hand_over = np.maximum(
+        smoothstep((nw["smooth"] - 0.25) / 0.5), smoothstep((nw["chin_y"] - 0.002 - points[:, 1]) / 0.006)
+    )
+    texture = fade_to_tone(texture, ty, tx, hand_over, tone)
+    neck_after = {k: neck_luminance(texture, ty, tx, points, v, tone) for k, v in neck_sets.items()}
+    neck_report = {
+        "chin_y_m": nw["chin_y"],
+        "flame_neck_vertices": nw["vertices"],
+        "body_skin_lab": tone.tolist(),
+        "before": neck_before,
+        "after": neck_after,
+    }
+    log(
+        f"neck luminance vs body: {neck_report['before']['below_chin'].get('delta_l_vs_body')} -> "
+        f"{neck_report['after']['below_chin'].get('delta_l_vs_body')}"
+    )
+
     x0, y0 = face.origin
     h, w = texture.shape[:2]
-    canvas[y0 : y0 + h, x0 : x0 + w][face.covered] = texture[face.covered]
+
+    def paste(source):
+        out = canvas.copy()
+        out[y0 : y0 + h, x0 : x0 + w][face.covered] = source[face.covered]
+        return out
+
     covered[y0 : y0 + h, x0 : x0 + w] |= face.covered
-    body_atlas = pad_texture(canvas, covered)
-    photo_check = vertex_photo_check(face, head, template, model.uv[head.ids], body_atlas, size)
+    photo_check = vertex_photo_check(
+        face, head, template, model.uv[head.ids], pad_texture(paste(texture), covered), size
+    )
     log(f"vertex/photo check: {photo_check}")
 
-    # ------------------------------------------------------------------------------------------ parts
-    log("binding the MakeHuman parts to the deformed head")
-    aligned = head_fit.aligned_flame
-    flame_eyes = {"left": aligned[flame.masks["left_eyeball"]], "right": aligned[flame.masks["right_eyeball"]]}
-    parts = build_parts(
-        final,
-        tone,
-        size,
-        flame_eyes,
-        final[: model.nr][head.ids],
-        head.faces,
-        hair=hair,
-        brows=brows,
-        hair_photo=hair_photo,
-        iris=iris,
-    )
+    # Dark scalp under the hair: the gaps between cut-out cards read as hair, not as skin.
+    hair_part = parts.loaded["hair"]
+    hair_surface = sample_hair_surface(parts.bound["hair"], hair_part.faces)
+    head_normals = welded_vertex_normals(head_positions, head.faces)
+    tri = head_island_triangles(template, head)[face.texel_face]
+    texel_normals = np.einsum("ij,ijk->ik", face.texel_bary, head_normals[tri])
+    texel_normals /= np.maximum(np.linalg.norm(texel_normals, axis=1, keepdims=True), 1e-9)
+    cover = hair_cover(points, texel_normals, hair_surface)
+    scalp_lab = to_lab(np.clip(parts.hair_srgb * SCALP_TINT, 1, 255).astype(np.float32).reshape(1, 3) / 255.0)[0]
+    texture_under_hair = tint_scalp(texture, ty, tx, cover, scalp_lab)
+    eye_y = float(np.mean([v[:, 1].mean() for v in flame_eyes.values()]))
+    front = (texel_normals[:, 2] > 0.6) & (points[:, 1] > eye_y + 0.03) & (np.abs(points[:, 0]) < 0.02)
+    forehead = {}
+    if front.any():
+        open_y = points[front & (cover < 0.5), 1]
+        hairline_y = float(open_y.max()) if len(open_y) else float(points[front, 1].min())
+        forehead = {
+            "midline_texels": int(front.sum()),
+            "hair_cover_fraction": float((cover[front] > 0.5).mean()),
+            "open_skin_above_eyes_mm": (hairline_y - eye_y) * 1000,
+        }
+    scalp_report = {
+        "forehead": forehead,
+        "tint_lab": scalp_lab.tolist(),
+        "covered_texel_fraction": float((cover > 0.5).mean()),
+        "head_island_texels": int(len(cover)),
+    }
+    body_atlas = np.dstack((pad_texture(paste(texture_under_hair), covered), np.full((size, size), 255, np.uint8)))
     atlas = np.vstack((body_atlas, parts.strip))
     atlas_height = atlas.shape[0]
     body_uv = model.uv * np.array([1.0, size / atlas_height])
@@ -299,7 +384,7 @@ def run(
     # -------------------------------------------------------------------------------------------- output
     head_ring = np.flatnonzero(np.isin(template.inverse, seam_w) & (template.islands == template.head_island))
     torso_ring = np.flatnonzero(np.isin(template.inverse, seam_w) & (template.islands == torso_island))
-    seam = seam_report(atlas, body_uv, head_ring, torso_ring, np.array([size, atlas_height]), tone)
+    seam = seam_report(atlas[..., :3], body_uv, head_ring, torso_ring, np.array([size, atlas_height]), tone)
     # Everything below the cut is exactly the solved body; parts and the deformed head sit above it.
     cut = float(min(template.anchor_y, mesh.positions[mesh.kind > 0][:, 1].min()) - 0.002)
     manifest_sha = hashlib.sha256((Path(BODY_DIR) / "manifest.json").read_bytes()).hexdigest()
@@ -338,6 +423,13 @@ def run(
             "mean_match": match,
             "body": skin_report,
             "seam_blend": seam_blur,
+            "neck": neck_report,
+            "scalp_tint": scalp_report,
+            "alpha": {
+                "channel": "RGBA PNG; skin texels alpha 255, cards keep the MakeHuman alpha",
+                "opaque_fraction": float((atlas[..., 3] == 255).mean()),
+                "cutout_texels": int((atlas[..., 3] < 128).sum()),
+            },
             "views": face.report["view_weight_share"],
             "gains": face.report["gains"],
         },
@@ -411,6 +503,9 @@ def verify_report(report: dict) -> list[str]:
         problems.append("neck girth changed")
     if report["seam"]["delta_e76"] >= 2:
         problems.append("neck seam colour step >= 2")
+    chin = report["texture"]["neck"]["after"]["below_chin"]
+    if chin.get("texels") and abs(chin["delta_l_vs_body"]) >= 3:
+        problems.append("neck below the jaw differs from the body skin by dL >= 3")
     if report["head"]["triangle_quality"]["flipped_triangles"]:
         problems.append("flipped triangles in the deformed head")
     if report["mesh"]["validity"]["body_nonmanifold_edges"]:
