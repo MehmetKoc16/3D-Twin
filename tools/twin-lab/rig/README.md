@@ -85,6 +85,25 @@ Tests: `tests/test_hand_weights.py`.
 
 ## Method (approach B, recommended)
 
+Solid-colour atlas caps are recognised by identical UVs on each triangle. Cap-only
+interior vertices inherit normalised skin weights by harmonic interpolation over
+their own cap triangles from the textured lip, including subdivided or domed
+caps. Position-seam copies of a rim share the lip's weight row; the graph never
+searches for a neighbouring arm or torso in space. `--cut-bridges` still removes
+skeleton-distant influences, but preserves the input triangles instead of
+opening pre-closed caps by deleting faces after unposing.
+
+Unknown extras are passed through at asset (including `dtFlameHead`, `dtBodyfix`
+and `dtScanHandsRemoved`), root, active scene, mesh node, mesh, primitive, image,
+material, texture and sampler levels. The bundle writer retains them while
+replacing `asset.extras.dtTwin` with its newly validated contract.
+
+`mesh_qa.py <mesh.glb> --out <report.json>` checks boundary edges/faces using
+10 micrometre and 1.5 mm rounded-position welds and measures T-pose armpit edge
+stretch (rest y 1.10..1.38 m, |x| >= 0.10 m, edges longer than 0.1 mm).
+It reads geometry numerically without decoding or displaying images; personal
+reports must remain in `user-data/`.
+
 1. Articulated + parametric ICP: our MakeHuman body (macro variables + ~130 bounded modifier columns, same morph
    model as avatar-core, reimplemented in `mh.py`) and 19 per-bone rotations (LBS with the rig's own weights) are fitted
    alternately to the scan point cloud (coarse limb-swing search, soft-L1 pose LM with per-bone priors, ridge-regularised

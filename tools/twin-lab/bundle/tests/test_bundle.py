@@ -190,6 +190,33 @@ def test_bodyfix_solution_and_achieved_measurements_survive_bundle(synthetic):
     assert document["asset"]["extras"]["dtTwin"]["twin"] == twin
 
 
+def test_flame_and_unknown_extras_survive_bundle_without_stale_dt_twin(synthetic):
+    rigged, twin_path, mapping, out = synthetic
+    document, blob = bundle.read_glb(rigged)
+    extras = document["asset"]["extras"]
+    extras.update(dtFlameHead={"version": 1, "synthetic": {"residual": .002}},
+                  dtScanHandsRemoved=True, dtTwin={"stale": True})
+    document["extras"] = {"rootVendor": [1, {"keep": True}]}
+    document["scenes"][0]["extras"] = {"sceneVendor": "keep"}
+    document["nodes"][0]["extras"] = {"nodeVendor": "keep"}
+    document["meshes"][0]["extras"] = {"meshVendor": "keep"}
+    document["meshes"][0]["primitives"][0]["extras"] = {"primitiveVendor": "keep"}
+    document["images"][0]["extras"] = {"imageVendor": "keep"}
+    save_glb(rigged, document, blob)
+    bundle.write_bundle(rigged, twin_path, mapping, out, shape="synthetic", license_name="CC0")
+    packed, _ = bundle.read_glb(out)
+    assert packed["asset"]["extras"]["dtFlameHead"] == extras["dtFlameHead"]
+    assert packed["asset"]["extras"]["dtScanHandsRemoved"] is True
+    assert packed["asset"]["extras"]["dtTwin"]["twin"] == json.loads(twin_path.read_text())
+    assert "stale" not in packed["asset"]["extras"]["dtTwin"]
+    assert packed["extras"] == document["extras"]
+    assert packed["scenes"][0]["extras"] == document["scenes"][0]["extras"]
+    assert packed["nodes"][0]["extras"] == document["nodes"][0]["extras"]
+    assert packed["meshes"][0]["extras"] == document["meshes"][0]["extras"]
+    assert packed["meshes"][0]["primitives"][0]["extras"] == document["meshes"][0]["primitives"][0]["extras"]
+    assert packed["images"][0]["extras"] == document["images"][0]["extras"]
+
+
 def test_optional_glasses_round_trip_preserves_body_and_embeds_valid_rigid_mesh(synthetic):
     rigged, twin, mapping, out = synthetic
     accessory = out.parent / "glasses.glb"

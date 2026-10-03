@@ -77,6 +77,13 @@ Options: `--keep-hands` keeps the scan's own hands (default: they are removed, s
 
 ## Measurement semantics and assumptions
 
+UV seams and constant-UV cap rims are geometrically coincident copies with
+different normals, so their closest-body correspondences can disagree. Bodyfix
+averages both affine transforms and offsets over the input's 10 micrometre
+position groups before unposing/deforming, as well as sharing the displacement
+field. This keeps the caps and hand-closing fans closed. The larger, intentional
+arm/torso lip gap is never welded or repaired by a proximity search.
+
 Uses the avatar-core definitions and the numpy evaluator from `twin_export.py`:
 convex-hull tape loops on their Newell plane, shoulder **back-surface polyline via
 C7**, shoulder–elbow–wrist arm length, and crotch height from the scan's floor.

@@ -2,9 +2,10 @@
 
 Scans of people whose hands touch their thighs or whose arms press against the torso are fused there. Skinning a fused
 bridge stretches it into a thin sheet as soon as the parts move apart (T-pose: spikes from the hands to the hips).
-Every triangle whose vertices are dominated by bones that are more than `max_dist` apart in the (trunk-merged)
-skeleton tree is made rigid with its majority part: its off-part vertices are replaced by copies that carry the weights
-of the triangle's part. The surface stays closed in the rest pose; a hairline crack opens only when the parts move.
+Skeleton-distant influences are dropped before unposing. The rig CLI preserves
+surface triangles: refined scans already have separate, closed arm/torso lips,
+and deleting triangles based on noisy weights would reopen them. The legacy
+triangle-dropping / rigid-copy modes remain available for explicit experiments.
 """
 
 from __future__ import annotations
@@ -70,6 +71,13 @@ def cut_bridges(indices, joints, weights, names, parents, max_dist=2, mode="drop
     bad = (
         (dist[d[:, 0], d[:, 1]] > max_dist) | (dist[d[:, 1], d[:, 2]] > max_dist) | (dist[d[:, 0], d[:, 2]] > max_dist)
     )
+    if mode == "preserve":
+        # A pre-cut scan already has caps separating the limbs. Incompatible
+        # transferred weights are repaired before unposing; deleting its faces
+        # here would reopen those caps. Preserve topology, including UV seams.
+        stats = {"bad_triangles": int(bad.sum()), "triangles": int(len(tri)),
+                 "added_vertices": 0, "preserved_triangles": int(bad.sum())}
+        return tri.astype(np.uint32), np.arange(n), joints, weights.astype(np.float32), stats
     if mode == "drop":
         # after unposing the two parts are pulled apart, so the bridge triangles are the stretched needles: remove them
         keep = ~bad

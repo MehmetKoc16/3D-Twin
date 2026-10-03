@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import pickle
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,7 @@ from mh import MHModel
 from rigfit import Fitter, log, top4, transfer_weights
 from twin_export import canonicalize_fit, write_twin_package
 from bodyfix_solution import read_solution
+from surface import cap_weights, constant_uv_faces
 
 
 def main() -> None:
@@ -32,7 +34,7 @@ def main() -> None:
     ap.add_argument("--keep-pose", action="store_true", help="do not unpose the scan to the template rest pose")
     ap.add_argument("--fingers", choices=["keep", "merge"], default="keep", help="merge: fold finger weights into the hand bones (use when the scan has fused/blob fingers)")
     ap.add_argument("--reuse-fit", action="store_true", help="load <out>/fit.pkl instead of refitting")
-    ap.add_argument("--cut-bridges", action="store_true", help="cut fused bridges between non-neighbouring body parts (hand on thigh)")
+    ap.add_argument("--cut-bridges", action="store_true", help="repair non-neighbouring skin influences while preserving the scan surface")
     ap.add_argument("--smooth", type=int, default=6)
     ap.add_argument("--samples", type=int, default=120000)
     ap.add_argument("--weights", choices=["transfer", "geodesic"], default="transfer", help="skin weights: MakeHuman transfer (default) or geometry-only geodesic voxel binding (baseline)")
@@ -104,6 +106,9 @@ def main() -> None:
         log(f"scan hands were removed (bodyfix): {nhand} hand-weighted vertices took their neighbours' weights")
         W, nisland = heal_islands(W, wm.faces, model.bone_names, list(model.parent))
         log(f"healed {nisland} vertices of small patches weighted to skeleton-distant bones")
+    caps = np.concatenate([constant_uv_faces(p.indices, p.uv) for p in scene.prims])
+    W, capstats = cap_weights(W, faces, caps, inv)
+    log(f"cap weights: {capstats}")
     jn, jw = top4(W)  # per unique vertex
     if args.cut_bridges:
         # drop influences of skeleton-distant bones (hand/thigh blends at contact) BEFORE unposing: an inverse blend of
@@ -140,26 +145,27 @@ def main() -> None:
     prims_out, sj, sw = [], [], []
     for p, o, c in zip(scene.prims, offs[:-1], counts):
         v = rest_verts[o : o + c]
-        prims_out.append(Prim(v.astype(np.float32), p.indices, un[inv[o : o + c]].astype(np.float32), p.uv, p.material, p.name))
+        prims_out.append(replace(p, positions=v.astype(np.float32), normals=un[inv[o : o + c]].astype(np.float32)))
         sj.append(jn[inv[o : o + c]])
         sw.append(jw[inv[o : o + c]])
+    cut = []
     if args.cut_bridges:
         from bridges import cut_bridges
 
-        pj = None
-        cut = []
         for i, p in enumerate(prims_out):
-            idx, srcv, cj, cw, cstats = cut_bridges(p.indices, sj[i], sw[i], model.bone_names, list(model.parent))
+            idx, srcv, cj, cw, cstats = cut_bridges(p.indices, sj[i], sw[i], model.bone_names,
+                                                  list(model.parent), mode="preserve")
             log(f"bridge cut {p.name}: {cstats}")
-            prims_out[i] = Prim(p.positions[srcv], idx, p.normals[srcv] if p.normals is not None else None, p.uv[srcv] if p.uv is not None else None, p.material, p.name)
+            prims_out[i] = replace(p, positions=p.positions[srcv], indices=idx,
+                                   normals=p.normals[srcv] if p.normals is not None else None,
+                                   uv=p.uv[srcv] if p.uv is not None else None)
             sj[i], sw[i] = cj, cw
             cut.append(cstats)
-        _ = pj, cut
     joints = [
         {"name": bn, "parent": model.bone_names[bp.parent] if bp.parent >= 0 else None, "head": out_heads[i]}
         for i, (bn, bp) in enumerate(zip(model.bone_names, model.bones))
     ]
-    out_scene = GlbScene(prims_out, scene.materials, scene.textures, scene.samplers, scene.images)
+    out_scene = replace(scene, prims=prims_out)
     write_skinned_glb(os.path.join(args.out, "rigged.glb"), out_scene, joints, sj, sw)
     if args.keep_pose:
         log("--keep-pose: the mesh is not in the rest frame, twin.json / mh2twin.bin are not written")
@@ -191,6 +197,8 @@ def main() -> None:
         "macro": res.macro,
         "mods": {k: round(v, 3) for k, v in res.mods.items() if abs(v) > 0.02},
         "transfer": tstats,
+        "caps": capstats,
+        "bridges": cut,
         "unposed": not args.keep_pose,
         "height_m": float(rest_verts[:, 1].max()),
     }

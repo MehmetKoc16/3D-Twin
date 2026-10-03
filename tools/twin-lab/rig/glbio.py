@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import struct
+from copy import deepcopy
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -24,6 +25,9 @@ class Prim:
     uv: np.ndarray | None = None
     material: int | None = None
     name: str = "mesh"
+    extras: dict = field(default_factory=dict)
+    mesh_extras: dict = field(default_factory=dict)
+    node_extras: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -33,7 +37,9 @@ class GlbScene:
     textures: list[dict] = field(default_factory=list)
     samplers: list[dict] = field(default_factory=list)
     images: list[dict] = field(default_factory=list)  # each: {"data": bytes, "mimeType": str} or {"uri": str}
-    extras: dict = field(default_factory=dict)
+    extras: dict = field(default_factory=dict)  # asset extras, including unknown stage provenance
+    root_extras: dict = field(default_factory=dict)
+    scene_extras: dict = field(default_factory=dict)
 
 
 def _split(data: bytes) -> tuple[dict, bytes]:
@@ -121,7 +127,10 @@ def read_glb(path: str) -> GlbScene:
                     idx = _accessor(js, binary, p["indices"]).astype(np.uint32).reshape(-1, 3)
                 else:
                     idx = np.arange(len(pos), dtype=np.uint32).reshape(-1, 3)
-                prims.append(Prim(pos, idx, nrm, uv, p.get("material"), node.get("name", "mesh")))
+                prims.append(Prim(pos, idx, nrm, uv, p.get("material"), node.get("name", "mesh"),
+                                  deepcopy(p.get("extras", {})),
+                                  deepcopy(js["meshes"][node["mesh"]].get("extras", {})),
+                                  deepcopy(node.get("extras", {}))))
         for c in node.get("children", []):
             visit(c, world)
 
@@ -134,7 +143,10 @@ def read_glb(path: str) -> GlbScene:
         if "bufferView" in im:
             bv = js["bufferViews"][im["bufferView"]]
             off = bv.get("byteOffset", 0)
-            images.append({"data": binary[off : off + bv["byteLength"]], "mimeType": im.get("mimeType", "image/png")})
+            image = deepcopy(im)
+            image.pop("bufferView")
+            image.update(data=binary[off : off + bv["byteLength"]], mimeType=im.get("mimeType", "image/png"))
+            images.append(image)
         else:
             images.append(dict(im))
     return GlbScene(
@@ -143,6 +155,9 @@ def read_glb(path: str) -> GlbScene:
         textures=js.get("textures", []),
         samplers=js.get("samplers", []),
         images=images,
+        extras=deepcopy(js.get("asset", {}).get("extras", {})),
+        root_extras=deepcopy(js.get("extras", {})),
+        scene_extras=deepcopy(scene.get("extras", {})),
     )
 
 
@@ -197,7 +212,7 @@ def write_skinned_glb(
     for im in scene.images:
         if "data" in im:
             bv = b.view(im["data"])
-            images_js.append({"bufferView": bv, "mimeType": im["mimeType"]})
+            images_js.append({**{k: deepcopy(v) for k, v in im.items() if k != "data"}, "bufferView": bv})
         else:
             images_js.append(im)
     for pi, p in enumerate(scene.prims):
@@ -212,12 +227,15 @@ def write_skinned_glb(
         prim = {"attributes": attrs, "indices": ia, "mode": 4}
         if p.material is not None:
             prim["material"] = p.material
+        if p.extras:
+            prim["extras"] = deepcopy(p.extras)
         mesh_prims.append(prim)
 
     n_mesh_nodes = len(scene.prims)
     # node layout: mesh nodes first, then joints (joint i at node n_mesh_nodes + i)
     for pi, p in enumerate(scene.prims):
-        nodes.append({"mesh": pi, "skin": 0, "name": p.name})
+        nodes.append({"mesh": pi, "skin": 0, "name": p.name,
+                      **({"extras": deepcopy(p.node_extras)} if p.node_extras else {})})
     for i, j in enumerate(joints):
         parent = joints[index[j["parent"]]] if j["parent"] else None
         head = np.asarray(j["head"], dtype=np.float64)
@@ -256,6 +274,15 @@ def write_skinned_glb(
     }
     if scene.textures:
         js["textures"] = scene.textures
+    if scene.extras:
+        js["asset"]["extras"] = deepcopy(scene.extras)
+    if scene.root_extras:
+        js["extras"] = deepcopy(scene.root_extras)
+    if scene.scene_extras:
+        js["scenes"][0]["extras"] = deepcopy(scene.scene_extras)
+    for mesh, p in zip(js["meshes"], scene.prims):
+        if p.mesh_extras:
+            mesh["extras"] = deepcopy(p.mesh_extras)
     if scene.samplers:
         js["samplers"] = scene.samplers
     if images_js:
@@ -281,7 +308,8 @@ def write_static_glb(path: str, scene: GlbScene) -> None:
     images_js = []
     for im in scene.images:
         if "data" in im:
-            images_js.append({"bufferView": b.view(im["data"]), "mimeType": im["mimeType"]})
+            images_js.append({**{k: deepcopy(v) for k, v in im.items() if k != "data"},
+                              "bufferView": b.view(im["data"])})
         else:
             images_js.append(im)
     meshes, nodes = [], []
@@ -293,8 +321,14 @@ def write_static_glb(path: str, scene: GlbScene) -> None:
             attrs["TEXCOORD_0"] = b.accessor(p.uv.astype(np.float32), 5126, "VEC2", 34962)
         ia = b.accessor(p.indices.astype(np.uint32).reshape(-1), 5125, "SCALAR", 34963)
         prim = {"attributes": attrs, "indices": ia, "mode": 4, "material": p.material if p.material is not None else 0}
+        if p.extras:
+            prim["extras"] = deepcopy(p.extras)
         meshes.append({"primitives": [prim], "name": p.name})
         nodes.append({"mesh": pi, "name": p.name})
+        if p.mesh_extras:
+            meshes[-1]["extras"] = deepcopy(p.mesh_extras)
+        if p.node_extras:
+            nodes[-1]["extras"] = deepcopy(p.node_extras)
     js = {
         "asset": {"version": "2.0", "generator": "dijital-ikiz twin-lab rig"},
         "scene": 0,
@@ -309,6 +343,12 @@ def write_static_glb(path: str, scene: GlbScene) -> None:
     }
     if scene.textures:
         js["textures"] = scene.textures
+    if scene.extras:
+        js["asset"]["extras"] = deepcopy(scene.extras)
+    if scene.root_extras:
+        js["extras"] = deepcopy(scene.root_extras)
+    if scene.scene_extras:
+        js["scenes"][0]["extras"] = deepcopy(scene.scene_extras)
     if scene.samplers:
         js["samplers"] = scene.samplers
     if images_js:

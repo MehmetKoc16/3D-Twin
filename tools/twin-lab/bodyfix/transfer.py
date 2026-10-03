@@ -13,6 +13,7 @@ from scipy.spatial.transform import Rotation
 from mh import MHModel
 from rigfit import FitResult
 from solver import definitions
+from surface import seam_average
 
 
 @dataclass
@@ -188,7 +189,9 @@ class Transfer:
     def __init__(self, model: MHModel, fit: FitResult, scan: np.ndarray,
                  faces: np.ndarray, *, smooth_iterations: int = FIELD_ITERATIONS,
                  inherit: sp.spmatrix | None = None) -> None:
-        self.model, self.fit, self.scan = model, fit, scan
+        self.model, self.fit = model, fit
+        seam = seam_average(scan)
+        self.scan = np.asarray(seam @ scan)
         matching_topology = len(scan) == model.nr and np.array_equal(faces, model.faces)
         self.forward = forward_map(model, fit, scan, faces)
         heads = model.rest_heads(fit.rest_positions)
@@ -206,7 +209,12 @@ class Transfer:
             # in the displacement field (see smoothed_field) and in the local skinning transform alike.
             self.affine = np.asarray(inherit @ self.affine.reshape(len(scan), 9)).reshape(len(scan), 3, 3)
             self.offset = np.asarray(inherit @ self.offset)
-        self.rest_scan = np.linalg.solve(self.affine, (scan - self.offset)[..., None])[..., 0]
+        # UV and cap copies have different normals / nearest-body correspondences.
+        # Welding only the displacement field is insufficient: both the inverse
+        # and forward affine transforms must agree at every input position seam.
+        self.affine = np.asarray(seam @ self.affine.reshape(len(scan), 9)).reshape(len(scan), 3, 3)
+        self.offset = np.asarray(seam @ self.offset)
+        self.rest_scan = np.linalg.solve(self.affine, (self.scan - self.offset)[..., None])[..., 0]
         self.reverse = (topology_map(self.rest_scan, faces) if matching_topology else
                         surface_map(self.rest_scan, faces, fit.rest_positions[:model.nr],
                                     trimesh.Trimesh(fit.rest_positions[:model.nr], model.faces,
