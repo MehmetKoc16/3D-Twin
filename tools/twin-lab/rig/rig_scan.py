@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import pickle
+from pathlib import Path
 
 import numpy as np
 import trimesh
@@ -21,6 +22,7 @@ from glbio import GlbScene, Prim, _split, read_glb, write_skinned_glb, write_sta
 from mh import MHModel
 from rigfit import Fitter, log, top4, transfer_weights
 from twin_export import canonicalize_fit, write_twin_package
+from bodyfix_solution import read_solution
 
 
 def main() -> None:
@@ -62,9 +64,17 @@ def main() -> None:
 
     model = MHModel()
     # bodyfix marks scans whose hands it cut off (the app draws MakeHuman hands) in the GLB's asset extras
-    scan_hands_removed = bool(_split(open(args.scan, "rb").read())[0].get("asset", {}).get("extras", {}).get("dtScanHandsRemoved"))
+    extras = _split(Path(args.scan).read_bytes())[0].get("asset", {}).get("extras", {})
+    scan_hands_removed = bool(extras.get("dtScanHandsRemoved"))
+    bodyfix = read_solution(extras, model)
     pkl = os.path.join(args.out, "fit.pkl")
-    if args.reuse_fit and os.path.exists(pkl):
+    if bodyfix is not None:
+        log("bodyfix solution found: keeping shape, fitting pose and translation to the corrected scan")
+        # A cached unconstrained fit must never override the embedded solved body.
+        res = Fitter(model, pts, nrm, fixed_shape=(bodyfix["fittedMacros"], bodyfix["fittedModifiers"])).run()
+        with open(pkl, "wb") as fh:
+            pickle.dump(res, fh)
+    elif args.reuse_fit and os.path.exists(pkl):
         with open(pkl, "rb") as fh:
             res = pickle.load(fh)
     else:
@@ -72,7 +82,7 @@ def main() -> None:
         with open(pkl, "wb") as fh:
             pickle.dump(res, fh)
     # the browser rebuilds the body from the NET modifier values: continue with exactly that body (twin_export.py)
-    canonicalize_fit(model, res)
+    canonicalize_fit(model, res, quantize=bodyfix is None)
     log(f"canonical fit: shape deviation from the raw fit {res.stats['canonical_shape_dev_mm']}")
 
     heads = model.rest_heads(res.rest_positions)
@@ -165,6 +175,7 @@ def main() -> None:
             prims_out[0].normals.astype(np.float64) if prims_out[0].normals is not None else None,
             float(shift[1]),
             {"scan": os.path.basename(args.scan), "options": opts},
+            bodyfix=bodyfix,
         )
         log(
             f"twin.json: mapping {twin['fit']['mappingCm']} cm; body lowest vertex at y = "

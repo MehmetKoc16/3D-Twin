@@ -15,7 +15,7 @@ twin.json (version 1)
   boneOrder                 the 53 bone names in rig.json order (= glTF skin joint order)
   fittedMacros              {gender, muscle, weight, height}  (macro variables, 0..1)
   fittedModifiers           {modifier id: value}, NET values (incr - decr), only |v| > 1e-6
-  measurementsRawCm         measure id -> cm on the fitted body (bare-body definitions of avatar-core)
+  measurementsRawCm         measure id -> cm on the fitted body, or bodyfix's achieved scan landmarks
   clothingAllowanceCm       cm the scan's clothes / hair / shoes add per measure (documented below)
   measurementsCm            raw - allowance
   restHeadsM                bone name -> [x, y, z] rest head in the frame of rigged.glb (metres, feet on y = 0)
@@ -145,10 +145,11 @@ def measure_body(model: MHModel, positions: np.ndarray) -> dict[str, float]:
 # ---------------------------------------------------------------------------------------------------- canonical fit
 
 
-def canonicalize_fit(model: MHModel, res: Any) -> None:
-    """Replace the fit's shape by the one the browser reproduces: net modifier values, 6 decimals (in place)."""
-    res.macro = {k: round(float(res.macro[k]), 6) for k in MACRO_KEYS}
-    res.mods = {k: round(float(v), 6) for k, v in res.mods.items() if abs(v) > 1e-6}
+def canonicalize_fit(model: MHModel, res: Any, *, quantize: bool = True) -> None:
+    """Rebuild from browser-compatible net values; bodyfix retains full precision with quantize=False."""
+    if quantize:
+        res.macro = {k: round(float(res.macro[k]), 6) for k in MACRO_KEYS}
+        res.mods = {k: round(float(v), 6) for k, v in res.mods.items() if abs(v) > 1e-6}
     old = res.rest_positions
     pos = model.shape(res.macro, res.mods, ground=False)
     heads = model.rest_heads(pos)
@@ -210,6 +211,7 @@ def write_twin_package(
     twin_normals: np.ndarray | None,
     ground_shift_y: float,
     source: dict[str, Any],
+    *, bodyfix: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Writes twin.json and mh2twin.bin. `twin_rest_verts` (n,3) are the rigged mesh's rest vertices in the frame of
     rigged.glb (feet on y = 0); `ground_shift_y` is the shift that put them there (the fit's rest frame minus it)."""
@@ -218,6 +220,11 @@ def write_twin_package(
     raw = measure_body(model, positions)
     allowance = {k: CLOTHING_ALLOWANCE_CM.get(k, 0.0) for k in raw}
     measurements = {k: round(raw[k] - allowance[k], 2) for k in raw}
+    if bodyfix is not None:
+        # Scan-landmark measurements are authoritative; the proxy has a different surface.
+        raw = dict(bodyfix["achievedRawCm"])
+        allowance = {k: bodyfix["clothingAllowanceCm"].get(k, 0.0) for k in raw}
+        measurements = dict(bodyfix["achievedCm"])
     mapping, mstats = nearest_render_vertices(positions[: model.nr], model.faces, twin_rest_verts, twin_normals)
     with open(os.path.join(out_dir, MAPPING_FILE), "wb") as fh:
         fh.write(mapping.tobytes())
@@ -235,9 +242,10 @@ def write_twin_package(
             "renderVertexCount": int(model.nr),
         },
         "boneOrder": list(model.bone_names),
-        "fittedMacros": {k: float(res.macro[k]) for k in MACRO_KEYS},
+        "fittedMacros": ({k: float(v) for k, v in res.macro.items()} if bodyfix is not None
+                         else {k: float(res.macro[k]) for k in MACRO_KEYS}),
         "fittedModifiers": {k: float(v) for k, v in sorted(res.mods.items())},
-        "measurementsRawCm": {k: round(v, 2) for k, v in raw.items()},
+        "measurementsRawCm": raw if bodyfix is not None else {k: round(v, 2) for k, v in raw.items()},
         "clothingAllowanceCm": allowance,
         "measurementsCm": measurements,
         "restHeadsM": {n: [round(float(x), 6) for x in heads[i]] for i, n in enumerate(model.bone_names)},
@@ -248,6 +256,8 @@ def write_twin_package(
             **{k: v for k, v in res.stats.items() if k in ("template_to_scan_cm", "scan_to_template_cm", "canonical_shape_dev_mm")},
         },
     }
+    if bodyfix is not None:
+        twin["bodyfix"] = bodyfix
     with open(os.path.join(out_dir, "twin.json"), "w", encoding="utf8", newline="\n") as fh:
         json.dump(twin, fh, indent=1)
     return twin

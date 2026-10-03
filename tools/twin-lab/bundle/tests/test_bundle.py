@@ -173,6 +173,23 @@ def test_synthetic_round_trip_preserves_data_and_forearm_median(synthetic):
     assert bundle.validate_bundle(out) == result
 
 
+def test_bodyfix_solution_and_achieved_measurements_survive_bundle(synthetic):
+    rigged, twin_path, mapping, out = synthetic
+    twin = json.loads(twin_path.read_text())
+    twin.update(fittedMacros={"gender": 0.61, "muscle": 0.43, "weight": 0.52, "height": 0.6123456789},
+                fittedModifiers={"measure/measure-upperarm-length": 0.234567891},
+                measurementsCm={"height": 181.08, "armLength": 64.87})
+    twin["bodyfix"] = {"version": 1, "fittedMacros": twin["fittedMacros"],
+                       "fittedModifiers": twin["fittedModifiers"],
+                       "targetsCm": {"height": 181.0, "armLength": 65.0},
+                       "achievedCm": twin["measurementsCm"],
+                       "residualsCm": {"height": 0.08, "armLength": -0.13}}
+    twin_path.write_text(json.dumps(twin))
+    bundle.write_bundle(rigged, twin_path, mapping, out, shape="synthetic", license_name="CC0")
+    document, _ = bundle.read_glb(out)
+    assert document["asset"]["extras"]["dtTwin"]["twin"] == twin
+
+
 def test_optional_glasses_round_trip_preserves_body_and_embeds_valid_rigid_mesh(synthetic):
     rigged, twin, mapping, out = synthetic
     accessory = out.parent / "glasses.glb"

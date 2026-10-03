@@ -83,10 +83,6 @@ def run(source: Path, measurements_path: Path, destination: Path, *,
                                           evaluate=evaluate, allowance=allowances)
         rest, corrected = transfer.deform(target)
         corrected[:, 1] -= corrected[:, 1].min()
-        if edit is not None:
-            document.write(destination, corrected, faces, edit.transfer, extras={"dtScanHandsRemoved": True})
-        else:
-            document.write(destination, corrected)
         after_raw = measurements(model, transfer.landmarks(rest, target), rest)
         before = {key: value - allowances.get(key, 0) for key, value in before_raw.items()}
         after = {key: value - allowances.get(key, 0) for key, value in after_raw.items()}
@@ -114,6 +110,19 @@ def run(source: Path, measurements_path: Path, destination: Path, *,
             "correspondenceCm": {"median": float(np.median(transfer.forward.distance) * 100),
                                  "p99": float(np.percentile(transfer.forward.distance, 99) * 100)},
         }
+        # Travel with the scan, including when it is renamed or moved away from its report.
+        solution = {
+            "version": 1, "fittedMacros": macro, "fittedModifiers": mods,
+            "targetsCm": targets, "achievedCm": after, "achievedRawCm": after_raw,
+            "residualsCm": residuals, "clothingAllowanceCm": allowances,
+            "measurementBasis": report["measurementBasis"],
+        }
+        extras = {"dtBodyfix": solution}
+        if edit is not None:
+            extras["dtScanHandsRemoved"] = True
+            document.write(destination, corrected, faces, edit.transfer, extras=extras)
+        else:
+            document.write(destination, corrected, extras=extras)
         print(f"[bodyfix] Corrected mesh written; {len(report['unreachable'])} targets outside tolerance", flush=True)
     report_path.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf8")
     return report

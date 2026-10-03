@@ -63,7 +63,8 @@ def _rots_from_rotvec(rv: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
 
 
 class Fitter:
-    def __init__(self, model: MHModel, scan_pts: np.ndarray, scan_nrm: np.ndarray | None) -> None:
+    def __init__(self, model: MHModel, scan_pts: np.ndarray, scan_nrm: np.ndarray | None,
+                 *, fixed_shape: tuple[dict[str, float], dict[str, float]] | None = None) -> None:
         self.m = model
         self.pts = scan_pts
         self.nrm = scan_nrm
@@ -90,6 +91,9 @@ class Fitter:
         self.rv = {b: np.zeros(3) for b in POSE_BONES}
         self.root_t = np.zeros(3)
         self.stats: dict = {}
+        self.fixed_shape = fixed_shape
+        if fixed_shape is not None:
+            self.macro = dict(fixed_shape[0])
         _ = w0
 
     # ---------------------------------------------------------------- shape helpers
@@ -98,6 +102,8 @@ class Fitter:
         return self.m.base + (self.Dm @ wfull[self.macro_targets]).reshape(-1, 3)
 
     def shape_positions(self) -> np.ndarray:
+        if self.fixed_shape is not None:
+            return self.m.shape(self.macro, self.fixed_shape[1], ground=False)
         return self.macro_positions(self.macro) + np.einsum("nkc,c->nk", self.A_all, self.z)
 
     # ---------------------------------------------------------------- pose helpers
@@ -126,13 +132,14 @@ class Fitter:
             return p[:, 1].max() - p[:, 1].min()
 
         lo, hi = 0.0, 1.0
-        for _ in range(24):
-            mid = 0.5 * (lo + hi)
-            if height(mid) < self.target_body_h:
-                lo = mid
-            else:
-                hi = mid
-        self.macro["height"] = 0.5 * (lo + hi)
+        if self.fixed_shape is None:
+            for _ in range(24):
+                mid = 0.5 * (lo + hi)
+                if height(mid) < self.target_body_h:
+                    lo = mid
+                else:
+                    hi = mid
+            self.macro["height"] = 0.5 * (lo + hi)
         p = self.shape_positions()[: m.nr]
         # translate: feet to scan bottom, xz centroid to scan centroid (torso band)
         self.root_t = np.array([0.0, bot - p[:, 1].min(), 0.0])
@@ -325,7 +332,8 @@ class Fitter:
         for gi, (gate, ridge) in enumerate(schedule):
             pos = self.shape_positions()
             self.update_pose(pos, gate)
-            self.update_shape(gate, ridge, macro_iters=2)
+            if self.fixed_shape is None:
+                self.update_shape(gate, ridge, macro_iters=2)
             pos = self.shape_positions()
             vp = self.posed_vertices(pos)
             d, _ = self.tree.query(vp)
@@ -340,6 +348,9 @@ class Fitter:
         mods: dict[str, float] = {}
         for (mid, kind, _t), zv in zip(self.cols, self.z):
             mods[mid] = mods.get(mid, 0.0) + (zv if kind == "incr" else -zv)
+        if self.fixed_shape is not None:
+            mods = dict(self.fixed_shape[1])
+            self.stats["shape_source"] = "bodyfix"
         d, _ = self.tree.query(vp)
         d2, _ = cKDTree(vp).query(self.pts[:: max(1, len(self.pts) // 20000)])
         self.stats.update(

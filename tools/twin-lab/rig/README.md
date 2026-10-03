@@ -35,6 +35,17 @@ Pure CPU, no GPU, no Blender, no bpy. Node scripts use the repo's `three` and `p
 Options of `rig_scan.py`: `--weights transfer|geodesic` (geodesic = geometry-only baseline for comparison),
 `--keep-pose` (do not unpose to the template A-pose; T-pose then no longer matches the pose JSONs), `--smooth N`.
 
+Bodyfix outputs embed `asset.extras.dtBodyfix` version 1. Rig automatically uses
+its full-precision solved macros and net modifiers, fits pose and root translation
+on that body, and transfers weights/unposes with its joint positions. No CLI flag
+or launcher change is required. An embedded solution takes precedence over
+`--reuse-fit`; malformed solutions fail rather than falling back to a fresh shape
+fit. Without this metadata the existing fitter and cache behavior are unchanged.
+For corrected scans, `measurementsCm` and `measurementsRawCm` are bodyfix's achieved
+scan-landmark measurements, with its own clothing allowances. The full solution,
+tape targets and residuals are retained in `twin.json.bodyfix` (and the bundle).
+These measurements can differ from those measured on the hidden MakeHuman proxy.
+
 ## Web app package (`twin.json`, `mh2twin.bin`)
 
 `rig_scan.py` also writes, next to `rigged.glb`, what the web app's "Realistic twin" mode needs (`twin_export.py`; format

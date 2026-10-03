@@ -71,6 +71,13 @@ def test_changed_parameters_recover_on_output_mesh(standin, model):
     assert abs(report["afterCm"]["footLength"] - 27.0) < 1.5
     original_json, original_bin = _split(source.read_bytes())
     result_json, result_bin = _split(out.read_bytes())
+    solution = result_json["asset"]["extras"]["dtBodyfix"]
+    assert solution["fittedMacros"] == report["targetMacros"]
+    assert solution["fittedModifiers"] == report["targetModifiers"]
+    assert solution["targetsCm"] == report["targetsCm"]
+    assert solution["achievedCm"] == report["afterCm"]
+    assert solution["achievedRawCm"] == report["afterRawCm"]
+    assert solution["residualsCm"] == report["residualsCm"]
     assert original_json["materials"] == result_json["materials"]
     assert original_json["textures"] == result_json["textures"]
     assert original_json["images"] == result_json["images"]

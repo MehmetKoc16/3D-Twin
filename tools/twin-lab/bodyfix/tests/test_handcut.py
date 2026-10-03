@@ -168,6 +168,11 @@ def test_bodyfix_pipeline_removes_scan_hands(standin, model):  # noqa: F811
     report = run(fused, tape, out)
     assert report["scanHands"]["removed"] and report["scanHands"]["closedLoops"] >= 2
     scan, result = Document(fused), Document(out)
+    extras = result.json["asset"]["extras"]
+    assert extras["dtScanHandsRemoved"] is True
+    assert extras["dtBodyfix"]["fittedMacros"] == report["targetMacros"]
+    assert extras["dtBodyfix"]["fittedModifiers"] == report["targetModifiers"]
+    assert extras["dtBodyfix"]["achievedCm"] == report["afterCm"]
     assert len(result.vertices) < len(scan.vertices)
     edges = _edge_array(result.faces)
     # lengthened arms would stretch any surviving hand-to-thigh bridge far beyond this

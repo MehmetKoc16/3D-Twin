@@ -62,6 +62,15 @@ Options: `--keep-hands` keeps the scan's own hands (default: they are removed, s
    translation, retaining limited deformation for transitions. Feet additionally
    scale as blocks along their depth to accommodate the requested shoe size.
 6. Ground the scan and write `bodyfixed.glb` plus `bodyfix_report.json` beside it.
+   Embed `asset.extras.dtBodyfix` version 1: the full-precision solved
+   `fittedMacros`/`fittedModifiers`, `targetsCm`, `achievedCm`, `achievedRawCm`,
+   `residualsCm`, `clothingAllowanceCm`, and `measurementBasis`. Rig discovers
+   this metadata automatically, including on renamed or moved scans. It keeps
+   the solved shape and fits only pose/translation before transferring weights
+   and unposing. The twin package carries the achieved scan measurements and
+   the original solution; proxy surface measurements are not substituted for
+   scan landmarks. Invalid embedded solutions fail explicitly; scans without
+   this metadata retain the existing unconstrained fitter.
    Append replacement positions/normals to the original GLB; UVs, original BIN
    bytes, embedded textures/materials and JSON extras survive. Old tangents are
    removed because they no longer describe the new geometry.
