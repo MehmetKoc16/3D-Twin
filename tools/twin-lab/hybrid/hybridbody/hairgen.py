@@ -12,12 +12,15 @@ the character's left is +X):
 2. **Hair field** (``HairField``): a smooth hairline curve in (azimuth, height) around the skull, a taper line that
    separates the long top from the short sides, and from them the hair *density* (0..1, soft hairline), strand
    *length*, *lift* and the combing *flow* direction at any surface point.
-3. **Guides**: dense Poisson-disc roots on the scalp, in three layers (a dense short undercoat that hides the scalp, a
-   body layer, a crest layer of long cards on top). Every guide is grown over the scalp along the flow field; its
-   height above the surface follows a lift profile (so strands rise at the front and lie flat on the sides) and is
-   never below the clearance (2 mm).
-4. **Cards**: every guide becomes a camera-independent ribbon (a flat strip with a few segments) whose width lies in
-   the surface tangent plane and whose UVs address one slot of the procedural strip texture (``hairtex``).
+3. **Guides**: dense Poisson-disc roots on the scalp, in layers (an undercoat of short cards that hides the scalp, a
+   body layer, an outer silhouette layer of the longest cards, fine stubble in the soft hairline band). Every guide
+   is grown over the scalp along the flow field; its height above the surface follows an arch-shaped lift profile
+   (strands rise at the front, lie flat on the sides, tips settle back towards the flow surface) and is never below
+   the clearance (2 mm). Neighbouring guides share smooth direction noise, so they clump instead of bristling.
+4. **Cards**: every guide becomes a camera-independent ribbon (a narrow strip with a few segments) whose width lies
+   in the surface tangent plane and whose UVs address one slot of the strand data atlas (``hairtex``): U across the
+   card, V from the root (v of the slot's top) to the tip. Ribbon normals are blended with the scalp normal (smooth
+   shading of the hair volume).
 5. **Clearance pass**: any card vertex that is closer than the clearance to the head surface is pushed out along the
    surface normal; the result is verified numerically (``haircheck``).
 """
@@ -61,20 +64,21 @@ class HairStyle:
     length_front: float = 55.0  # top, near the front hairline
     length_mid: float = 50.0  # top, middle
     length_crown: float = 30.0  # top, at the crown
-    length_side: float = 12.0  # sides and back
-    length_edge: float = 5.0  # sides and back at the hairline edge
+    length_side: float = 8.0  # sides and back
+    length_edge: float = 4.0  # sides and back at the hairline edge
     length_front_edge: float = 25.0  # top at the front hairline
     fade_band: float = 35.0  # distance above the hairline over which the sides grow from edge to full length
     # lift (fraction of the strand length that stands off the scalp at the tip)
-    lift_front: float = 0.46
-    lift_crown: float = 0.14
+    lift_front: float = 0.36
+    lift_crown: float = 0.12
     lift_side: float = 0.05
     top_spread: float = 0.18  # sideways spreading of the combed-back top hair
     strand_noise: float = 1.0  # waviness and direction noise of the strands (1 = default texture)
+    clump_noise: float = 1.0  # smooth direction noise shared by neighbouring cards (1 = default)
     # geometry
     clearance: float = 2.0  # minimum distance of every card vertex from the head surface
     card_width: float = 1.0  # multiplier of the layers' card widths
-    triangle_target: int = 30000  # the spacing of the cards is adapted to land within +-12 percent of this
+    triangle_target: int = 52000  # the spacing of the cards is adapted to land within +-12 percent of this
     seed: int = 7
 
     @classmethod
@@ -95,7 +99,7 @@ class HairStyle:
         return {f.name: getattr(self, f.name) for f in fields(self)}
 
 
-# the cards of the three layers; counts follow from the spacing (the style's triangle target rescales it)
+# the card layers; counts follow from the spacing (the style's triangle target rescales it)
 @dataclass(frozen=True)
 class Layer:
     name: str
@@ -108,13 +112,17 @@ class Layer:
     edge_power: float = 0.8  # roots thin out towards the hairline: acceptance = density ** edge_power
     band: bool = False  # only the soft hairline band (fine stubble cards)
     min_length: float = 0.004  # metres
+    droop: float = 0.30  # fraction of the lifted height the tip gives back (the tip settles towards the flow surface)
+    taper: float = 0.12  # narrowing of the ribbon towards the tip: width * (1 - taper * s ** 1.8), leaf-shaped cards
 
 
 LAYERS = (
-    Layer("undercoat", 4.4, 9.5, 0.80, 0.35, 0.0, 0.0, 1.2),
-    Layer("body", 6.2, 11.0, 1.00, 0.85, 0.7, 0.0, 1.8),
-    Layer("crest", 8.2, 12.5, 1.00, 1.05, 1.4, 1.5, 2.5),
-    Layer("stubble", 2.5, 4.5, 0.55, 0.10, 0.0, 0.0, 1.0, band=True, min_length=0.0035),
+    # an undercoat of short, nearly flat cards that hides the scalp, the body of the hair, the outer layer that
+    # defines the silhouette (longest, narrowest cards, tips resting near the flow surface), hairline stubble
+    Layer("undercoat", 3.3, 6.0, 0.60, 0.30, 0.0, 0.0, 1.2, droop=0.20, taper=0.45),
+    Layer("body", 4.6, 5.2, 0.88, 0.70, 0.9, 0.0, 1.8, droop=0.30, taper=0.65),
+    Layer("outer", 5.6, 4.6, 1.08, 1.00, 1.8, 0.5, 2.4, droop=0.40, taper=0.85),
+    Layer("stubble", 2.4, 2.8, 0.50, 0.08, 0.0, 0.0, 1.0, band=True, min_length=0.0035, droop=0.0, taper=0.6),
 )
 
 
@@ -532,19 +540,6 @@ class HairField:
 
 
 # -------------------------------------------------------------------------------------------------- cards
-@dataclass
-class CardPart:
-    """What ``assemble`` needs of a hair part: faces, tile UVs and the category (positions are given separately)."""
-
-    id: str
-    category: str
-    faces: np.ndarray
-    uv: np.ndarray
-    positions: np.ndarray
-    alpha_mode: str = "MASK"
-    meta: dict = field(default_factory=dict)
-
-
 def sample_roots(surface: HeadSurface, field_: HairField, layer: Layer, scale: float, rng: np.random.Generator):
     """Poisson-disc roots of one layer: candidates on the scalp triangles, thinned by the density, then spaced."""
     centroid = surface.triangles.mean(1)
@@ -560,7 +555,7 @@ def sample_roots(surface: HeadSurface, field_: HairField, layer: Layer, scale: f
     points, normals = surface.sample(pick, rng)
     w = field_.weight(points)
     if layer.band:
-        accept = rng.random(count) < np.clip(1.5 * (1.0 - w), 0.0, 1.0) * smoothstep(w / 0.15)
+        accept = rng.random(count) < np.clip(0.6 * (1.0 - w), 0.0, 1.0) * smoothstep(w / 0.25)
     else:
         accept = rng.random(count) < w**layer.edge_power
     if layer.top_power > 0:
@@ -571,12 +566,19 @@ def sample_roots(surface: HeadSurface, field_: HairField, layer: Layer, scale: f
 
 
 def segments_for(length: np.ndarray) -> np.ndarray:
-    return np.clip(np.ceil(length / 0.0125).astype(int), 1, 5)
+    return np.clip(np.ceil(length / 0.0105).astype(int), 1, 6)
 
 
 def lift_profile(u: np.ndarray, droop: float = 0.28) -> np.ndarray:
-    """Height fraction at relative arclength ``u``: rises steeply at the root, flattens, droops a little at the end."""
-    return (1 - (1 - u) ** 1.7) * (1 - droop * smoothstep((u - 0.7) / 0.3))
+    """Height fraction at relative arclength ``u``: rises at the root, flattens, then the tip settles back by ``droop``."""
+    return (1 - (1 - u) ** 1.6) * (1 - droop * smoothstep((u - 0.55) / 0.45))
+
+
+def lift_gate(normal: np.ndarray) -> np.ndarray:
+    """0.25..1: hair stands off surfaces that face up or forward, and lies closer on the lateral flanks of the vault
+    (a lift along a sideways normal would push tips out of the silhouette as spikes)."""
+    facing = normal[:, 1] + 0.8 * np.maximum(normal[:, 2], 0.0)
+    return 0.25 + 0.75 * smoothstep((facing - 0.25) / 0.55)
 
 
 def rotate_about(v: np.ndarray, axis: np.ndarray, angle: np.ndarray) -> np.ndarray:
@@ -594,13 +596,21 @@ def grow(
     clear0: np.ndarray,
     segments: int,
     rng: np.random.Generator,
+    droop: float = 0.3,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Strand polylines ``(n, K + 1, 3)`` and the surface normals under every point, grown along the flow field."""
     n = len(roots)
     noise = field_.noise
-    tex = field_.style.strand_noise * (0.4 + 0.6 * field_.top_weight(roots))  # sides and back lie neater than the top
-    bias = tex * (np.radians(11.0) * noise(roots, 55.0) + rng.normal(0.0, np.radians(4.0), n))
-    wave = tex * rng.uniform(np.radians(2.0), np.radians(9.0), n)
+    style = field_.style
+    top = field_.top_weight(roots)
+    tex = style.strand_noise * (0.4 + 0.6 * top)  # sides and back lie neater than the top
+    clump = style.clump_noise
+    # smooth fields shared by neighbouring roots (clumps, parting) dominate; the per-card part is small, so tips do not
+    # fan out into spikes
+    bias = clump * (
+        np.radians(6.5) * noise(roots, 46.0) + np.radians(3.5) * noise(roots + 0.37, 26.0)
+    ) + tex * rng.normal(0.0, np.radians(1.4), n)
+    wave = tex * rng.uniform(np.radians(1.0), np.radians(4.5), n)
     wave_phase = rng.uniform(0, 2 * np.pi, n)
     up = np.array([0.0, 1.0, 0.0])
     pos = np.zeros((n, segments + 1, 3))
@@ -613,7 +623,7 @@ def grow(
     height_total = lift * length
     for k in range(1, segments + 1):
         u = np.full(n, k / segments)
-        height = clear0 + height_total * lift_profile(u)
+        height = clear0 + height_total * lift_profile(u, droop) * lift_gate(normal)
         rise = height - previous
         travel = np.sqrt(np.maximum(step**2 - rise**2, (0.3 * step) ** 2))
         direction = field_.flow(foot, normal)
@@ -622,7 +632,7 @@ def grow(
         moved = foot + direction * travel[:, None]
         foot, _, _, normal = surface.closest(moved, candidates=10)
         # lean the lift slightly upwards (a quiff stands up instead of leaning over the forehead)
-        lean = unit(normal + 0.35 * up * (field_.top_weight(foot)[:, None]))
+        lean = unit(normal + 0.15 * up * (field_.top_weight(foot)[:, None]))
         factor = np.maximum(np.einsum("ij,ij->i", lean, normal), 0.6)
         pos[:, k] = foot + lean * (height / factor)[:, None]
         nrm[:, k] = normal
@@ -635,9 +645,14 @@ def build_ribbons(
     nrm: np.ndarray,
     width: np.ndarray,
     roll: np.ndarray,
-    taper: float = 0.30,
-) -> np.ndarray:
-    """Ribbon vertices ``(n, 2 * (K + 1), 3)`` (left, right per ring) of strands with parallel-transported frames."""
+    taper: float = 0.12,
+    blend: float = 0.85,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ribbon vertices and normals ``(n, 2 * (K + 1), 3)`` (left, right per ring) with parallel-transported frames.
+
+    The normal of a vertex is the card's own normal (facing away from the scalp) mixed with the surface normal under
+    it (``blend`` is the scalp share), so overlapping cards shade like one smooth volume instead of flat facets.
+    """
     n, rings, _ = pos.shape
     k = rings - 1
     segment = unit(pos[:, 1:] - pos[:, :-1])
@@ -659,10 +674,15 @@ def build_ribbons(
     c, s = np.cos(roll)[:, None, None], np.sin(roll)[:, None, None]
     side = side * c + np.cross(tangent, side) * s
     along = np.linspace(0.0, 1.0, rings)[None, :]
-    half = 0.5 * width[:, None] * (1.0 - taper * along)
+    half = 0.5 * width[:, None] * (1.0 - taper * along**1.8)
     left = pos - side * half[..., None]
     right = pos + side * half[..., None]
-    return np.stack((left, right), axis=2).reshape(n, 2 * rings, 3)
+    own = np.cross(side, tangent)  # the card's own normal; the scalp normal decides which of the two is "outwards"
+    own = own * np.where(np.einsum("nkj,nkj->nk", own, nrm) < 0, -1.0, 1.0)[..., None]
+    smooth = unit(blend * nrm + (1.0 - blend) * own)
+    vertices = np.stack((left, right), axis=2).reshape(n, 2 * rings, 3)
+    normals = np.stack((smooth, smooth), axis=2).reshape(n, 2 * rings, 3)
+    return vertices, normals
 
 
 def ribbon_faces(rings: int) -> np.ndarray:
@@ -707,22 +727,30 @@ def push_out(
 
 
 def card_slots(
-    layout: StripLayout, lengths: np.ndarray, rng: np.random.Generator, long_from: float = 0.028
+    layout: StripLayout,
+    lengths: np.ndarray,
+    rng: np.random.Generator,
+    long_from: float = 0.032,
+    mid_from: float = 0.014,
 ) -> np.ndarray:
-    """``(cards, 4)``: ``u_left, u_right, v_root, v_tip`` of a random slot of the matching class (u mirrored half of the time)."""
+    """``(cards, 4)``: ``u_left, u_right, v_root, v_tip`` of a random slot of the matching class (u mirrored half of the time).
+
+    The slot's root row is on top (``v_root < v_tip``): the atlas G channel is 0 there and 1 at the tip row.
+    """
     out = np.zeros((len(lengths), 4))
-    is_long = lengths >= long_from
-    for kind, mask in (("long", is_long), ("short", ~is_long)):
+    kinds = np.where(lengths >= long_from, 2, np.where(lengths >= mid_from, 1, 0))
+    for code, kind in ((2, "long"), (1, "mid"), (0, "short")):
+        mask = kinds == code
         slots = layout.slots(kind)
         count = int(mask.sum())
         if count == 0:
             continue
         pick = rng.integers(0, len(slots), count)
-        boxes = np.array([slots[i].uv_box(layout.width, layout.height) for i in pick])  # (u0, v_tip, u1, v_root)
+        boxes = np.array([slots[i].uv_box(layout.width, layout.height) for i in pick])  # (u0, v_root, u1, v_tip)
         mirror = rng.random(count) < 0.5
         left = np.where(mirror, boxes[:, 2], boxes[:, 0])
         right = np.where(mirror, boxes[:, 0], boxes[:, 2])
-        out[mask] = np.column_stack((left, right, boxes[:, 3], boxes[:, 1]))
+        out[mask] = np.column_stack((left, right, boxes[:, 1], boxes[:, 3]))
     return out
 
 
@@ -740,6 +768,8 @@ class LayerPlan:
     roll: np.ndarray
     segments: np.ndarray
     slots: np.ndarray
+    droop: float = 0.3
+    taper: float = 0.12
 
 
 @dataclass
@@ -783,9 +813,11 @@ def plan_cards(
                 * style.card_width
                 * rng.uniform(0.85, 1.2, n)
                 * (0.5 + 0.5 * smoothstep(density / 0.9)),
-                rng.normal(0.0, np.radians(10.0), n),
+                rng.normal(0.0, np.radians(8.0), n),
                 segments_for(length),
                 card_slots(layout, length, rng),
+                layer.droop,
+                layer.taper,
             )
         )
     return Plan(plans, scale)
@@ -795,7 +827,8 @@ def plan_cards(
 class Cards:
     positions: np.ndarray
     faces: np.ndarray
-    uv: np.ndarray  # tile UV (0..1)
+    uv: np.ndarray  # atlas UV (0..1), root on the slot's top row
+    normals: np.ndarray  # smooth vertex normals (card normal blended with the scalp normal)
     layer_of_face: np.ndarray
     card_of_face: np.ndarray
     roots: np.ndarray  # (cards, 3)
@@ -808,15 +841,18 @@ class Cards:
 def grow_cards(surface: HeadSurface, field_: HairField, style: HairStyle, plan: Plan) -> Cards:
     """Grow every planned guide and turn it into a ribbon; vertices below the clearance are pushed out afterwards."""
     rng = np.random.default_rng(style.seed + 1)
-    positions, faces, uvs, layer_of_face, card_of_face = [], [], [], [], []
+    positions, normals_out, faces, uvs, layer_of_face, card_of_face = [], [], [], [], [], []
     roots, root_normals, lengths, layer_of_card, segment_count = [], [], [], [], []
     vertex_total = card_total = 0
     for p in plan.layers:
         for k in np.unique(p.segments):
             g = np.flatnonzero(p.segments == k)
             k = int(k)
-            pos, nrm = grow(surface, field_, p.roots[g], p.normals[g], p.length[g], p.lift[g], p.clearance[g], k, rng)
-            vertices = build_ribbons(pos, nrm, p.width[g], p.roll[g]).reshape(-1, 3)
+            pos, nrm = grow(
+                surface, field_, p.roots[g], p.normals[g], p.length[g], p.lift[g], p.clearance[g], k, rng, p.droop
+            )
+            vertices, vertex_normals = build_ribbons(pos, nrm, p.width[g], p.roll[g], p.taper)
+            vertices = vertices.reshape(-1, 3)
             rings, n = k + 1, len(g)
             tri = np.tile(ribbon_faces(rings), (n, 1)) + np.repeat(np.arange(n) * 2 * rings, 2 * k)[:, None]
             slot = p.slots[g]
@@ -826,6 +862,7 @@ def grow_cards(surface: HeadSurface, field_: HairField, style: HairStyle, plan: 
             uv[:, :, 1, 0] = slot[:, 1:2]
             uv[:, :, :, 1] = v_coord[:, :, None]
             positions.append(vertices)
+            normals_out.append(vertex_normals.reshape(-1, 3))
             faces.append(tri + vertex_total)
             uvs.append(uv.reshape(-1, 2))
             layer_of_face.append(np.full(len(tri), p.index))
@@ -843,6 +880,7 @@ def grow_cards(surface: HeadSurface, field_: HairField, style: HairStyle, plan: 
         all_positions,
         all_faces,
         np.vstack(uvs),
+        unit(np.vstack(normals_out)),
         np.concatenate(layer_of_face),
         np.concatenate(card_of_face),
         np.vstack(roots),

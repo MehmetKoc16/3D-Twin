@@ -1,4 +1,4 @@
-"""Numeric checks of the procedural hair: penetration, scalp coverage from the main views, skinning to the head.
+"""Numeric checks of the procedural hair: penetration, soft scalp coverage from the main views, skinning to the head.
 
 Every function returns plain numbers (no images), so the checks can run on private data without displaying it.
 """
@@ -59,32 +59,37 @@ def view_cameras(bounds_points: np.ndarray, pixel_m: float) -> dict:
     return {name: (cam.fit_bounds(bounds_points, size, size, margin=0.03), size) for name, cam in cams.items()}
 
 
-def cutout_depth(
+def card_transmittance(
     camera: OrthoCamera,
     size: int,
     positions: np.ndarray,
     faces: np.ndarray,
     uv: np.ndarray,
     alpha: np.ndarray,
-    cutoff: float,
+    head_depth: np.ndarray,
+    margin: float = 0.0006,
 ) -> np.ndarray:
-    """Depth map (smaller = nearer) of the cards with the strip texture's alpha test."""
+    """Transmittance map: the product of ``1 - alpha`` of all card fragments that lie in front of the head surface.
+
+    ``alpha`` is the prefiltered gained coverage of the strand atlas (the shader's outer pass: ``min(1, 2.5 R)``
+    after mip filtering), looked up with the nearest texel. 1 = nothing in front, 0 = fully hidden.
+    """
     height, width = alpha.shape
     p = camera.project(positions)
-    zbuf = np.full(size * size, np.inf, np.float32)
+    log_t = np.zeros(size * size, np.float64)
     for f, px, py, lam in raster_pairs(p[:, :2], faces, size, size):
+        pix = py * size + px
+        d = np.einsum("kj,kj->k", lam, p[:, 2][faces[f]])
+        front = d < head_depth.reshape(-1)[pix] - margin
+        if not front.any():
+            continue
+        f, lam, pix = f[front], lam[front], pix[front]
         t = np.einsum("kj,kjc->kc", lam, uv[faces[f]])
         ix = np.clip((t[:, 0] * width).astype(int), 0, width - 1)
         iy = np.clip((t[:, 1] * height).astype(int), 0, height - 1)
-        seen = alpha[iy, ix] >= cutoff
-        f, px, py, lam = f[seen], px[seen], py[seen], lam[seen]
-        d = np.einsum("kj,kj->k", lam, p[:, 2][faces[f]]).astype(np.float32)
-        pix = py * size + px
-        order = np.argsort(-d, kind="stable")
-        d, pix = d[order], pix[order]
-        keep = d < zbuf[pix]
-        zbuf[pix[keep]] = d[keep]
-    return zbuf.reshape(size, size)
+        a = np.minimum(alpha[iy, ix], 0.999)
+        log_t += np.bincount(pix, weights=np.log1p(-a), minlength=size * size)
+    return np.exp(log_t).reshape(size, size)
 
 
 def scalp_coverage(
@@ -97,14 +102,15 @@ def scalp_coverage(
     *,
     samples: int = 60000,
     pixel_mm: float = 0.5,
-    cutoff: float = 0.5,
+    hidden_below: float = 0.15,
     seed: int = 1,
     min_density: float = 0.5,
 ) -> dict:
     """Share of the visible scalp (where the hair density is above ``min_density``) hidden behind the cards, per view.
 
     A scalp sample is *visible* from a view when it faces the camera and nothing of the head is in front of it; it is
-    *hidden* when a card fragment (after the strip texture's alpha test) lies in front of it.
+    *hidden* when the cards in front of it let at most ``hidden_below`` of the light through (the cards are soft:
+    ``alpha`` is the gained, prefiltered strand coverage, translucent cards accumulate).
     """
     rng = np.random.default_rng(seed)
     face_ids = rng.choice(len(surface.faces), size=samples, p=surface.area / surface.area.sum())
@@ -115,21 +121,23 @@ def scalp_coverage(
     result = {"scalp_samples": int(len(points))}
     for name, (camera, size) in view_cameras(everything, pixel_mm * 1e-3).items():
         head_depth, _ = zbuffer(camera.project(surface.vertices), surface.faces, size, size)
-        hair_depth = cutout_depth(camera, size, positions, faces, uv, alpha, cutoff)
+        transmittance = card_transmittance(camera, size, positions, faces, uv, alpha, head_depth)
         q = camera.project(points)
         ix = np.clip(q[:, 0].astype(int), 0, size - 1)
         iy = np.clip(q[:, 1].astype(int), 0, size - 1)
         facing = normals @ camera.to_camera > 0.25
         visible = facing & (head_depth[iy, ix] >= q[:, 2] - 0.0008)
-        hidden = visible & (hair_depth[iy, ix] < q[:, 2] - 0.0006)
+        hidden = visible & (transmittance[iy, ix] <= hidden_below)
         result[name] = {
             "visible_samples": int(visible.sum()),
             "hidden_fraction": float(hidden.sum() / max(visible.sum(), 1)),
+            "mean_transmittance": float(transmittance[iy, ix][visible].mean()) if visible.any() else 1.0,
         }
     result["min_hidden_fraction"] = float(
         min(result[v]["hidden_fraction"] for v in ("front", "left", "right", "back", "top"))
     )
     result["pixel_mm"] = pixel_mm
+    result["hidden_when_transmittance_below"] = hidden_below
     return result
 
 

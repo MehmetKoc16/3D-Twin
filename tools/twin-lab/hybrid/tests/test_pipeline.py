@@ -80,18 +80,61 @@ def test_outputs_exist_and_the_report_passes_its_numeric_checks(run_result):
     assert saved["glb"]["bytes"] == out.stat().st_size
 
 
-def test_glb_is_one_textured_primitive_with_the_hybrid_marker_and_hand_flags(run_result):
+def test_glb_has_the_textured_body_and_a_separate_hair_node_with_the_hybrid_marker_and_hand_flags(run_result):
     _, out, report, solution, _ = run_result
     scene = read_glb(str(out))
-    assert len(scene.prims) == 1 and scene.images and scene.prims[0].uv is not None
+    assert len(scene.prims) == 2 and len(scene.images) == 2 and scene.prims[0].uv is not None
+    assert [p.name for p in scene.prims] == ["twin", "dtHair"]
     extras = scene.extras
     assert extras["dtScanHandsRemoved"] is False and extras["dtHasMakeHumanHands"] is True
+    assert extras["dtHairNode"] == "dtHair"
     assert extras["dtBodyfix"]["fittedMacros"] == solution["fittedMacros"]
     marker = extras["dtHybrid"]
     assert marker["frame"] == "MakeHuman-grounded-A-pose" and marker["ownsHands"] is True
-    assert report["mesh"]["vertices"] == len(scene.prims[0].positions)
+    assert report["mesh"]["vertices"] == len(scene.prims[0].positions)  # the body mesh carries no hair cards
     uv = scene.prims[0].uv
     assert uv.min() >= 0 and uv.max() <= 1
+    hair = scene.prims[1]
+    assert hair.uv.min() >= 0 and hair.uv.max() <= 1 and hair.normals is not None and hair.material == 1
+    assert len(hair.indices) == report["parts"]["hair"]["procedural"]["triangles"]
+    assert np.isfinite(hair.positions).all() and abs(np.linalg.norm(hair.normals, axis=1) - 1).max() < 1e-3
+
+
+def test_hair_material_and_atlas_follow_the_contract(run_result):
+    import io
+
+    from glbio import _split
+    from PIL import Image
+
+    _, out, report, _, _ = run_result
+    js, blob = _split(out.read_bytes())
+    assert [n["name"] for n in js["nodes"] if "mesh" in n] == ["twin", "dtHair"] and js["asset"]["extras"][
+        "dtHairNode"
+    ] == "dtHair"
+    material = js["materials"][1]
+    assert (material["name"], material["alphaMode"], material["alphaCutoff"], material["doubleSided"]) == (
+        "dtHair",
+        "MASK",
+        0.5,
+        True,
+    )
+    info = material["extras"]["dtHair"]
+    assert info["format"] == "rcov-groot-bvar/1" and info["colorHex"] == "#2a1e18"
+    assert (
+        info["rootHex"] < info["colorHex"] < info["tipHex"]
+        and info["cardCount"] == report["parts"]["hair"]["procedural"]["cards"]
+    )
+    assert report["parts"]["hair"]["colour_method"] == "default" and report["parts"]["hair"]["colour_hex"] == "#2a1e18"
+    texture = js["textures"][material["pbrMetallicRoughness"]["baseColorTexture"]["index"]]
+    image = js["images"][texture["source"]]
+    assert image["mimeType"] == "image/png" and texture["source"] != js["textures"][0]["source"]
+    view = js["bufferViews"][image["bufferView"]]
+    atlas = np.asarray(Image.open(io.BytesIO(blob[view["byteOffset"] : view["byteOffset"] + view["byteLength"]])))
+    assert atlas.shape == (1024, 2048, 4)
+    r, g, b, a = (atlas[..., k] / 255.0 for k in range(4))
+    assert 0.2 < r.mean() < 0.5 and r.max() > 0.9 and (g[:4].mean() < 0.05)  # root rows on top
+    np.testing.assert_allclose(a, np.minimum(1.0, 2.5 * r), atol=1.5 / 255)
+    assert report["glb"]["hair"]["atlas_size"] == [2048, 1024] and report["glb"]["hair"]["material"] == material
 
 
 def test_body_vertices_below_the_neck_are_exactly_the_solved_body(run_result, model):
@@ -128,7 +171,16 @@ def test_rig_stage_accepts_the_hybrid_as_a_verified_native_a_pose(run_result, mo
     fit = pickle.loads((folder / "fit.pkl").read_bytes())
     assert fit.stats["pose_source"] == "verified-native-A-pose"
     js, _ = _split((folder / "rigged.glb").read_bytes())
-    assert len(js["meshes"]) == 1 and len(js["skins"]) == 1 and len(js["skins"][0]["joints"]) == 53
+    assert len(js["meshes"]) == 2 and len(js["skins"]) == 1 and len(js["skins"][0]["joints"]) == 53
+    nodes = [n for n in js["nodes"] if "mesh" in n]
+    assert [n["name"] for n in nodes] == ["twin", "dtHair"] and {n["skin"] for n in nodes} == {0}  # one shared skin
+    assert js["asset"]["extras"]["dtHairNode"] == "dtHair"
+    assert [m["primitives"][0]["material"] for m in js["meshes"]] == [0, 1] and js["materials"][1]["name"] == "dtHair"
+    hair = json.loads((folder / "rig_report.json").read_text())["hair"]
+    assert (
+        hair["node"] == "dtHair" and hair["head_chain_weight_mean"] > 0.9 and hair["fraction_head_chain_ge_0_95"] > 0.9
+    )
+    assert twin["mapping"]["twinVertexCount"] == read_glb(str(out)).prims[0].positions.shape[0]  # the body only
 
 
 def test_glb_uses_the_alpha_mask_material_with_an_rgba_png_atlas(run_result):
@@ -166,15 +218,15 @@ def test_default_hair_is_procedural_cards_that_keep_off_the_skin_and_follow_the_
     procedural = hair["procedural"]
     assert procedural["penetration"]["vertices_inside_head"] == 0
     assert procedural["penetration"]["vertices_below_clearance"] == 0
-    assert 8000 < procedural["triangles"] < 60000 and procedural["coverage"]["min_hidden_fraction"] > 0.8
+    assert 8000 < procedural["triangles"] <= 60000 and procedural["coverage"]["min_hidden_fraction"] > 0.8
     assert hair["skin_weights"]["fraction_head_chain_ge_0_95"] > 0.95
     assert hair["colour_method"] in ("default", "near-grey measurement -> dark brown", "measured", "lightness clamped")
-    slices = report["parts"]["slices"]["hair"]
-    assert slices["faces"][1] - slices["faces"][0] == procedural["triangles"]  # one-sided cards, no back copies
+    assert "hair" not in report["parts"]["slices"]  # the cards are not part of the body mesh
+    assert report["glb"]["hair"]["triangles"] == procedural["triangles"]  # one-sided cards, no back copies
     assert report["texture"]["scalp_tint"]["method"] == "procedural hair density field"
     assert report["texture"]["atlas_size"][0] <= 4096 and report["texture"]["alpha"]["cutout_texels"] > 0
     scene = read_glb(str(out))
-    assert len(scene.prims) == 1 and scene.extras["dtHybrid"]["hair"] == "procedural"
+    assert len(scene.prims) == 2 and scene.extras["dtHybrid"]["hair"] == "procedural"
     assert scene.extras["dtHybrid"]["hairProcedural"] is True and verify_report(report) == []
 
 

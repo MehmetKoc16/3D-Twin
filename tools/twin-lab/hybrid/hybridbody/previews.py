@@ -7,9 +7,10 @@ from pathlib import Path
 import numpy as np
 from headrecon.previews import _label
 from PIL import Image
-from twinrefine.render import DEFAULT_LIGHTS, RAKING_LIGHTS
+from twinrefine.render import DEFAULT_LIGHTS, RAKING_LIGHTS, shade
 from twinrefine.scan import welded_vertex_normals
 from twintex.camera import OrthoCamera
+from twintex.colorspace import srgb_to_linear
 
 from .assemble import Assembled
 
@@ -47,8 +48,13 @@ def _atlas_tables(atlas: np.ndarray, cutoff: float) -> dict:
     return tables
 
 
-def render_cutout(verts, faces, normals, cam, width, height, uv, atlas, *, lights, clay=False, ss=2, cutoff=0.5):
-    """The twinrefine renderer with the glTF material contract: alpha below the cutoff is discarded, faces are two-sided."""
+def render_cutout(
+    verts, faces, normals, cam, width, height, uv, atlas, *, lights, clay=False, ss=2, cutoff=0.5, raw=False
+):
+    """The twinrefine renderer with the glTF material contract: alpha below the cutoff is discarded, faces are two-sided.
+
+    ``raw=True`` returns the supersampled linear image and its depth buffer (for the hair pass) instead of the final image.
+    """
     import cv2
     from twinrefine.render import BG, shade
     from twintex.bake import remap_points
@@ -116,15 +122,181 @@ def render_cutout(verts, faces, normals, cam, width, height, uv, atlas, *, light
     colour = shade(ncam, albedo, lights, spec=0.04)  # the twin material is rough (0.88): only a faint highlight
     image = np.tile(srgb_to_linear(BG)[None, None, :], (H, W, 1)).astype(np.float32)
     image[ys, xs] = colour
+    if raw:
+        return image, zbuf
     image = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA) if ss > 1 else image
     return np.clip(np.rint(linear_to_srgb(image) * 255), 0, 255).astype(np.uint8)
 
 
-def _render(mesh: Assembled, atlas: np.ndarray, camera, size, *, clay=False, lights=DEFAULT_LIGHTS, ss=2):
-    normals = welded_vertex_normals(mesh.positions, mesh.faces)
-    return render_cutout(
-        mesh.positions, mesh.faces, normals, camera, size[0], size[1], mesh.uv, atlas, lights=lights, clay=clay, ss=ss
+BAYER3 = (np.array([[0, 7, 3], [6, 5, 2], [4, 1, 8]]) + 0.5) / 9.0  # 3 x 3 ordered dither: one threshold per sample
+_PYRAMIDS: dict = {}
+
+
+def _pyramid(atlas: np.ndarray, levels: int = 6) -> list:
+    """Box-filtered float mip pyramid of a strand data atlas (cached per atlas array)."""
+    from .hairtex import mip_levels
+
+    key = (atlas.__array_interface__["data"][0], atlas.shape, int(atlas[::53, ::47].sum()))
+    if key not in _PYRAMIDS:
+        _PYRAMIDS.clear()
+        _PYRAMIDS[key] = mip_levels(atlas, levels)
+    return _PYRAMIDS[key]
+
+
+def _sample_level(pyramid: list, level: np.ndarray, uv: np.ndarray) -> np.ndarray:
+    """Bilinear (R, G, B) of the mip ``level`` chosen per fragment; ``uv`` is (k, 2) in atlas UV (clamped at the border)."""
+    from twintex.bake import remap_points
+
+    out = np.zeros((len(uv), 3), np.float32)
+    for lv in np.unique(level):
+        m = level == lv
+        image = pyramid[int(lv)]
+        h, w = image.shape[:2]
+        x = np.clip(uv[m, 0] * w - 0.5, 0, w - 1).astype(np.float32)
+        y = np.clip(uv[m, 1] * h - 0.5, 0, h - 1).astype(np.float32)
+        out[m] = remap_points(image, x, y)
+    return out
+
+
+def render_hair_pass(
+    image: np.ndarray,
+    zbuf: np.ndarray,
+    hair,
+    cam,
+    ss: int,
+    *,
+    lights,
+    clay: bool = False,
+    gain: float = 2.5,
+    spec: float = 0.05,
+    anisotropy: float = 8.0,
+) -> np.ndarray:
+    """Approximation of the creategamecharacters hair shader in its MSAA mode, on a supersampled image.
+
+    The strand data atlas is mip filtered by the card's texel footprint, ``alpha = min(1, 2.5 R)`` decides per sample
+    (ordered dither, like alpha to coverage), covered samples write depth, and their colour is the root to tip ramp
+    (root colour at G = 0 to the base colour at G = 1, ``seedVariation`` 0.36 on B, the shader's normal-based self
+    occlusion) lit with the smooth card normals. Rough: no anisotropic highlight, no blended fringe.
+    """
+    from twintex.raster import barycentric_at, raster_pairs
+
+    H, W = image.shape[:2]
+    faces, uv, normals = hair.faces, hair.uv, hair.normals
+    pyramid = _pyramid(hair.atlas)
+    atlas_h, atlas_w = hair.atlas.shape[:2]
+    p = cam.project(hair.positions)
+    uv_tex = uv * np.array([atlas_w, atlas_h])
+    face_level = _mip_level(p[:, :2], uv_tex, faces, len(pyramid), anisotropy)
+    p[:, 0] *= ss
+    p[:, 1] *= ss
+    z = p[:, 2]
+    zb = zbuf.copy()
+    fid = np.full(W * H, -1, np.int32)
+    for f, px, py, lam in raster_pairs(p[:, :2], faces, W, H):
+        t = np.einsum("kj,kjc->kc", lam, uv[faces[f]].astype(np.float64))
+        cov = _sample_level(pyramid, face_level[f], t)[:, 0]
+        seen = np.minimum(gain * cov, 1.0) > BAYER3[py % 3, px % 3]
+        f, px, py, lam = f[seen], px[seen], py[seen], lam[seen]
+        d = np.einsum("kj,kj->k", lam, z[faces[f]]).astype(np.float32)
+        pix = py * W + px
+        order = np.argsort(-d, kind="stable")
+        d, pix, f = d[order], pix[order], f[order]
+        keep = d < zb[pix]
+        zb[pix[keep]] = d[keep]
+        fid[pix[keep]] = f[keep]
+    fid = fid.reshape(H, W)
+    ys, xs = np.nonzero(fid >= 0)
+    if len(ys) == 0:
+        return image
+    f = fid[ys, xs]
+    lam = barycentric_at(p[:, :2], faces, f, xs, ys)
+    tri = faces[f]
+    n = np.einsum("ij,ijk->ik", lam, normals[tri])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    ndv = np.abs(n @ cam.to_camera)  # the shader flips back faces towards the viewer: only |n . v| matters
+    n *= np.where(n @ cam.to_camera < 0, -1.0, 1.0)[:, None]
+    ncam = np.stack([n @ cam.right, n @ cam.up, n @ cam.to_camera], axis=1)
+    t = np.einsum("ij,ijk->ik", lam, uv[tri].astype(np.float64))
+    data = _sample_level(pyramid, face_level[f], t)
+    colours = {k: srgb_to_linear(np.array(_hex_rgb(v), np.float32) / 255.0) for k, v in hair.colours.items()}
+    if clay:
+        albedo = np.full((len(f), 3), srgb_to_linear(np.float32(0.72)), np.float32)
+    else:
+        strand = 1.0 + (data[:, 2:3] - 0.5) * 2.0 * 0.36
+        ao = 0.3 + 0.7 * _smoothstep((ndv - 0.05) / 0.5)[:, None]
+        ramp = colours["rootHex"][None, :] * (1 - data[:, 1:2]) + colours["colorHex"][None, :] * data[:, 1:2]
+        albedo = ramp * strand * ao
+    image[ys, xs] = shade(ncam, albedo.astype(np.float32), lights, spec=spec)
+    return image
+
+
+def _mip_level(screen: np.ndarray, texels: np.ndarray, faces: np.ndarray, levels: int, anisotropy: float) -> np.ndarray:
+    """Per-face mip level like a GPU with ``anisotropy``x filtering: the pixel footprint in texture space is an ellipse
+    (a, b texels); the level is ``log2(max(a / anisotropy, b))`` from the singular values of the screen/texel Jacobian."""
+    e_screen = np.stack((screen[faces[:, 1]] - screen[faces[:, 0]], screen[faces[:, 2]] - screen[faces[:, 0]]), axis=2)
+    e_tex = np.stack((texels[faces[:, 1]] - texels[faces[:, 0]], texels[faces[:, 2]] - texels[faces[:, 0]]), axis=2)
+    det = e_tex[:, 0, 0] * e_tex[:, 1, 1] - e_tex[:, 0, 1] * e_tex[:, 1, 0]
+    inverse = (
+        np.stack(
+            (
+                np.stack((e_tex[:, 1, 1], -e_tex[:, 0, 1]), axis=1),
+                np.stack((-e_tex[:, 1, 0], e_tex[:, 0, 0]), axis=1),
+            ),
+            axis=1,
+        )
+        / np.where(np.abs(det) < 1e-12, 1e-12, det)[:, None, None]
     )
+    jacobian = e_screen @ inverse  # screen pixels per texel
+    sigma = np.linalg.svd(jacobian, compute_uv=False)  # (faces, 2), descending
+    major = 1.0 / np.maximum(sigma[:, 1], 1e-6)  # texels per pixel along the elongated axis
+    minor = 1.0 / np.maximum(sigma[:, 0], 1e-6)
+    lod = np.log2(np.maximum(np.maximum(major / anisotropy, minor), 1.0))
+    return np.clip(np.rint(lod), 0, levels - 1).astype(int)
+
+
+def _area2(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Areas of 2-D triangles."""
+    return np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (c[:, 0] - a[:, 0]) * (b[:, 1] - a[:, 1])) / 2
+
+
+def _hex_rgb(text: str) -> tuple:
+    text = text.lstrip("#")
+    return tuple(int(text[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def _smoothstep(x):
+    x = np.clip(x, 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
+
+
+def _render(mesh: Assembled, atlas: np.ndarray, camera, size, *, clay=False, lights=DEFAULT_LIGHTS, ss=2, hair=None):
+    """The body (cut-outs, two-sided) and, when ``hair`` (a ``HairMesh``) is given, the soft hair pass on top of it."""
+    import cv2
+    from twintex.colorspace import linear_to_srgb
+
+    normals = welded_vertex_normals(mesh.positions, mesh.faces)
+    if hair is None:
+        return render_cutout(
+            mesh.positions,
+            mesh.faces,
+            normals,
+            camera,
+            size[0],
+            size[1],
+            mesh.uv,
+            atlas,
+            lights=lights,
+            clay=clay,
+            ss=ss,
+        )
+    hair_ss = max(ss, 3)  # the dither matrix has 3 x 3 samples
+    image, zbuf = render_cutout(
+        mesh.positions, mesh.faces, normals, camera, size[0], size[1], mesh.uv, atlas,
+        lights=lights, clay=clay, ss=hair_ss, raw=True,
+    )  # fmt: skip
+    image = render_hair_pass(image, zbuf, hair, camera, hair_ss, lights=lights, clay=clay)
+    image = cv2.resize(image, (size[0], size[1]), interpolation=cv2.INTER_AREA)
+    return np.clip(np.rint(linear_to_srgb(image) * 255), 0, 255).astype(np.uint8)
 
 
 def render_all(jobs: list, workers: int = 6) -> list:
@@ -135,17 +307,32 @@ def render_all(jobs: list, workers: int = 6) -> list:
         return list(pool.map(lambda job: job(), jobs))
 
 
-def write_previews(folder: Path, full: Assembled, bare: Assembled, atlas: np.ndarray, head_y: float, workers=6) -> dict:
+def write_previews(
+    folder: Path, full: Assembled, bare: Assembled, atlas: np.ndarray, head_y: float, workers=6, hair=None
+) -> dict:
+    """Full body and head views, bare and with hair. ``hair`` (a ``HairMesh``) is the separate procedural hair of the
+    twin: it is drawn with the soft shader approximation over ``full`` (cards of a MakeHuman hair part stay in ``full``)."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     paths = {}
     _atlas_tables(atlas, 0.5)  # built once before the threads start
+    if hair is not None:
+        _pyramid(hair.atlas)
     plan = []  # (kind, variant, name, clay, job)
-    for variant, mesh in (("bare", bare), ("hair", full)):
+    for variant, mesh, extra in (("bare", bare, None), ("hair", full, hair)):
+        points = mesh.positions if extra is None else np.vstack((mesh.positions, extra.positions))
         for name, angle in VIEWS:
-            camera = OrthoCamera.azimuth(name, angle).fit_bounds(mesh.positions, 640, 960, margin=0.05)
-            plan.append(("full_body", variant, name, False, lambda m=mesh, c=camera: _render(m, atlas, c, (640, 960))))
-        head = mesh.positions[mesh.positions[:, 1] > head_y]
+            camera = OrthoCamera.azimuth(name, angle).fit_bounds(points, 640, 960, margin=0.05)
+            plan.append(
+                (
+                    "full_body",
+                    variant,
+                    name,
+                    False,
+                    lambda m=mesh, c=camera, h=extra: _render(m, atlas, c, (640, 960), hair=h),
+                )
+            )
+        head = points[points[:, 1] > head_y]
         for clay in (False, True):
             for name, angle in HEAD_VIEWS if variant == "hair" else VIEWS:  # top / 3-4 back only with hair
                 camera = head_camera(name, angle, head, 640)
@@ -156,7 +343,9 @@ def write_previews(folder: Path, full: Assembled, bare: Assembled, atlas: np.nda
                         variant,
                         name,
                         clay,
-                        lambda m=mesh, c=camera, k=clay, li=lights: _render(m, atlas, c, (640, 640), clay=k, lights=li),
+                        lambda m=mesh, c=camera, k=clay, li=lights, h=extra: _render(
+                            m, atlas, c, (640, 640), clay=k, lights=li, hair=h
+                        ),
                     )
                 )
     images = render_all([item[4] for item in plan], workers)

@@ -186,44 +186,117 @@ def material_json() -> dict:
     }
 
 
-def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: str | None = None) -> dict:
-    """Write one skinless textured primitive (the rig stage skins it) and validate a re-read.
+def hair_material_json(hair, texture_index: int = 1) -> dict:
+    """The ``dtHair`` material: the strand data atlas as base colour texture, ``MASK`` 0.5 as fallback for plain viewers.
+
+    The atlas is linear data (R coverage, G root to tip, B variation), not a colour image: the hair shader reads it with
+    ``NoColorSpace`` and takes the colours from ``extras.dtHair``. ``baseColorFactor`` only tints what a viewer without
+    the shader draws (dark brown cut-out cards).
+    """
+    from twintex.colorspace import srgb_to_linear
+
+    from .hairtex import FORMAT
+
+    colour = np.array([int(hair.colours["colorHex"][i : i + 2], 16) for i in (1, 3, 5)], np.float32) / 255.0
+    factor = np.clip(srgb_to_linear(colour) * 2.0, 0.0, 1.0)
+    return {
+        "name": hair.node,
+        "pbrMetallicRoughness": {
+            "baseColorTexture": {"index": texture_index},
+            "baseColorFactor": [float(factor[0]), float(factor[1]), float(factor[2]), 1.0],
+            "metallicFactor": 0.0,
+            "roughnessFactor": 0.55,
+        },
+        "alphaMode": "MASK",
+        "alphaCutoff": ALPHA_CUTOFF,
+        "doubleSided": True,
+        "extras": {
+            "dtHair": {
+                "format": FORMAT,
+                "colorHex": hair.colours["colorHex"],
+                "rootHex": hair.colours["rootHex"],
+                "tipHex": hair.colours["tipHex"],
+                "cardCount": int(hair.card_count),
+            }
+        },
+    }
+
+
+def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: str | None = None, hair=None) -> dict:
+    """Write the skinless textured primitive of the body (the rig stage skins it) and validate a re-read.
 
     An RGBA atlas is stored as PNG (the alpha channel drives the cut-outs); an RGB atlas as JPEG unless ``mime`` says
-    otherwise.
+    otherwise. ``hair`` (a ``HairMesh``) is written as a second primitive on its own node ``dtHair`` with its own
+    material and strand data atlas; ``asset.extras.dtHairNode`` names the node.
     """
     normals = welded_vertex_normals(mesh.positions, mesh.faces)
     if atlas.shape[2] == 4:
         data, mime = encode_png(atlas), "image/png"
     else:
         data, mime = encode_atlas(atlas, mime or "image/jpeg")
-    prim = Prim(
-        mesh.positions.astype(np.float32),
-        mesh.faces.astype(np.uint32),
-        normals.astype(np.float32),
-        mesh.uv.astype(np.float32),
-        0,
-        "twin",
-    )
+    prims = [
+        Prim(
+            mesh.positions.astype(np.float32),
+            mesh.faces.astype(np.uint32),
+            normals.astype(np.float32),
+            mesh.uv.astype(np.float32),
+            0,
+            "twin",
+        )
+    ]
+    materials = [material_json()]
+    textures = [{"sampler": 0, "source": 0}]
+    images = [{"data": data, "mimeType": mime}]
+    extras = dict(extras)
+    hair_data = b""
+    if hair is not None:
+        hair_data = encode_png(hair.atlas)
+        prims.append(
+            Prim(
+                hair.positions.astype(np.float32),
+                hair.faces.astype(np.uint32),
+                hair.normals.astype(np.float32),
+                hair.uv.astype(np.float32),
+                1,
+                hair.node,
+            )
+        )
+        materials.append(hair_material_json(hair, 1))
+        textures.append({"sampler": 0, "source": 1})
+        images.append({"data": hair_data, "mimeType": "image/png"})
+        extras["dtHairNode"] = hair.node
     scene = GlbScene(
-        [prim],
-        [material_json()],
-        [{"sampler": 0, "source": 0}],
+        prims,
+        materials,
+        textures,
         [{"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071}],
-        [{"data": data, "mimeType": mime}],
+        images,
         extras,
     )
     write_static_glb(str(path), scene)
     checked = read_glb(str(path))
-    if len(checked.prims) != 1 or len(checked.prims[0].positions) != len(mesh.positions):
+    if len(checked.prims) != len(prims) or len(checked.prims[0].positions) != len(mesh.positions):
         raise ValueError("Written hybrid GLB failed its re-read")
-    if not np.isfinite(checked.prims[0].positions).all():
+    if not all(np.isfinite(p.positions).all() for p in checked.prims):
         raise ValueError("Written hybrid GLB has non-finite positions")
     js, _ = _split(open(path, "rb").read())
-    return {
+    info = {
         "bytes": len(open(path, "rb").read()),
         "image_bytes": len(data),
         "image_mime": mime,
         "material": js["materials"][0],
         "extras_keys": sorted(js["asset"]["extras"]),
     }
+    if hair is not None:
+        hair_prim = checked.prims[1]
+        if hair_prim.name != hair.node or len(hair_prim.positions) != len(hair.positions) or hair_prim.uv is None:
+            raise ValueError("Written hair node failed its re-read")
+        info["hair"] = {
+            "node": hair.node,
+            "vertices": int(len(hair.positions)),
+            "triangles": int(len(hair.faces)),
+            "atlas_bytes": len(hair_data),
+            "atlas_size": [int(hair.atlas.shape[1]), int(hair.atlas.shape[0])],
+            "material": js["materials"][1],
+        }
+    return info

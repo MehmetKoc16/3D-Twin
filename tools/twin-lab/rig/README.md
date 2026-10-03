@@ -93,6 +93,14 @@ weight transfer maps the template's own skin weights onto the mesh (distance 0 f
 parts). Run it with `--fingers keep --smooth 0` (MakeHuman hands are real hands, nothing is merged or cut). Tests:
 `tests/test_hybrid_fit.py`.
 
+**Separate hair node.** The hybrid GLB can hold a second primitive on its own node (`asset.extras.dtHairNode`, `"dtHair"`):
+hair cards with their own material and strand data atlas. `rig_scan.split_hair_prim` finds it by node name, requires exactly
+one other (body) primitive, and everything else works as for one mesh: the hair's skin weights are transferred from the
+closest body vertices (the head bone, `neck_01` at the nape), both nodes use the one shared skin, the hair keeps its own
+smooth card normals, and `twin.json` / `mh2twin.bin` describe the body primitive only. `rig_report.json` gets a `hair`
+section (vertices, head-chain weight min and mean, fraction of vertices with at least 0.95 on `head` + `neck_01`). Materials,
+textures, images and the asset extras pass through verbatim. Tests: `tests/test_hair_prim.py`.
+
 ## Method (approach B, recommended)
 
 Solid-colour atlas caps are recognised by identical UVs on each triangle. Cap-only

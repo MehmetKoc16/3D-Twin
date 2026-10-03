@@ -1,4 +1,8 @@
-"""Procedural hair for the hybrid twin: the driver that ties head frame, hair field, cards, texture and checks together."""
+"""Procedural hair for the hybrid twin: the driver that ties head frame, hair field, cards, atlas and checks together.
+
+The result is a separate hair mesh (the ``dtHair`` node of the twin GLB) with its own strand data atlas; the body mesh and
+its texture do not contain hair cards. The hair field also darkens the scalp texture under the hair.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +12,8 @@ import numpy as np
 
 from .haircheck import penetration_report, scalp_coverage
 from .hairgen import (
+    LAYERS,
     MM,
-    CardPart,
     Cards,
     HairField,
     HairStyle,
@@ -19,16 +23,47 @@ from .hairgen import (
     measure_head,
     plan_cards,
 )
-from .hairtex import StripLayout, hair_tile, strip_statistics
+from .hairtex import FORMAT, GAIN, StripLayout, hair_atlas, prefiltered_alpha, strip_statistics
 
 PROCEDURAL = "procedural"
+DEFAULT_HAIR_HEX = "#2a1e18"  # dark brown, nearly black-brown
+ROOT_FACTOR = 0.74  # the root colour relative to the base colour (sRGB, per channel, rounded down)
+TIP_FACTOR = np.array([1.38, 1.40, 1.34])  # the tip colour: lighter and a little warmer
+NODE_NAME = "dtHair"
+
+
+@dataclass
+class HairMesh:
+    """What the GLB writer needs of the hair: geometry, atlas and the colour data for the material extras."""
+
+    positions: np.ndarray  # (n, 3) metres, body frame
+    normals: np.ndarray  # (n, 3)
+    uv: np.ndarray  # (n, 2) atlas UV
+    faces: np.ndarray  # (m, 3)
+    atlas: np.ndarray  # (h, w, 4) uint8: R coverage, G root to tip, B variation, A = min(1, 2.5 R)
+    colours: dict  # colorHex, rootHex, tipHex
+    card_count: int
+    node: str = NODE_NAME
+
+
+def hex_of(rgb) -> str:
+    c = np.clip(np.rint(np.asarray(rgb, float)), 0, 255).astype(int)
+    return "#" + "".join(f"{int(v):02x}" for v in c)
+
+
+def hair_colours(base_srgb) -> dict:
+    """``colorHex`` (the shader base colour), ``rootHex`` (darker) and ``tipHex`` (lighter), all sRGB hex."""
+    base = np.asarray(base_srgb, float)
+    return {
+        "colorHex": hex_of(base),
+        "rootHex": hex_of(np.floor(base * ROOT_FACTOR + 1e-6)),
+        "tipHex": hex_of(np.minimum(base * TIP_FACTOR, 255.0)),
+    }
 
 
 @dataclass
 class HairBuild:
-    part: CardPart
-    positions: np.ndarray
-    tile: np.ndarray  # (h, w, 4) uint8 RGBA strip tile
+    mesh: HairMesh
     layout: StripLayout
     field: HairField
     surface: HeadSurface
@@ -37,8 +72,12 @@ class HairBuild:
     style: HairStyle
     report: dict
 
+    @property
+    def tile(self) -> np.ndarray:  # the strand data atlas (kept under its old name for the callers that read alpha)
+        return self.mesh.atlas
 
-def tune_plan(surface, field, style, layout, tolerance: float = 0.12, attempts: int = 4):
+
+def tune_plan(surface, field, style, layout, tolerance: float = 0.12, attempts: int = 5):
     """Plan the cards and rescale their spacing until the triangle count is within ``tolerance`` of the target."""
     scale = 1.0
     plan = plan_cards(surface, field, style, layout, scale)
@@ -91,7 +130,7 @@ def build_procedural_hair(
     colour_srgb,
     *,
     style: HairStyle | None = None,
-    tile_size: tuple[int, int] = (2048, 1024),
+    atlas_size: tuple[int, int] = (2048, 1024),
     ears: np.ndarray | None = None,
     texture_seed: int = 3,
     coverage: bool = True,
@@ -100,31 +139,22 @@ def build_procedural_hair(
     """Hair cards for a head surface (render vertices and faces of the head region, metres, +Y up, +Z front).
 
     ``eye_y`` is the height of the eye centre line (the hairline is measured from it); ``colour_srgb`` the base
-    strand colour (0..255). The result carries the part for ``assemble`` (positions already in the body frame), the
-    RGBA strip tile, the hair field (also used to darken the scalp texture) and a report of numbers.
+    strand colour (0..255, only travels in the material extras: the atlas holds no colour). The result carries the hair
+    mesh with its strand data atlas, the hair field (also used to darken the scalp texture) and a report of numbers.
     """
     style = style or HairStyle()
     surface = HeadSurface(head_positions, head_faces)
     frame = measure_head(surface, eye_y, style, ears)
     field = HairField(frame, style)
-    tile, layout = hair_tile(tile_size[0], tile_size[1], colour_srgb, texture_seed)
+    atlas, layout = hair_atlas(atlas_size[0], atlas_size[1], texture_seed)
     plan = tune_plan(surface, field, style, layout)
     cards = grow_cards(surface, field, style, plan)
-    part = CardPart(
-        "procedural",
-        "hair",
-        cards.faces,
-        cards.uv,
-        cards.positions,
-        "MASK",
-        {"material": {"alphaMode": "MASK", "alphaCutoff": 0.5, "doubleSided": True, "tintable": False}},
-    )
+    colours = hair_colours(colour_srgb)
+    mesh = HairMesh(cards.positions, cards.normals, cards.uv, cards.faces, atlas, colours, int(len(cards.roots)))
     clearance = style.clearance * MM
     penetration = penetration_report(surface, cards.positions, cards.faces, clearance)
     n_cards = len(cards.roots)
     layers = {}
-    from .hairgen import LAYERS
-
     for index, layer in enumerate(LAYERS):
         sel = cards.layer_of_card == index
         layers[layer.name] = {"cards": int(sel.sum()), "triangles": int((cards.layer_of_face == index).sum())}
@@ -141,8 +171,11 @@ def build_procedural_hair(
         }
         for side, box in frame.ears.items()
     }
+    tri = cards.positions[cards.faces]
+    card_area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
     report = {
         "kind": "procedural-cards",
+        "format": FORMAT,
         "style": style.to_dict(),
         "cards": int(n_cards),
         "vertices": int(len(cards.positions)),
@@ -150,6 +183,8 @@ def build_procedural_hair(
         "triangle_target": style.triangle_target,
         "spacing_scale": plan.scale,
         "layers": layers,
+        "card_area_cm2": float(card_area.sum() * 1e4),
+        "colours": colours,
         "frame": {
             "eye_y_m": eye_y,
             "skull_centre_xz_m": [frame.x0, frame.zc],
@@ -168,11 +203,16 @@ def build_procedural_hair(
         },
         "lengths_mm": region_lengths(field, cards),
         "penetration": penetration,
-        "strip": strip_statistics(tile, layout),
-        "tile_size": [int(tile.shape[1]), int(tile.shape[0])],
+        "strip": strip_statistics(atlas, layout),
+        "atlas": {
+            "format": FORMAT,
+            "size": [int(atlas.shape[1]), int(atlas.shape[0])],
+            "alpha": f"min(1, {GAIN} * R) for plain glTF viewers",
+            "slots": {k: len(layout.slots(k)) for k in ("long", "mid", "short")},
+        },
     }
     if coverage:
         report["coverage"] = scalp_coverage(
-            surface, field, cards.positions, cards.faces, cards.uv, tile[..., 3] / 255.0, pixel_mm=coverage_pixel_mm
+            surface, field, cards.positions, cards.faces, cards.uv, prefiltered_alpha(atlas), pixel_mm=coverage_pixel_mm
         )
-    return HairBuild(part, cards.positions, tile, layout, field, surface, frame, cards, style, report)
+    return HairBuild(mesh, layout, field, surface, frame, cards, style, report)

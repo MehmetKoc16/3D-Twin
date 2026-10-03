@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from hybridbody import PARTS_ASSETS
-from hybridbody.hair import build_procedural_hair
+from hybridbody.hair import DEFAULT_HAIR_HEX, build_procedural_hair, hair_colours
 from hybridbody.haircheck import penetration_report, scalp_coverage, skin_weight_report
 from hybridbody.hairdemo import build_generic_twin, generic_head, write_generic_previews
 from hybridbody.hairgen import (
@@ -14,7 +14,7 @@ from hybridbody.hairgen import (
     poisson_select,
     ribbon_faces,
 )
-from hybridbody.hairtex import hair_tile, make_layout, strip_statistics
+from hybridbody.hairtex import FORMAT, GAIN, hair_atlas, make_layout, prefiltered_alpha, strip_statistics
 from hybridbody.partstex import DEFAULT_HAIR_SRGB, plausible_hair, srgb_hex
 from hybridbody.pipeline import surface_clearance
 from hybridbody.template import load_part
@@ -30,7 +30,7 @@ def generic(model):
     eye_y = float(load_part(PARTS_ASSETS, "eyes-default").bind(combined)[:, 1].mean())
     style = HairStyle.with_overrides({"triangle_target": TARGET})
     build = build_procedural_hair(
-        body[head.ids], head.faces, eye_y, DEFAULT_HAIR_SRGB, style=style, tile_size=(512, 256), coverage=False
+        body[head.ids], head.faces, eye_y, DEFAULT_HAIR_SRGB, style=style, atlas_size=(512, 256), coverage=False
     )
     return {"build": build, "body": body, "combined": combined, "eye_y": eye_y, "style": style}
 
@@ -39,7 +39,7 @@ def generic(model):
 def test_style_overrides_are_validated_and_in_millimetres():
     style = HairStyle.with_overrides({"hairline_front": 70, "seed": 3, "triangle_target": 20000})
     assert style.hairline_front == 70.0 and style.seed == 3 and style.triangle_target == 20000
-    assert HairStyle().hairline_front == 68.0 and HairStyle().length_side == 12.0  # defaults of the requested cut
+    assert HairStyle().hairline_front == 68.0 and HairStyle().length_side == 8.0  # defaults of the requested cut
     with pytest.raises(ValueError, match="Unknown hair parameter"):
         HairStyle.with_overrides({"hairline": 1})
     with pytest.raises(ValueError, match="non-negative"):
@@ -59,28 +59,53 @@ def test_plausible_hair_makes_a_grey_measurement_dark_brown_and_honours_override
         plausible_hair(None, "#12")
 
 
+def test_default_hair_colour_is_the_requested_dark_brown_and_the_colours_are_graded():
+    assert DEFAULT_HAIR_HEX == "#2a1e18" and srgb_hex(DEFAULT_HAIR_SRGB) == "#2a1e18"
+    assert plausible_hair(None)["method"] == "default"
+    colours = hair_colours(DEFAULT_HAIR_SRGB)
+    assert colours["colorHex"] == "#2a1e18"
+    root, base, tip = (
+        np.array([int(colours[k][i : i + 2], 16) for i in (1, 3, 5)]) for k in ("rootHex", "colorHex", "tipHex")
+    )
+    assert (root < base).all() and (base < tip).all() and root[0] > root[2]  # darker root, lighter tip, still brown
+
+
 # --------------------------------------------------------------------------------------------------- texture
-def test_strip_tile_has_dense_roots_tapered_tips_and_the_requested_colour():
-    colour = np.array([60.0, 42.0, 30.0])
-    tile, layout = hair_tile(512, 256, colour, seed=1)
-    assert tile.shape == (256, 512, 4) and tile.dtype == np.uint8
-    stats = strip_statistics(tile, layout)
-    for kind in ("long", "short"):
-        assert (
-            stats[kind]["middle"] > 0.6 and 0.2 < stats[kind]["root"] < stats[kind]["middle"]
-        )  # dense body, ragged root edge
-        assert stats[kind]["tip"] < 0.5 * stats[kind]["middle"]  # strands taper out towards the tip
-    opaque = tile[..., 3] > 200
-    mean = tile[..., :3][opaque].mean(0)
-    assert 0.45 * colour.mean() < mean.mean() < 1.5 * colour.mean() and mean[0] > mean[2]  # brown, near the base
-    assert 0.0 < (tile[..., 3] < 128).mean() < 0.6  # real cut-outs, but not mostly empty
-    again, _ = hair_tile(512, 256, colour, seed=1)
-    assert (again == tile).all()  # deterministic
-    # every slot lies inside the tile and has an inner UV box inside 0..1
-    for slot in (*layout.long, *layout.short):
-        u0, v0, u1, v1 = slot.uv_box(layout.width, layout.height)
-        assert 0 <= u0 < u1 <= 1 and 0 <= v0 < v1 <= 1
-    assert make_layout(2048, 1024).long[0].height == 1024 and len(make_layout(2048, 1024).long) == 12
+def test_strand_atlas_has_the_contract_channels_dense_roots_and_tapered_tips():
+    atlas, layout = hair_atlas(512, 256, seed=1)
+    assert atlas.shape == (256, 512, 4) and atlas.dtype == np.uint8
+    r, g, b, a = (atlas[..., k].astype(float) / 255 for k in range(4))
+    stats = strip_statistics(atlas, layout)
+    for kind in ("long", "mid", "short"):
+        mean = stats[kind]["mean_r"]
+        assert mean["root"] > 0.6 and mean["root"] > mean["middle"] > 0.25  # dense solid root, strands in the body
+        assert mean["tip"] < 0.5 * mean["middle"]  # strands taper out towards the tip
+    # R coverage is soft (many in-between values), A is the plain-viewer fallback min(1, 2.5 R)
+    assert 0.2 < ((r > 0.05) & (r < 0.95)).mean() / (r > 0.05).mean() and 0.15 < r.mean() < 0.6
+    np.testing.assert_allclose(a, np.minimum(1.0, GAIN * r), atol=1.5 / 255)
+    # G is the root to tip position: 0 on the slot's first (root) row, 1 on its last, rising monotonically in between
+    for slot in (*layout.long, *layout.mid, *layout.short):
+        column = g[slot.y0 : slot.y1, slot.x0 + slot.width // 2]
+        assert column[0] < 0.02 and column[-1] > 0.98 and (np.diff(column) >= -1.5 / 255).all()
+        u0, v_root, u1, v_tip = slot.uv_box(layout.width, layout.height)
+        assert 0 <= u0 < u1 <= 1 and 0 <= v_root < v_tip <= 1  # the root is the top (v small), glTF v down
+    # B is the per-strand variation, centred on 0.5 where there are strands
+    covered = r > 0.5
+    assert 0.4 < b[covered].mean() < 0.6 and 0.05 < b[covered].std() < 0.3
+    again, _ = hair_atlas(512, 256, seed=1)
+    assert (again == atlas).all()  # deterministic
+    assert not (hair_atlas(512, 256, seed=2)[0] == atlas).all()
+    layout_big = make_layout(2048, 1024)
+    assert (len(layout_big.long), len(layout_big.mid), len(layout_big.short)) == (20, 16, 32)
+    assert layout_big.long[0].height == 1024 and layout_big.mid[0].height == 512 and layout_big.short[0].height == 128
+    assert FORMAT == "rcov-groot-bvar/1"
+
+
+def test_prefiltered_alpha_is_the_gained_mip_filtered_coverage():
+    atlas, _ = hair_atlas(512, 256, seed=1)
+    alpha = prefiltered_alpha(atlas, level=3)
+    assert alpha.shape == (32, 64) and alpha.min() >= 0 and alpha.max() <= 1.0
+    assert alpha.mean() > atlas[..., 0].mean() / 255  # the gain of 2.5 makes the filtered strips nearly solid
 
 
 def test_ribbon_faces_have_two_triangles_per_segment():
@@ -135,7 +160,7 @@ def test_field_places_the_hairline_leaves_the_ears_bare_and_grades_the_lengths(g
     assert len(top) and np.median(field.lengths(top)) > 0.036
     sides = v[(np.abs(field.azimuth(v)) > 60) & (np.abs(field.azimuth(v)) < 120) & (field.weight(v) > 0.99)]
     sides = sides[field.top_weight(sides) < 0.05]
-    assert len(sides) and 0.008 < np.median(field.lengths(sides)) < 0.016
+    assert len(sides) and 0.004 < np.median(field.lengths(sides)) < 0.010  # about 8 mm, less next to the ears
     # the flow field gives unit tangents
     normals = surface.signed_distance(build.cards.roots)[2]
     flow = field.flow(build.cards.roots, normals)
@@ -160,7 +185,21 @@ def test_cards_are_valid_triangles_with_uvs_inside_the_tile_and_a_triangle_budge
     area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
     assert area.min() > 1e-9  # no degenerate triangles
     assert set(np.unique(cards.layer_of_face)) == set(range(len(LAYERS)))
-    assert len(build.part.faces) == len(cards.faces) and build.part.category == "hair"
+    hair = build.mesh
+    assert hair.node == "dtHair" and len(hair.faces) == len(cards.faces) and hair.card_count == len(cards.roots)
+    assert hair.normals.shape == hair.positions.shape and np.allclose(np.linalg.norm(hair.normals, axis=1), 1.0)
+    assert hair.atlas.shape == (256, 512, 4) and set(hair.colours) == {"colorHex", "rootHex", "tipHex"}
+    # root to tip: along every card the atlas G channel (and so the v of the UV) rises from the root to the tip
+    atlas_g = hair.atlas[..., 1] / 255.0
+    ix = np.clip((hair.uv[:, 0] * 512).astype(int), 0, 511)
+    iy = np.clip((hair.uv[:, 1] * 256).astype(int), 0, 255)
+    g_vertex = atlas_g[iy, ix]
+    root_v = np.full(len(cards.roots), np.inf)
+    tip_v = np.full(len(cards.roots), -np.inf)
+    np.minimum.at(root_v, cards.card_of_face, hair.uv[cards.faces][:, :, 1].min(1))
+    np.maximum.at(tip_v, cards.card_of_face, hair.uv[cards.faces][:, :, 1].max(1))
+    assert (tip_v > root_v).all()
+    assert g_vertex.min() < 0.05 and g_vertex.max() > 0.9
     # the cards face away from the scalp: mean of (card normal . surface normal at the root) is clearly positive
     normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     normal /= np.linalg.norm(normal, axis=1, keepdims=True)
@@ -190,7 +229,7 @@ def test_hair_stays_above_the_skin_even_with_a_larger_clearance_setting(generic)
         generic["eye_y"],
         DEFAULT_HAIR_SRGB,
         style=style,
-        tile_size=(256, 128),
+        atlas_size=(256, 128),
         coverage=False,
     )
     assert build.report["penetration"]["min_mm"] >= 3.49
@@ -203,7 +242,7 @@ def test_hairline_and_lengths_in_the_report_match_the_requested_cut(generic):
     lengths = report["lengths_mm"]
     assert lengths["top_front"]["median"] > 25 and lengths["top_middle"]["median"] > 35
     assert 18 < lengths["crown"]["median"] < 40
-    assert 8 < lengths["sides"]["median"] < 16 and 8 < lengths["back"]["median"] < 16
+    assert 5 < lengths["sides"]["median"] < 10 and 5 < lengths["back"]["median"] < 10  # the body layer of the 8 mm cut
     assert lengths["hairline_edge"]["median"] < 8
     assert report["frame"]["ears"]["left"]["detected"] and report["frame"]["ears"]["right"]["detected"]
     assert report["triangles"] == len(generic["build"].cards.faces)
@@ -214,14 +253,14 @@ def test_hairline_height_follows_the_style_parameter(generic):
     head = generic_head(1.0)[3]
     build = build_procedural_hair(
         generic["body"][head.ids], head.faces, generic["eye_y"], DEFAULT_HAIR_SRGB, style=style,
-        tile_size=(256, 128), coverage=False,
+        atlas_size=(256, 128), coverage=False,
     )  # fmt: skip
     assert 54 < build.report["hairline"]["front_root_p02_mm_above_eye"] < 66
 
 
 def test_the_same_seed_gives_the_same_hair(generic):
     head = generic_head(1.0)[3]
-    kwargs = {"tile_size": (256, 128), "coverage": False}
+    kwargs = {"atlas_size": (256, 128), "coverage": False}
     style = HairStyle.with_overrides({"triangle_target": 5000})
     a = build_procedural_hair(
         generic["body"][head.ids], head.faces, generic["eye_y"], DEFAULT_HAIR_SRGB, style=style, **kwargs
@@ -245,13 +284,15 @@ def test_scalp_is_hidden_from_every_main_view_and_the_hair_follows_the_head_bone
         build.cards.positions,
         build.cards.faces,
         build.cards.uv,
-        build.tile[..., 3] / 255.0,
+        prefiltered_alpha(build.mesh.atlas),
         pixel_mm=1.0,
         samples=30000,
     )
     for view in ("front", "left", "right", "back", "top"):
-        assert coverage[view]["visible_samples"] > 200 and coverage[view]["hidden_fraction"] > 0.85, view
-    assert coverage["min_hidden_fraction"] > 0.85
+        assert coverage[view]["visible_samples"] > 200 and coverage[view]["hidden_fraction"] > 0.7, (
+            view
+        )  # 12k triangles
+    assert coverage["min_hidden_fraction"] > 0.7
     skin = skin_weight_report(model, generic["body"], build.cards.positions, build.cards.faces)
     assert skin["head_chain_weight_min"] > 0.3  # worst vertex (the nape) still mostly on head/neck bones
     assert skin["fraction_head_chain_ge_0_95"] > 0.95 and skin["head_bone_weight_mean"] > 0.7
@@ -262,7 +303,7 @@ def test_a_sphere_head_without_ears_still_gets_hair_with_default_ear_boxes():
     positions, faces, _, _ = sphere_template(radius=0.095, subdivisions=4, centre_y=1.65)
     style = HairStyle.with_overrides({"triangle_target": 3000})
     build = build_procedural_hair(
-        positions, faces, 1.65 - 0.02, DEFAULT_HAIR_SRGB, style=style, tile_size=(256, 128), coverage=False
+        positions, faces, 1.65 - 0.02, DEFAULT_HAIR_SRGB, style=style, atlas_size=(256, 128), coverage=False
     )
     assert build.frame.notes and not build.frame.ears[1].detected
     assert build.report["penetration"]["vertices_below_clearance"] == 0 and build.report["triangles"] > 500
@@ -287,7 +328,8 @@ def test_generic_demo_writes_head_views_and_numbers(tmp_path):
     twin = build_generic_twin(size=512, style=HairStyle.with_overrides({"triangle_target": 4000}), coverage=False)
     assert (
         twin["atlas"].shape == (640, 512, 4)
-        and twin["mesh"].parts["hair"]["faces"][1] > twin["mesh"].parts["body"]["faces"][1]
+        and "hair" not in twin["mesh"].parts  # the hair is a separate node, not part of the body mesh
+        and len(twin["build"].mesh.faces) > 500
     )
     paths = write_generic_previews(tmp_path, twin, size=160, variants=(False,))
     assert set(paths) >= {"generic_head_front", "generic_head_side", "generic_head_back", "generic_head_top"}

@@ -21,7 +21,7 @@ from .template import Part
 
 DEFAULT_HAIR_LINEAR = np.array([0.05, 0.034, 0.025])  # dark brown
 DEFAULT_IRIS_SRGB = np.array([76, 52, 34], float)  # dark brown
-DEFAULT_HAIR_SRGB = np.array([52, 37, 28], float)  # natural dark brown (procedural hair base colour)
+DEFAULT_HAIR_SRGB = np.array([42, 30, 24], float)  # #2a1e18: dark brown, nearly black-brown (procedural hair)
 
 
 def srgb_hex(rgb) -> str:

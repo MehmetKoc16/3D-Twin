@@ -67,12 +67,14 @@ def main(argv=None):
     parser.add_argument(
         "--hair",
         default=DEFAULT_HAIR,
-        help="'procedural' (default: cards grown on the deformed head, short sides and back, volume on top swept up "
-        "and back, no fringe) or a MakeHuman CC0 hair part id from parts/index.json (hair-short, hair-tousled, ...)",
+        help="'procedural' (default: hair cards grown on the deformed head as the separate dtHair node, short sides and "
+        "back, volume on top swept up and back, no fringe) or a MakeHuman CC0 hair part id from parts/index.json "
+        "(hair-short, hair-tousled, ...: legacy, merged into the body mesh)",
     )
     parser.add_argument(
         "--hair-hex",
-        help="procedural hair colour #rrggbb (default: the photo colour made a natural dark brown if it is too grey)",
+        help="procedural hair colour #rrggbb (default #2a1e18, dark brown); 'photo' uses the photographed colour made "
+        "a natural dark brown",
     )
     parser.add_argument("--hairline-mm", type=float, help="procedural hair: front hairline height above the eye line")
     parser.add_argument("--hair-top-mm", type=float, help="procedural hair: length of the top at the front hairline")

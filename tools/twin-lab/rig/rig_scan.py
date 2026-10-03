@@ -42,6 +42,7 @@ def main() -> None:
     os.makedirs(args.out, exist_ok=True)
 
     scene = read_glb(args.scan)
+    body_index, hair_index = split_hair_prim(scene)
     counts = [len(p.positions) for p in scene.prims]
     verts = np.vstack([p.positions for p in scene.prims]).astype(np.float64)
     offs = np.cumsum([0, *counts])
@@ -149,9 +150,11 @@ def main() -> None:
 
     un = trimesh.Trimesh(rest_uverts, wm.faces, process=False).vertex_normals * (-1.0 if flipped else 1.0)  # welded normals: no seam creases
     prims_out, sj, sw = [], [], []
-    for p, o, c in zip(scene.prims, offs[:-1], counts):
+    for pi, (p, o, c) in enumerate(zip(scene.prims, offs[:-1], counts)):
         v = rest_verts[o : o + c]
-        prims_out.append(replace(p, positions=v.astype(np.float32), normals=un[inv[o : o + c]].astype(np.float32)))
+        # the hair keeps its authored smooth card normals (the rest frame differs from the hair's by a translation only)
+        normals = p.normals if pi == hair_index and p.normals is not None else un[inv[o : o + c]]
+        prims_out.append(replace(p, positions=v.astype(np.float32), normals=np.asarray(normals).astype(np.float32)))
         sj.append(jn[inv[o : o + c]])
         sw.append(jw[inv[o : o + c]])
     cut = []
@@ -175,16 +178,17 @@ def main() -> None:
     write_skinned_glb(os.path.join(args.out, "rigged.glb"), out_scene, joints, sj, sw)
     if args.keep_pose:
         log("--keep-pose: the mesh is not in the rest frame, twin.json / mh2twin.bin are not written")
-    elif len(prims_out) != 1:
-        raise SystemExit("twin.json export needs a single-primitive mesh (the app binds one SkinnedMesh)")
+    elif body_index is None:
+        raise SystemExit("twin.json export needs a single body primitive (the app binds one body SkinnedMesh)")
     else:
         opts = {"fingers": args.fingers, "cutBridges": args.cut_bridges, "smooth": args.smooth, "weights": args.weights}
+        body = prims_out[body_index]
         twin = write_twin_package(
             args.out,
             model,
             res,
-            prims_out[0].positions.astype(np.float64),
-            prims_out[0].normals.astype(np.float64) if prims_out[0].normals is not None else None,
+            body.positions.astype(np.float64),
+            body.normals.astype(np.float64) if body.normals is not None else None,
             float(shift[1]),
             {"scan": os.path.basename(args.scan), "options": opts},
             bodyfix=bodyfix,
@@ -208,9 +212,45 @@ def main() -> None:
         "unposed": not args.keep_pose,
         "height_m": float(rest_verts[:, 1].max()),
     }
+    if hair_index is not None:
+        report["hair"] = hair_weight_report(model, scene.prims[hair_index].name, sj[hair_index], sw[hair_index])
+        log(f"hair node {report['hair']['node']}: {report['hair']['vertices']} vertices, head-chain weight mean "
+            f"{report['hair']['head_chain_weight_mean']:.3f}, min {report['hair']['head_chain_weight_min']:.3f}")
     json.dump(report, open(os.path.join(args.out, "rig_report.json"), "w"), indent=1)
     np.save(os.path.join(args.out, "rest_heads.npy"), out_heads)
     log(f"done -> {os.path.join(args.out, 'rigged.glb')}")
+
+
+def split_hair_prim(scene: GlbScene) -> tuple[int | None, int | None]:
+    """``(body primitive index, hair primitive index)``: the hair primitive is the node ``asset.extras.dtHairNode`` names.
+
+    The body index is ``None`` unless exactly one primitive is not hair (the twin package describes one body mesh).
+    The hair primitive (cards on the head, its own material and atlas) is skinned with the same rig as the body: its weights
+    come from the closest body vertices like those of every other primitive and it shares the one skin.
+    """
+    name = scene.extras.get("dtHairNode")
+    if name is None:
+        return (0, None) if len(scene.prims) == 1 else (None, None)
+    if not isinstance(name, str) or not name:
+        raise ValueError("asset.extras.dtHairNode must be a node name")
+    hair = [i for i, p in enumerate(scene.prims) if p.name == name]
+    if len(hair) != 1:
+        raise ValueError(f"asset.extras.dtHairNode {name!r} must name exactly one mesh node, found {len(hair)}")
+    body = [i for i in range(len(scene.prims)) if i != hair[0]]
+    return (body[0] if len(body) == 1 else None), hair[0]
+
+
+def hair_weight_report(model: MHModel, node: str, joints: np.ndarray, weights: np.ndarray) -> dict:
+    """How much of the hair's skin weight sits on the head and neck bones (numbers only)."""
+    chain = [model.bone_index[b] for b in ("head", "neck_01")]
+    on_chain = np.where(np.isin(joints, chain), weights, 0.0).sum(1)
+    return {
+        "node": node,
+        "vertices": int(len(joints)),
+        "head_chain_weight_min": float(on_chain.min()),
+        "head_chain_weight_mean": float(on_chain.mean()),
+        "fraction_head_chain_ge_0_95": float((on_chain >= 0.95).mean()),
+    }
 
 
 def _mat(rv: np.ndarray) -> np.ndarray:

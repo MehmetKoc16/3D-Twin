@@ -152,12 +152,32 @@ def accessor_array(document: dict, blob: bytes, index: int) -> np.ndarray:
     return values
 
 
+def hair_node_name(document: dict) -> str | None:
+    """``asset.extras.dtHairNode``: the name of the separate hair node (``None`` for bundles without hair)."""
+    name = document.get("asset", {}).get("extras", {}).get("dtHairNode")
+    if name is None:
+        return None
+    if not isinstance(name, str) or not name:
+        raise ValueError("asset.extras.dtHairNode must be a node name")
+    return name
+
+
+def body_nodes(document: dict) -> list[dict]:
+    """The mesh nodes that are not the separate hair node."""
+    hair_name = hair_node_name(document)
+    return [
+        node
+        for node in document["nodes"]
+        if "mesh" in node and (hair_name is None or node.get("name") != hair_name)
+    ]
+
+
 def mesh_info(
     document: dict, twin: dict, rig_path: Path
 ) -> tuple[dict, list[str], int]:
-    nodes = [node for node in document["nodes"] if "mesh" in node]
+    nodes = body_nodes(document)
     if len(nodes) != 1 or "skin" not in nodes[0]:
-        raise ValueError("The twin loader requires exactly one skinned mesh instance")
+        raise ValueError("The twin loader requires exactly one skinned body mesh instance")
     node = nodes[0]
     primitives = document["meshes"][node["mesh"]]["primitives"]
     if len(primitives) != 1:
@@ -190,6 +210,113 @@ def mesh_info(
         if document["accessors"][attrs[key]]["count"] != count:
             raise ValueError("Skin attribute count differs from vertex count")
     return primitive, names, count
+
+
+HAIR_FORMAT = "rcov-groot-bvar/1"
+HAIR_ATTRIBUTES = ("POSITION", "NORMAL", "TEXCOORD_0", "JOINTS_0", "WEIGHTS_0")
+
+
+def validate_hair(document: dict, blob: bytes, joint_count: int) -> dict | None:
+    """Validate the separate hair node (``dtHairNode``); ``None`` when the bundle has no hair.
+
+    The node holds one skinned mesh that shares the skin of the body (same joints, rest pose and inverse binds), with its
+    own material ``dtHair`` (MASK 0.5, double sided, the strand data atlas as base colour texture) and
+    ``extras.dtHair`` (format, sRGB colours, card count).
+    """
+    name = hair_node_name(document)
+    if name is None:
+        return None
+    nodes = [node for node in document["nodes"] if node.get("name") == name]
+    if len(nodes) != 1 or "mesh" not in nodes[0] or "skin" not in nodes[0]:
+        raise ValueError("dtHairNode must name exactly one skinned mesh node")
+    node = nodes[0]
+    bodies = body_nodes(document)
+    if len(bodies) != 1 or bodies[0].get("skin") != node["skin"]:
+        raise ValueError("The hair must use the same skin as the twin body")
+    primitives = document["meshes"][node["mesh"]]["primitives"]
+    if len(primitives) != 1:
+        raise ValueError("The hair mesh requires a single primitive")
+    primitive = primitives[0]
+    attrs = primitive["attributes"]
+    if primitive.get("mode", 4) != 4 or "indices" not in primitive or not set(HAIR_ATTRIBUTES) <= attrs.keys():
+        raise ValueError(
+            "The hair primitive needs triangles with indices, POSITION, NORMAL, TEXCOORD_0, JOINTS_0 and WEIGHTS_0"
+        )
+    positions = accessor_array(document, blob, attrs["POSITION"])
+    normals = accessor_array(document, blob, attrs["NORMAL"])
+    uv = accessor_array(document, blob, attrs["TEXCOORD_0"])
+    joints = accessor_array(document, blob, attrs["JOINTS_0"])
+    weights = accessor_array(document, blob, attrs["WEIGHTS_0"])
+    indices = accessor_array(document, blob, primitive["indices"]).ravel()
+    count = len(positions)
+    if (
+        positions.shape != (count, 3)
+        or not np.isfinite(positions).all()
+        or normals.shape != positions.shape
+        or not np.isfinite(normals).all()
+        or uv.shape != (count, 2)
+        or not np.isfinite(uv).all()
+        or np.any(uv < 0)
+        or np.any(uv > 1)
+        or joints.shape != (count, 4)
+        or weights.shape != joints.shape
+        or joints.dtype.kind not in "iu"
+        or np.any(joints >= joint_count)
+        or not np.isfinite(weights).all()
+        or np.any(weights < 0)
+        or np.any(np.abs(weights.sum(axis=1) - 1) > 1e-3)
+        or len(indices) == 0
+        or len(indices) % 3
+        or indices.dtype.kind not in "iu"
+        or np.any(indices >= count)
+    ):
+        raise ValueError("Invalid hair geometry, UVs or skin weights")
+    lengths = np.linalg.norm(normals.astype(np.float64), axis=1)
+    if np.any(np.abs(lengths - 1) > 0.05):
+        raise ValueError("Hair normals must be unit length")
+    material_index = primitive.get("material")
+    if type(material_index) is not int or not 0 <= material_index < len(document["materials"]):
+        raise ValueError("The hair primitive needs a material")
+    body_primitive = document["meshes"][bodies[0]["mesh"]]["primitives"][0]
+    if material_index == body_primitive.get("material"):
+        raise ValueError("The hair needs its own material, not the body material")
+    material = document["materials"][material_index]
+    if (
+        material.get("name") != "dtHair"
+        or material.get("doubleSided") is not True
+        or material.get("alphaMode") != "MASK"
+        or material.get("alphaCutoff") != 0.5
+    ):
+        raise ValueError("The hair material must be named dtHair, double sided, alphaMode MASK at 0.5")
+    info = material.get("pbrMetallicRoughness", {}).get("baseColorTexture")
+    if info is None:
+        raise ValueError("The hair material requires the strand data atlas as baseColorTexture")
+    texture = document["textures"][info["index"]]
+    _, body_texture = base_color_info(document, body_primitive)
+    if texture["source"] == body_texture["source"]:
+        raise ValueError("The hair atlas must be its own image")
+    atlas = Image.open(io.BytesIO(embedded_image(document, blob, texture)))
+    if atlas.mode not in ("RGB", "RGBA") or min(atlas.size) < 64:
+        raise ValueError("The hair atlas must be an RGB(A) image of at least 64 px")
+    data = np.asarray(atlas.convert("RGBA"), dtype=np.float64) / 255
+    if not 0.02 < data[..., 0].mean() < 0.9 or data[..., 0].max() < 0.5:
+        raise ValueError("The hair atlas has implausible strand coverage in its R channel")
+    extras = material.get("extras", {}).get("dtHair")
+    if not isinstance(extras, dict) or extras.get("format") != HAIR_FORMAT:
+        raise ValueError(f"The hair material needs extras.dtHair with format {HAIR_FORMAT}")
+    for key in ("colorHex", "rootHex", "tipHex"):
+        if not re.fullmatch(r"#[0-9a-f]{6}", str(extras.get(key, ""))):
+            raise ValueError(f"Invalid dtHair {key}")
+    cards = extras.get("cardCount")
+    if type(cards) is not int or cards <= 0:
+        raise ValueError("Invalid dtHair cardCount")
+    return {
+        "node": name,
+        "vertices": int(count),
+        "triangles": int(len(indices) // 3),
+        "cardCount": cards,
+        "atlas": list(atlas.size),
+    }
 
 
 def base_color_info(document: dict, primitive: dict) -> tuple[dict, dict]:
@@ -365,7 +492,11 @@ def validate_bundle(
         params = validate_glasses(view_bytes(document, blob, index))
         if params != accessory.get("params"):
             raise ValueError("Accessory params differ from the embedded GLB")
-    return {"vertices": count, "bones": len(names), "mappingBytes": len(data)}
+    result = {"vertices": count, "bones": len(names), "mappingBytes": len(data)}
+    hair = validate_hair(document, blob, len(names))
+    if hair is not None:
+        result["hair"] = hair
+    return result
 
 
 def write_bundle(
