@@ -17,7 +17,7 @@ def cell(kind: str, source: str, identifier: str) -> dict:
 def build() -> dict:
     embedded = {name: (HERE / name).read_text(encoding="utf-8") for name in
                 ("io_utils.py", "camera.py", "setup_runtime.py", "worker.py", "export_fit.py",
-                 "diagnostics.py", "runtime_compat.py", "notebook_session.py", "downloads.py")}
+                 "diagnostics.py", "runtime_compat.py", "notebook_session.py", "downloads.py", "fit_policy.py")}
     cells = [cell("markdown", """
         # Multi-image FLAME head fit with Pixel3DMM
 
@@ -33,7 +33,8 @@ def build() -> dict:
         Edit the parameter cell, then **Runtime > Run all**.
         A separate Python 3.9 / CUDA 11.8 conda environment avoids restarting Colab.
         Installation/native compilation and multi-GB weight downloads can take tens of minutes.
-        **The revised fitting/retry path has not been tested on Colab.**
+        The previous front/right workflow succeeded end to end on a Colab T4.
+        **The new multi-photo/retry changes are not yet Colab-tested.**
 
         Drive is mounted with read-only **usage**, not a read-only permission grant:
         Colab's Drive mount can write. This notebook only reads the selected FLAME
@@ -47,10 +48,18 @@ def build() -> dict:
         use gdown with three attempts/backoff. Final failure names the file, official
         source URL and Drive destination. Only model files belong in this folder.
         Never place/upload your photos in Drive for this workflow. When prompted,
-        select de-glassed `front.png`, `left.png`, `right.png`, `back.png` together
-        (.jpg/.jpeg also accepted). Left/right mean the subject's left/right profile.
-        Back is optional and omitted from fitting if no face is detected.
-        Front must preprocess successfully; undetectable profiles/back are skipped with warnings.
+        select **up to 12 files together**: `front`, `left`, `right`, `back`,
+        and `extra_1` through `extra_8`, each with .png/.jpg/.jpeg extension.
+        Front is required; all other views are optional. Left/right mean the
+        subject's left/right profile. Undetectable views or failed crops/landmarks
+        are skipped with warnings. A known crop/landmark failure gets one retry
+        with a 0.75 landmark detector confidence gate (normally 0.99); check its overlay.
+        Image coordinates/orientation are preserved throughout.
+        Extras may have different cameras, expressions or lighting but must show
+        the same person. Prefer sharp neutral photos for texture, especially the
+        mouth; smiling views can still help shape fitting. Consistent eyeglasses
+        are accepted, but frames/reflections can bias landmarks and surface cues.
+        De-glassed clear photos remain preferable for geometric fitting.
 
         Photos run on Google's VM only, through user-operated uploads. No remote
         inference service or logging service receives them. No previews are displayed.
@@ -74,7 +83,7 @@ def build() -> dict:
         # preprocessing/MICA and tracking landmark/mask assets still require 2020.
         FLAME2020_ZIP_DRIVE_PATH = "/content/drive/MyDrive/flame/FLAME2020.zip"
         ITERS = 1500
-        GLOBAL_ITERS = 1500
+        GLOBAL_ITERS = 1500  # Joint floor/reference for 2 views; scales with usable views/batch.
         MAX_FIT_BATCH_SIZE = 1  # Small joint batches reduce peak memory on T4.
     """, "parameters"), cell("markdown", """
         ## GPU check
@@ -129,10 +138,32 @@ def build() -> dict:
 
         Each view is cropped separately before the joint fit. `is_discontinuous=True`
         disables temporal smoothness; `global_camera=False` fits intrinsics per photo.
+        One shared shape is optimized with per-view expression, jaw, eyelids and camera.
+        With batch size 1, joint iterations are max(GLOBAL_ITERS,
+        ceil(GLOBAL_ITERS * usable_views / 2)); this preserves about 750 expected
+        joint updates per view at defaults. Online initialization is 1500 steps
+        per view. Nine usable views take 6750 joint steps, twelve take 9000.
+        Preprocessing/online fitting scale approximately linearly. Input caches
+        also grow with view count, while the batch cap limits render/gradient memory.
+        For a warm T4 cache, plan roughly **4.5x your successful two-view time for
+        nine usable views, 6x for twelve**; this is a work estimate, not a measured
+        benchmark. If two views took 20 minutes, budget about 90/120 minutes.
+        Skipped views reduce work. Installation is additional; lower ITERS and
+        GLOBAL_ITERS for a quicker preview, then inspect alignment. Actual phase
+        timings and PyTorch peak memory are saved in `fit_runtime.json` and printed.
+        Up to twelve views have not been benchmarked on T4 here.
         Overlays are at **256x256 on each face crop**, not original-photo coordinates.
         Final shared shape coefficients generate the neutral mesh anew after joint
         fitting: expression/eyelids zero, jaw/neck/eyes/global rotation identity,
         global translation zero. Do not use upstream's earlier canonical mesh.
+        Cameras, fitted meshes and overlays retain every accepted view name,
+        including `extra_N`, and original size/crop bounds. Cameras keep schema
+        `dt-flame-head-cameras/1`; an additive `expression` object supplies L2/RMS
+        coefficient magnitude, neutrality rank and mouth texture preference.
+        This is a relative expression/smile proxy, not a smile classifier.
+        The current local texture consumer still reads only front/right. Extras
+        and mouth preferences are exported for a future consumer extension;
+        this notebook exports geometry/parameters/overlays rather than a texture atlas.
 
         Enable browser downloads. The cell waits for `files.download()` to transfer
         the archive into browser memory before deleting the VM source. It cannot

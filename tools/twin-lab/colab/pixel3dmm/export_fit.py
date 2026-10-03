@@ -12,6 +12,46 @@ from camera import camera_matrices, projection_matrix
 from setup_runtime import PIXEL_REVISION, MICA_REVISION, FACER_REVISION, PIPNET_REVISION
 
 
+def expression_indicators(checkpoints: list) -> list:
+    """Within-person neutral preference; coefficient magnitude is no smile classifier."""
+    norms, rms = [], []
+    for checkpoint in checkpoints:
+        expression = np.asarray(checkpoint["flame"]["exp"], dtype=np.float64).reshape(-1)
+        if expression.shape != (100,) or not np.isfinite(expression).all():
+            raise ValueError("Invalid fitted expression coefficients")
+        norms.append(float(np.linalg.norm(expression)))
+        rms.append(float(np.sqrt(np.mean(expression ** 2))))
+    return [{"magnitudeL2": norm, "magnitudeRMS": rms[index],
+             "neutralityRank": 1 + sum(other < norm for other in norms),
+             "mouthTexturePreference": 1.0 / (1.0 + norm),
+             "smileProxyOnly": True} for index, norm in enumerate(norms)]
+
+
+def camera_document(skipped: list) -> dict:
+    return {"schema": "dt-flame-head-cameras/1", "model": "OpenGL perspective pinhole",
+            "grid": "256x256 independent face crop; pixel centers at (column+0.5,row+0.5)",
+            "projection": "q = worldToCamera @ [x,y,z,1]; depth=-q.z; u=fx*q.x/depth+cx; v=cy-fy*q.y/depth",
+            "meshSpace": "native FLAME metres, unnormalized; extrinsics apply to fitted_views meshes with local neck/jaw/expression already applied",
+            "expressionIndicator": {"source": "100 fitted FLAME expression coefficients",
+                                    "interpretation": "Lower magnitude/rank prefers neutral mouth texture within this fit; smileProxyOnly is not a smile classification",
+                                    "mouthTexturePreference": "1/(1+magnitudeL2); heuristic, not a probability"},
+            "views": {}, "skipped": skipped}
+
+
+def camera_view(item: dict, checkpoint: dict, expression: dict) -> dict:
+    intrinsics, extrinsics, side = camera_matrices(checkpoint)
+    joint_transforms = np.asarray(checkpoint["joint_transforms"])
+    view = item["view"]
+    return {**item, "imageSizeWH": [side, side], "intrinsics": intrinsics.tolist(),
+            "worldToCamera": extrinsics.tolist(),
+            "headCentricWorldToCamera": (extrinsics @ joint_transforms[0, 1]).tolist(),
+            "headCentricNote": "Use only with the matching fitted mesh after undoing joint_transforms[0,1]; neutral expression changes geometry",
+            "native": {key: np.asarray(value).tolist() for key, value in checkpoint["camera"].items()},
+            "projectionMatrix": projection_matrix(intrinsics, side).tolist(),
+            "overlay": f"overlays/{view}.png", "fittedMesh": f"fitted_views/{view}.ply",
+            "expression": expression}
+
+
 def render_overlay(vertices, faces, camera, image, destination: Path) -> None:
     import torch
     import nvdiffrast.torch as dr
@@ -71,34 +111,24 @@ def export_fit(root: Path, config: dict) -> None:
                           "jaw": identity6d, "eyes": identity6d * 2, "eyelids": [0.0, 0.0]}
     parameters = {"schema": "dt-flame-head-parameters/1", "flameVersion": config["flame_version"],
                   "rotationEncoding": "6D: first two ROWS of a rotation matrix (Pixel3DMM/PyTorch3D)",
-                  "neutral": neutral_parameters, "views": {}}
+                  "neutral": neutral_parameters, "views": {}, "viewMetadata": {}}
     arrays = {"neutral_" + key: np.asarray(value, dtype=np.float32) for key, value in neutral_parameters.items()}
-    cameras = {"schema": "dt-flame-head-cameras/1", "model": "OpenGL perspective pinhole",
-               "grid": "256x256 independent face crop; pixel centers at (column+0.5,row+0.5)",
-               "projection": "q = worldToCamera @ [x,y,z,1]; depth=-q.z; u=fx*q.x/depth+cx; v=cy-fy*q.y/depth",
-               "meshSpace": "native FLAME metres, unnormalized; extrinsics apply to fitted_views meshes with local neck/jaw/expression already applied",
-               "views": {}, "skipped": view_map["skipped"]}
-    for item, checkpoint in zip(view_map["included"], checkpoints):
+    cameras = camera_document(view_map["skipped"])
+    indicators = expression_indicators(checkpoints)
+    for item, checkpoint, expression in zip(view_map["included"], checkpoints, indicators):
         view, index = item["view"], item["frame"]
         fitted = {key: np.asarray(value) for key, value in checkpoint["flame"].items()}
         if not all(np.isfinite(value).all() for value in fitted.values()):
             raise ValueError("Nonfinite fitted parameters")
         parameters["views"][view] = {key: value.tolist() for key, value in fitted.items()}
+        parameters["viewMetadata"][view] = {**item, "expression": expression}
         arrays.update({view + "_" + key: value for key, value in fitted.items()})
         joint_transforms = np.asarray(checkpoint["joint_transforms"])
         arrays[view + "_joint_transforms"] = joint_transforms
         intrinsics, extrinsics, side = camera_matrices(checkpoint)
-        # A rigid head-centric camera cannot undo nonrigid expression/jaw changes.
-        # Preserve the local neck transform separately, as upstream visualization does.
-        head_centric = extrinsics @ joint_transforms[0, 1]
-        cameras["views"][view] = {
-            **item, "imageSizeWH": [side, side], "intrinsics": intrinsics.tolist(),
-            "worldToCamera": extrinsics.tolist(), "headCentricWorldToCamera": head_centric.tolist(),
-            "headCentricNote": "Use only with the matching fitted mesh after undoing joint_transforms[0,1]; neutral expression changes geometry",
-            "native": {key: np.asarray(value).tolist() for key, value in checkpoint["camera"].items()},
-            "projectionMatrix": projection_matrix(intrinsics, side).tolist(),
-            "overlay": f"overlays/{view}.png", "fittedMesh": f"fitted_views/{view}.ply",
-        }
+        cameras["views"][view] = camera_view(item, checkpoint, expression)
+        for key in ("magnitudeL2", "magnitudeRMS", "neutralityRank", "mouthTexturePreference"):
+            arrays[view + "_expression_" + key] = np.asarray(expression[key])
         arrays[view + "_intrinsics"] = intrinsics
         arrays[view + "_world_to_camera"] = extrinsics
         source_mesh = fit_path / f"mesh/{index:05d}.ply"
@@ -109,13 +139,16 @@ def export_fit(root: Path, config: dict) -> None:
     (out / "parameters.json").write_text(json.dumps(parameters, indent=2, allow_nan=False))
     np.savez_compressed(out / "parameters.npz", **arrays)
     (out / "cameras.json").write_text(json.dumps(cameras, indent=2, allow_nan=False))
+    runtime_path = root / "fit_runtime.json"
+    if runtime_path.is_file():
+        shutil.copyfile(runtime_path, out / "fit_runtime.json")
     provenance = {"createdAt": datetime.now(timezone.utc).isoformat(), "flameVersion": config["flame_version"],
                   "sources": {"pixel3dmm": PIXEL_REVISION, "MICA": MICA_REVISION, "facer": FACER_REVISION, "PIPNet": PIPNET_REVISION},
                   "license": "Personal non-commercial research only; Pixel3DMM CC BY-NC 4.0 plus separately accepted FLAME/MICA/insightface/nvdiffrast terms. Not cleared for app distribution.",
                   "isDiscontinuous": True, "globalCamera": False, "neutralExpression": True, "neutralJaw": True,
                   "includedViews": [item["view"] for item in view_map["included"]], "skippedViews": view_map["skipped"],
                   "fitSettings": json.loads((root / "fit_config.json").read_text()),
-                  "limitations": ["No hair reconstruction", "Unseen back anatomy follows FLAME prior", "Scale from model prior; no metric calibration", "Not the rigged twin.glb bundle"]}
+                  "limitations": ["No hair reconstruction", "Unseen back anatomy follows FLAME prior", "Scale from model prior; no metric calibration", "Expression magnitude is not a smile classifier", "Eyeglasses can bias fit and texture", "Not the rigged twin.glb bundle"]}
     (out / "provenance.json").write_text(json.dumps(provenance, indent=2, allow_nan=False))
     with zipfile.ZipFile(root / "head_fit.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(out.rglob("*")):

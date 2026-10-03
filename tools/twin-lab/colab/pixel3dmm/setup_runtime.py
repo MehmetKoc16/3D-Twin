@@ -74,6 +74,11 @@ def apply_runtime_patches(root: Path) -> None:
     source = root / "pixel3dmm"
     replace_once_or_done(source / "src/pixel3dmm/tracking/tracker.py", "COMPILE = True", "COMPILE = False")
     replace_once_or_done(source / "scripts/network_inference.py", "model = model.cuda()", "model = model.eval().float().cuda()")
+    # Only a failed crop retries this threshold; original image/camera orientation
+    # is preserved. Pinned PIPNet's landmark gate otherwise requires 99% confidence.
+    replace_once_or_done(source / "src/pixel3dmm/preprocessing/pipnet_utils.py",
+                         "if detections[i][1] < 0.99:",
+                         "if detections[i][1] < (0.75 if os.environ.get('DT_PROFILE_CROP_RETRY') == '1' else 0.99):")
 
 
 def cache_signature(architecture: str) -> dict:

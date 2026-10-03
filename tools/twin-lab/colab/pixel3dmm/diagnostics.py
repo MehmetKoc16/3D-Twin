@@ -4,6 +4,7 @@ from collections import deque
 from pathlib import Path
 import json
 import re
+from io_utils import VIEW_ORDER, OPTIONAL_VIEWS
 
 
 def traceback_tail(path: Path, limit: int = 120) -> list:
@@ -78,7 +79,7 @@ def print_diagnostics(root: Path, limit: int = 120, allow_install_logs: bool = F
         # Values come from our labels, but still exclude arbitrary user input.
         step = re.sub(r"[^a-zA-Z0-9_.: -]", "?", str(info.get("step", "unknown")))[:80]
         view = info.get("view", "all")
-        if view not in {"all", "front", "left", "right", "back"}:
+        if view not in {"all", *VIEW_ORDER}:
             view = "all"
         print(f"Failed step: {step}; view: {view}")
     traces = []
@@ -104,7 +105,10 @@ def print_warnings(root: Path) -> None:
     if not path.is_file():
         return
     for item in json.loads(path.read_text(encoding="utf-8")):
-        if item.get("view") in {"left", "right", "back"}:
+        if item.get("view") in VIEW_ORDER and item.get("action") == "used_relaxed_crop":
+            print(f"Warning: {item['view']} used a relaxed landmark confidence retry; check its overlay.")
+            continue
+        if item.get("view") in OPTIONAL_VIEWS:
             reason = re.sub(r"[^a-zA-Z0-9_ -]", "?", str(item.get("reason", "preprocessing_failed")))[:80]
             step = re.sub(r"[^a-zA-Z0-9_ -]", "?", str(item.get("step", "detection")))[:80]
             print(f"Warning: skipped {item['view']} at {step}: {reason}.")

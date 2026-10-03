@@ -6,6 +6,9 @@ import shutil
 import stat
 import zipfile
 
+VIEW_ORDER = ("front", "left", "right", "back", *tuple("extra_" + str(index) for index in range(1, 9)))
+OPTIONAL_VIEWS = frozenset(VIEW_ORDER) - {"front"}
+
 
 def safe_extract(archive: Path, destination: Path) -> None:
     """Reject traversal and symlinks before extracting a user-supplied model zip."""
@@ -46,14 +49,15 @@ def upload_views(names) -> dict:
     for name in names:
         path = Path(name)
         view = path.stem.lower()
-        if view not in {"front", "left", "right", "back"} or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-            raise ValueError("Use front/left/right/back with .png, .jpg or .jpeg extensions")
+        if (path.name != str(name) or "\\" in str(name) or view not in VIEW_ORDER
+                or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}):
+            raise ValueError("Use front/left/right/back or extra_1 through extra_8 with .png, .jpg or .jpeg extensions")
         if view in result:
             raise ValueError("Only one image per view is allowed")
         result[view] = path.name
     if "front" not in result:
-        raise ValueError("Front is required; left/right/back are optional")
-    return result
+        raise ValueError("Front is required; all other views are optional")
+    return {view: result[view] for view in VIEW_ORDER if view in result}
 
 
 def cleanup_session(path: Path, parent: Path = Path("/content")) -> None:

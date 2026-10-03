@@ -10,6 +10,8 @@ from types import ModuleType
 import json
 import sys
 import subprocess
+import importlib.util
+import worker
 import notebook_session
 import downloads
 
@@ -17,7 +19,9 @@ import numpy as np
 import pytest
 
 from camera import camera_matrices, projection_matrix
-from io_utils import cleanup_session, safe_extract, stage_flame, upload_views
+from io_utils import cleanup_session, safe_extract, stage_flame, upload_views, VIEW_ORDER
+from fit_policy import fit_budget
+from export_fit import camera_document, camera_view, expression_indicators
 from setup_runtime import replace_exact
 import setup_runtime
 from diagnostics import traceback_tail, print_diagnostics, step_context, install_log_tail
@@ -293,14 +297,18 @@ def test_t4_policy_uses_float32_and_math_attention(monkeypatch):
 def test_runtime_patches_are_idempotent_and_fail_closed(tmp_path):
     tracker = tmp_path / "pixel3dmm/src/pixel3dmm/tracking/tracker.py"
     network = tmp_path / "pixel3dmm/scripts/network_inference.py"
+    pipnet = tmp_path / "pixel3dmm/src/pixel3dmm/preprocessing/pipnet_utils.py"
     tracker.parent.mkdir(parents=True)
     network.parent.mkdir(parents=True)
+    pipnet.parent.mkdir(parents=True)
     tracker.write_text("COMPILE = True\n")
     network.write_text("model = model.cuda()\n")
+    pipnet.write_text("if detections[i][1] < 0.99:\n    pass\n")
     setup_runtime.apply_runtime_patches(tmp_path)
     setup_runtime.apply_runtime_patches(tmp_path)
     assert tracker.read_text() == "COMPILE = False\n"
     assert network.read_text() == "model = model.eval().float().cuda()\n"
+    assert "DT_PROFILE_CROP_RETRY" in pipnet.read_text()
     network.write_text("synthetic_unknown_upstream\n")
     with pytest.raises(RuntimeError, match="adapter mismatch"):
         setup_runtime.apply_runtime_patches(tmp_path)
@@ -615,3 +623,185 @@ def test_install_failure_prints_raw_tail_before_cleanup_without_upload(tmp_path,
     assert "Failed step: install: PIPNet nms build" in output
     assert "Compiler failed SYNTHETIC_BUILD_LINE" in output
     assert not session.exists()
+
+
+def test_all_twelve_view_names_are_accepted_in_canonical_order():
+    names = [view + ".jpg" for view in reversed(VIEW_ORDER)]
+    assert list(upload_views(names)) == list(VIEW_ORDER)
+    assert len(upload_views(names)) == 12
+    assert list(upload_views(["extra_8.jpeg", "front.png", "extra_2.JPG"])) == ["front", "extra_2", "extra_8"]
+    with pytest.raises(ValueError, match="one image"):
+        upload_views(["front.png", "extra_1.jpg", "extra_1.png"])
+    with pytest.raises(ValueError, match="required"):
+        upload_views(["extra_1.png"])
+
+
+@pytest.mark.parametrize("name", ["extra_0.png", "extra_9.png", "extra_01.png", "extra_1_more.png",
+                                  "other.png", "extra_1.gif", "../front.jpg", "folder/front.png", "folder\\front.png"])
+def test_extra_names_and_path_components_fail_closed(name):
+    with pytest.raises(ValueError, match="Use front"):
+        upload_views(["front.png", name])
+
+
+def test_joint_budget_keeps_two_view_baseline_and_scales_coverage():
+    two = fit_budget(2, 1500, 1500, 1)
+    nine = fit_budget(9, 1500, 1500, 1)
+    twelve = fit_budget(12, 1500, 1500, 1)
+    assert [two["jointIters"], nine["jointIters"], twelve["jointIters"]] == [1500, 6750, 9000]
+    assert all(value["expectedJointUpdatesPerView"] == 750 for value in (two, nine, twelve))
+    assert nine["sampleWorkUnits"] / two["sampleWorkUnits"] == 4.5
+    assert twelve["sampleWorkUnits"] / two["sampleWorkUnits"] == 6
+    assert fit_budget(12, 1500, 1500, 2)["jointIters"] == 4500
+    assert fit_budget(1, 1500, 1500, 1)["expectedJointUpdatesPerView"] == 0
+    with pytest.raises(ValueError, match="1 through 12"):
+        fit_budget(13, 1500, 1500, 1)
+
+
+def synthetic_crop(folder):
+    (folder / "cropped").mkdir(parents=True, exist_ok=True)
+    (folder / "PIPnet_landmarks").mkdir(exist_ok=True)
+    (folder / "cropped/00000.jpg").write_bytes(b"synthetic-crop-placeholder")
+    np.save(folder / "PIPnet_landmarks/00000.npy", np.full((98, 2), 0.5))
+    np.save(folder / "crop_ymin_ymax_xmin_xmax.npy", np.array([0, 30, 5, 35]))
+
+
+def test_crop_retry_removes_partial_artifacts_and_preserves_coordinates(tmp_path, monkeypatch):
+    folder = tmp_path / "preprocessed/left"
+    calls = []
+
+    def crop(root, script, args, step, view, cwd):
+        step_context(root, step, view)
+        calls.append(step)
+        if len(calls) == 1:
+            synthetic_crop(folder)
+            np.save(folder / "PIPnet_landmarks/00000.npy", np.zeros((98, 2)))
+        else:
+            assert not folder.exists()
+            synthetic_crop(folder)
+
+    monkeypatch.setattr(worker, "run_step", crop)
+    method = worker.crop_view(tmp_path, tmp_path / "source", tmp_path / "inputs/left", "left")
+    assert calls == ["cropping_landmarks", "cropping_landmarks_retry"]
+    assert method == "faceboxes_landmark_0.75_retry"
+    np.testing.assert_array_equal(np.load(folder / "crop_ymin_ymax_xmin_xmax.npy"), [0, 30, 5, 35])
+    assert json.loads((tmp_path / "warnings.json").read_text())[0]["action"] == "used_relaxed_crop"
+
+
+def test_crop_retry_never_catches_cuda_or_install_errors(tmp_path, monkeypatch):
+    def fail(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, ["synthetic-CUDA-error"])
+
+    monkeypatch.setattr(worker, "run_step", fail)
+    with pytest.raises(subprocess.CalledProcessError):
+        worker.crop_view(tmp_path, tmp_path / "source", tmp_path / "inputs/left", "left")
+
+
+def test_relaxed_threshold_is_scoped_to_retry_subprocess(tmp_path, monkeypatch):
+    flags = []
+    monkeypatch.setattr(worker, "run", lambda command, root, **kwargs: flags.append(kwargs["env"]["DT_PROFILE_CROP_RETRY"]))
+    worker.run_step(tmp_path, tmp_path / "run_cropping.py", [], "cropping_landmarks", "left")
+    worker.run_step(tmp_path, tmp_path / "run_cropping.py", [], "cropping_landmarks_retry", "left")
+    worker.run_step(tmp_path, tmp_path / "network.py", [], "normals_prediction")
+    assert flags == ["0", "1", "0"]
+
+
+def test_preprocess_orders_and_compacts_views_after_optional_skips(tmp_path, monkeypatch, capsys):
+    from PIL import Image
+
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    # Uniform synthetic images; no people, model weights or real photographs.
+    names = [("extra_8", 6), ("left", 3), ("extra_2", 5), ("back", 4), ("right", 2), ("front", 1)]
+    for view, color in names:
+        Image.new("RGB", (40, 30), (color, color, color)).save(uploads / (view + ".png"))
+    insightface = ModuleType("insightface")
+    app = ModuleType("insightface.app")
+    app.FaceAnalysis = lambda **kwargs: SimpleNamespace(
+        prepare=lambda **kwargs: None, get=lambda image: [] if image[0, 0, 0] == 4 else ["synthetic-face"])
+    insightface.app = app
+    monkeypatch.setitem(sys.modules, "insightface", insightface)
+    monkeypatch.setitem(sys.modules, "insightface.app", app)
+    monkeypatch.setenv("DT_CACHE_ROOT", str(tmp_path / "cache"))
+    monkeypatch.setenv("DT_INSIGHTFACE_ROOT", str(tmp_path / "detector-placeholder"))
+
+    def stage(root, script, args, step, view="all", cwd=None):
+        step_context(root, step, view)
+        folder = root / "preprocessed" / view
+        if step.startswith("cropping_landmarks"):
+            if view in {"left", "extra_8"}:
+                raise DetectionError("no_usable_crop_or_landmarks")
+            synthetic_crop(folder)
+        elif step == "mica":
+            (folder / "mica/00000").mkdir(parents=True)
+            np.save(folder / "mica/00000/identity.npy", np.zeros(300))
+        elif step == "segmentation":
+            (folder / "seg_og").mkdir()
+            (folder / "seg_og/00000.png").write_bytes(b"synthetic-seg-placeholder")
+        else:
+            prediction = "normals" if step == "normals_prediction" else "uv_map"
+            destination = root / "preprocessed/head/p3dmm" / prediction
+            destination.mkdir(parents=True)
+            for index in range(3):
+                (destination / f"{index:05d}.png").write_bytes(b"synthetic-prediction-placeholder")
+
+    monkeypatch.setattr(worker, "run_step", stage)
+    included = worker.preprocess(tmp_path)
+    assert [item["view"] for item in included] == ["front", "right", "extra_2"]
+    assert [item["frame"] for item in included] == [0, 1, 2]
+    assert all(item["originalSizeWH"] == [40, 30] for item in included)
+    assert included[-1]["cropBoundsYminYmaxXminXmax"] == [0, 30, 5, 35]
+    skipped = json.loads((tmp_path / "view_map.json").read_text())["skipped"]
+    assert next(item for item in skipped if item["view"] == "back")["reason"] == "no_face_detected"
+    assert next(item for item in skipped if item["view"] == "extra_8")["reason"] == "no_usable_crop_or_landmarks"
+    from diagnostics import print_warnings
+    print_warnings(tmp_path)
+    output = capsys.readouterr().out
+    assert "skipped extra_8" in output and "skipped left" in output
+
+
+def synthetic_checkpoint(expression):
+    return {"img_size": [256, 256],
+            "camera": {"fl": [[2]], "pp": [[0, 0]], "R_base_0": np.eye(3)[None], "t_base_0": [[0, 0, -2]]},
+            "flame": {"R_rotation_matrix": np.eye(3)[None], "t": [[0, 0, 0]], "exp": expression},
+            "joint_transforms": np.broadcast_to(np.eye(4), (1, 2, 4, 4)).copy()}
+
+
+def test_expression_proxy_prefers_neutral_and_rejects_bad_coefficients():
+    checkpoints = [synthetic_checkpoint(np.zeros((1, 100))),
+                   synthetic_checkpoint(np.ones((1, 100))),
+                   synthetic_checkpoint(-np.ones((1, 100)))]
+    values = expression_indicators(checkpoints)
+    assert [item["neutralityRank"] for item in values] == [1, 2, 2]
+    assert values[0]["mouthTexturePreference"] > values[1]["mouthTexturePreference"]
+    assert values[1]["magnitudeL2"] == 10 and values[1]["magnitudeRMS"] == 1
+    assert values[1]["smileProxyOnly"] and values[1] == values[2]
+    with pytest.raises(ValueError, match="Invalid fitted expression"):
+        expression_indicators([synthetic_checkpoint(np.full(100, float("nan")))])
+
+
+def test_additive_camera_export_loads_with_current_front_right_consumer(tmp_path):
+    source = Path(__file__).resolve().parents[2] / "head/flame/flamehead/camera.py"
+    spec = importlib.util.spec_from_file_location("synthetic_flame_consumer_camera", source)
+    consumer = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = consumer
+    try:
+        spec.loader.exec_module(consumer)
+        document = camera_document([{"view": "left", "reason": "no_face_detected"}])
+        checkpoint = synthetic_checkpoint(np.zeros((1, 100)))
+        expression = expression_indicators([checkpoint])[0]
+        for index, name in enumerate(("front", "right", "extra_1", "extra_8")):
+            item = {"view": name, "frame": index, "originalSizeWH": [640, 480],
+                    "cropBoundsYminYmaxXminXmax": [20, 420, 100, 500], "cropMethod": "faceboxes_landmark_0.99"}
+            document["views"][name] = camera_view(item, checkpoint, expression)
+        path = tmp_path / "synthetic-cameras.json"
+        path.write_text(json.dumps(document))
+        cameras = consumer.load_cameras(path)
+        assert set(cameras) == {"front", "right"}
+        np.testing.assert_allclose(cameras["front"].to_original([[128, 128]]), [[300, 220]])
+        assert document["schema"] == "dt-flame-head-cameras/1"
+        extra = document["views"]["extra_8"]
+        assert extra["fittedMesh"] == "fitted_views/extra_8.ply" and extra["overlay"] == "overlays/extra_8.png"
+        assert extra["originalSizeWH"] == [640, 480] and extra["cropBoundsYminYmaxXminXmax"] == [20, 420, 100, 500]
+        np.testing.assert_allclose(extra["worldToCamera"], document["views"]["front"]["worldToCamera"])
+    finally:
+        sys.modules.pop(spec.name, None)

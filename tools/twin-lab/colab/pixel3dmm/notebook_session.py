@@ -134,13 +134,20 @@ def run_session(cache: Path, selected: dict, version: str, architecture: str, it
         uploads = session / "uploads"
         uploads.mkdir()
         step_context(session, "photo_upload")
-        print("Upload front and optional left/right/back head photos together.")
+        print("Upload up to 12 photos together: front (required), left/right/back and extra_1 through extra_8 (optional).")
         uploaded = files.upload(target_dir=str(uploads))
         upload_views(uploaded.keys())
         uploaded.clear()
         print("Preprocessing each view, then fitting shared identity with independent cameras.")
         run([python, cache / "helpers/worker.py", session], session,
             cwd=cache / "pixel3dmm", env=worker_env, step="worker")
+        runtime_path = session / "fit_runtime.json"
+        if runtime_path.is_file():
+            runtime = json.loads(runtime_path.read_text())
+            print(f"Fit timing: preprocessing {runtime['preprocessingSeconds'] / 60:.1f} min; "
+                  f"tracking {runtime['trackingSeconds'] / 60:.1f} min. "
+                  f"Peak PyTorch allocation {runtime['torchPeakAllocatedMiB']:.0f} MiB "
+                  "(native CUDA allocations may be additional).")
         print_warnings(session)
         step_context(session, "archive_download")
         # Browsers may silently block files.download(); keep a copy outside the
