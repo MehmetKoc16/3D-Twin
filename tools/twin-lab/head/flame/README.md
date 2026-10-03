@@ -10,7 +10,8 @@ tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/head/flame/flame_h
 tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/run_all.py --head auto --dry-run
 ```
 
-Options: `--include-ears` replaces ears too (default keeps scan ears);
+Options: FLAME ears are included by default, with a collar behind the ears;
+`--no-include-ears` keeps scan ears. `--include-ears` explicitly selects the default;
 `--texture-size 2048` controls the FLAME atlas (512–4096);
 `--preview-dir` defaults to the output's `previews/`; `--no-previews` disables it.
 Output and preview destinations must be under this repo's `user-data/`.
@@ -62,37 +63,59 @@ The stage preserves photographed eyeglasses without inpainting. The separate
   and depth-discontinuity edges. Neutral x-mirror nearest neighbours supply a
   mirrored right view only on the opposite side; symmetry error and involution
   ratio are reported rather than assuming exact anatomical symmetry.
-- Robust gains/offsets from shared visible midtone texels match colours.
-  Five-level Laplacian/Gaussian pyramids blend views. Missing samples are filled
-  from nearest surface samples before blending; only filling uses bounded
-  sampling and approximate nearest neighbours at mesh vertices, interpolated
-  by barycentrics into missing texels. Measured detail remains full
-  resolution. Hidden eyeball texels receive an ivory fallback. Chart padding and
-  canvas fill prevent black/unassigned texels, including mipmap margins.
+- The front photo is the white-balance reference. Shared visible midtones match
+  **CIELAB L only**, with shadow protection; no per-channel RGB gain or offset
+  changes chroma. Five-level pyramids blend luminance. The a/b channels use only
+  measured, visible view confidences, with front priority; occluded fills cannot
+  dilute observed chroma. RGB textures are decoded/encoded as sRGB, and Lab
+  conversions receive sRGB rather than linear RGB. Missing observations use
+  nearest surface samples; hidden eyeballs receive an ivory fallback. Surface
+  fills, chart padding and canvas fill prevent black/unassigned texels.
 - Existing MediaPipe helpers render the scan and lift its detected face
   landmarks into 3D. FLAME embedding barycentrics establish correspondences.
   Stable landmark similarity fitting precedes 70%-trimmed, landmark-anchored
   closest-surface ICP. Scale is clamped to [0.75, 1.35], with a warning on hits.
   Initial and final RMS, maximum residual and trimmed ICP RMS are reported.
-- Region masks select face, nose, lips, eyes and eyeballs; scalp, neck and model
-  boundary are protected. Ears are protected unless requested. Scan centroids
-  map to closest FLAME triangles in the head, with a 45mm distance gate. Removed
-  face islands are cleaned topologically. Ambiguous/branching stitch borders
-  cause an error rather than a silently disconnected export.
-- Exact scan position welding preserves tiny distinct scan features. Retained
-  scan positions and triangles stay unchanged. The inserted face has an 18mm
-  blend band towards the scan boundary and a small inward clearance; a ring
-  zipper adds the connecting strip. Small internal FLAME openings are capped.
-  The output verifies boundary counts, edge multiplicity, winding and nonzero
-  triangle area and FLAME blend foldovers, then duplicates only UV seams. A shared stitch has zero
-  topological gap; **bridge width** is reported separately.
-- Scan, FLAME and bridge/cap charts share a square atlas and one material.
-  The square layout is intentional: the existing preview renderers assume
-  square textures. Nearby compatible scan skin texels receive a spatially
-  fading gain correction; dark hair and distant clothes/body texels are gated
-  out. Original extras are restored at root, asset, scene, node, mesh,
-  primitive and material/texture/image levels. `asset.extras.dtFlameHead`
-  records fit provenance, input hash, scale, residuals and stitching metrics.
+- Region masks initialise a signed surface-distance field. A 12mm forehead
+  margin moves the boundary under the hairline; the ear region includes a 25mm
+  surrounding skull collar. A 35mm upper-neck extension moves the beard border
+  below the jaw. Original model boundaries remain excluded. These are physical
+  distances on the neutral fit, rather than counts of vertices.
+- `twinrefine.armpit.smooth_field` smooths the FLAME field and its closest-surface
+  transfer onto scan vertices. Both meshes are cut at the zero level, splitting
+  shared crossing edges using `twinrefine.meshops.refine_marked_edges`. Corner
+  UVs interpolate independently across UV seams. This replaces whole-triangle
+  region selection. The scan cut curve is smoothed; the inserted rim follows
+  that curve, with a 0.3mm inward clearance and a ring zipper.
+- Geometry displacement fades through a 22mm band on both surfaces. Local
+  foldover control reduces displacement where needed. Scan geometry outside
+  the band retains exact positions. Small internal FLAME openings are capped.
+  Boundary counts, multiplicity, winding, nonzero triangle area and FLAME
+  foldovers are verified before export; **bridge width** is separate from the
+  zero topological stitch gap. The report includes curve roughness, cut counts
+  and the minimum local displacement strength.
+- Skin surrounding the face is corrected toward photo Lab chroma over a smooth
+  75mm falloff. A luminance offset removes the neck's separate low-frequency
+  brightness bias while retaining texture contrast. Dark hair/beard and distant
+  body pixels are excluded by a midtone skin gate. On the inserted 22mm band,
+  the photographed colour cross-fades to the corrected retained scan texture in
+  Lab. Visible front-photo under-chin samples preserve beard detail inside the
+  band; unseen beard fades into the scan neck rather than ending at a hard edge.
+- Scan, FLAME and bridge/cap charts share one square atlas and one material,
+  capped at **4096 squared**. The default preserves the 2048 face chart and
+  reduces the scan chart to 2032. A requested 4096 face chart becomes 3072,
+  with a 1008 scan chart. Normalised scan UVs stay valid through downsampling;
+  cut corner UVs are remapped by the packing affine transforms.
+- CIELAB means compare original front-photo skin samples with the same FLAME
+  barycentric samples in the bake and the actual packed atlas. Eye/lip regions,
+  beard, glasses, clipped highlights and invisible samples are excluded. Neck
+  diagnostics measure the packed scan band against the packed face. Reports
+  expose L/a/b deltas and `chroma_pass` for |delta a|, |delta b| < 3. When a private
+  `round1/head.glb` exists beside the output, matched baseline measurements are
+  reported too; absence of a baseline is allowed. No tests load this directory.
+- Original extras are restored at root, asset, scene, node, mesh, primitive and
+  material/texture/image levels. `asset.extras.dtFlameHead` version 2 records
+  provenance, input hash, alignment, smooth stitching and the ears option.
   The writer validates a reread before atomically replacing the destination.
 
 `run_all.py --head {auto,flame,recon,none}` defaults to `auto`: FLAME when
@@ -107,24 +130,26 @@ mask, embedding and imported helper changes invalidate the stage's cache.
 Alignment is to a generic scan face, whose landmarks may include photographed
 glasses and whose depth is an estimate. Residuals do not measure identity accuracy.
 Only two images supply independent appearance; the left profile is inferred by
-symmetry and unseen regions are filled. Illumination is colour-matched, not fully
-delit. Pyramid filtering happens in UV space, so chart boundaries can still show
-small colour differences despite shared surface fills and padding.
+symmetry and unseen regions are filled. Illumination is normalised, not fully
+delit. Mean Lab values cannot establish that every local shadow or UV island
+matches; the lead must assess the private previews. Images are never displayed
+by the stage or inspected by agents.
 
 Nearest-surface search refines 24 centroid/vertex candidates without rtree;
-very long triangles can defeat that bounded search. Region masks and closest
-surfaces approximate the scan's hairline/ears; there is no semantic scan hair
-segmentation. The geometric band and strip are checked for edge topology and
-area, but not for all global self-intersections. Thin ear triangles trigger local
-blend relaxation to avoid foldovers; this can leave a wider bridging strip and
-needs manual review when including ears. Small mouth/eyeball rear openings
-are capped, rather than reconstructing an oral cavity, teeth or a tongue.
-The packed canvas can be larger than 4096² and should be reviewed on target GPUs.
+very long triangles can defeat that bounded search. Region masks approximate
+hairline and skin boundaries; there is no semantic scan hair segmentation.
+The 12mm scalp margin may require adjustment for a different hairstyle. The
+skin gate is a colour heuristic and can miss very dark skin or misclassify warm
+materials near the head. Atlas downsampling reduces scan body detail.
 
-Bodyfix reads this static GLB and preserves extras; rig reads its single textured
-primitive. The current rig writer rebuilds asset JSON and does not forward arbitrary
-incoming extras, so `dtFlameHead` propagation beyond rig requires a change owned
-by the rig lead. This stage does not modify downstream sources.
+Topology and local foldovers are checked, but global self-intersections and
+bridge sliver quality are not exhaustively certified. Thin scan triangles can
+limit curve smoothing through local foldover relaxation; the report exposes
+this strength. The enlarged ear collar can deform the fitted skull near the
+rim, even when its bridge is narrow. Small rear mouth/eyeball openings are
+capped rather than reconstructing an oral cavity, teeth or a tongue. Downstream
+stages consume the existing single textured primitive; their source ownership
+and extras propagation remain with their leads.
 
 ## Synthetic verification
 
@@ -139,7 +164,10 @@ arrays. Tests never read `user-data/`. Coverage includes camera round trips and
 pixel centres, UV fill with xatlas and fallback, perspective depth, symmetry,
 similarity clamping, protected regions, manifold stitching with unequal ring
 counts, UV duplication, extras, a complete synthetic output/previews run and
-all head pipeline modes.
+all head pipeline modes. Round-two tests additionally cover exact level cuts
+with interpolated UVs, smoothed curves, unchanged distant geometry, a closed
+cut transplant, Lab chroma preservation, soft beard/neck cross-fading, neck
+lightness correction, the 4096 packing cap and default-ear CLI behaviour.
 
 On Windows sandboxes that deny access to pytest's mode-0700 temporary directories,
 the following invocation changes only directory-creation permissions during tests:

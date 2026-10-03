@@ -16,7 +16,12 @@ def main(argv=None):
     parser.add_argument("--photos", type=Path, required=True)
     parser.add_argument("--flame-assets", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--include-ears", action="store_true")
+    parser.add_argument(
+        "--include-ears",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="include FLAME ears and a skull collar (default); --no-include-ears keeps scan ears",
+    )
     parser.add_argument("--texture-size", type=int, default=2048)
     parser.add_argument("--preview-dir", type=Path)
     parser.add_argument("--no-previews", action="store_true")

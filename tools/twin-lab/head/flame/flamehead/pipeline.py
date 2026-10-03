@@ -9,14 +9,17 @@ import numpy as np
 from headrecon.reshape import STABLE_LM
 from headrecon.twinhead import detect_twin_landmarks
 from PIL import Image
+from twinrefine.meshops import Corners
 from twinrefine.scan import Scan, load_scan, welded_vertex_normals
 from twintex.raster import rasterize_uv
 
 from . import REPO
-from .assets import landmarks, load_masks, read_mesh, region_mask
+from .assets import landmarks, load_masks, read_mesh
 from .camera import load_cameras
-from .geometry import align, edge_table, replace_face, symmetry_map
+from .colour import paired_colour, recolour_and_crossfade, to_lab
+from .geometry import align, edge_table, symmetry_map
 from .glb import save
+from .seam import expanded_region, transplant
 from .texture import bake, pack_atlases, sample, uv_atlas
 
 
@@ -24,41 +27,6 @@ def private_path(path):
     resolved = path.resolve()
     if not resolved.is_relative_to(REPO / "user-data"):
         raise ValueError("FLAME outputs and previews must stay under user-data/")
-
-
-def harmonize_seam(scan, welded_v, original_faces, removed, ring, flame_texture, flame_uv, flame_v, flame_ring):
-    """Adjust only retained skin texels within 18mm of the stitch, never hair/body."""
-    from scipy.spatial import cKDTree
-
-    atlas = scan.atlas.copy()
-    ids = np.flatnonzero(~removed)
-    distance = cKDTree(welded_v[ring]).query(welded_v)[0]
-    nearby = ids[(distance[original_faces[ids]] < 0.018).any(1)]
-    if len(nearby) == 0:
-        return atlas, {"modified_scan_texels": 0}
-    # Surface-space raster mapping uses original UV seam indices.
-    fid, bary = rasterize_uv(
-        scan.uv * [atlas.shape[1], atlas.shape[0]], scan.faces[nearby], atlas.shape[1], atlas.shape[0]
-    )
-    y, x = np.nonzero(fid >= 0)
-    tri = original_faces[nearby[fid[y, x]]]
-    points = np.einsum("ij,ijk->ik", bary[y, x], welded_v[tri])
-    dist, closest = cKDTree(flame_v[flame_ring]).query(points)
-    target = sample(flame_texture, flame_uv[flame_ring[closest]] * [flame_texture.shape[1], flame_texture.shape[0]])
-    source = atlas[y, x].astype(float)
-    # Skin compatibility gate protects dark hair and clothes beside the facial border.
-    skin = (source.mean(1) > 45) & (source.mean(1) < 235) & (source[:, 0] > source[:, 2] * 1.03)
-    skin &= np.linalg.norm(source - target, axis=1) < 100
-    overlap = skin & (dist < 0.018)
-    gain = (
-        np.clip(np.median(target[overlap], axis=0) / np.maximum(np.median(source[overlap], axis=0), 1), 0.75, 1.35)
-        if overlap.any()
-        else np.ones(3)
-    )
-    weight = np.clip(1 - dist / 0.018, 0, 1) * skin
-    corrected = source * (1 + weight[:, None] * (gain - 1))
-    atlas[y, x] = np.clip(np.rint(corrected), 0, 255).astype(np.uint8)
-    return atlas, {"modified_scan_texels": int((weight > 0).sum()), "gain": gain.tolist()}
 
 
 def split_uv(vertices, faces, corner_uv):
@@ -99,7 +67,7 @@ def run(
     assets: Path,
     out: Path,
     *,
-    include_ears=False,
+    include_ears=True,
     texture_size=2048,
     preview_dir=None,
     previews=True,
@@ -118,7 +86,7 @@ def run(
         neutral_path = fit / "head_neutral.ply"
     neutral, faces = read_mesh(neutral_path)
     masks = load_masks(assets, len(neutral))
-    region = region_mask(masks, len(neutral), include_ears)
+    region_field, region_report = expanded_region(neutral, faces, masks, include_ears)
     cameras = load_cameras(fit / "cameras.json")
     fitted, photos = {}, {}
     for name in ("front", "right"):
@@ -135,8 +103,9 @@ def run(
     mapping, atlas_faces, uv, atlas_method = uv_atlas(neutral, faces, texture_size)
     if not np.array_equal(mapping[atlas_faces], faces):
         raise ValueError("Atlas changed face order; refusing incorrect barycentric transfer")
+    diagnostics = {}
     texture, bake_report = bake(
-        neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, texture_size
+        neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, texture_size, diagnostics
     )
     print("[flame] texture baked; detecting scan render landmarks", flush=True)
     scan_lm = detect_twin_landmarks(
@@ -155,31 +124,74 @@ def run(
     _, first, inv = np.unique(scan.verts, axis=0, return_index=True, return_inverse=True)
     inv = inv.ravel()
     scan_v, scan_f = scan.verts[first], inv[scan.faces]
-    vertices, result_faces, removed, caps, scan_ring, flame_ring, stitch = replace_face(
-        scan_v, scan_f, aligned, faces, region
+    surgery = transplant(
+        Corners(scan_v, scan_f, scan.uv[scan.faces]), Corners(aligned, faces, uv[atlas_faces]), region_field
     )
-    # A representative UV per FLAME vertex suffices for seam colour sampling;
-    # each actual inserted face retains its xatlas corner coordinates below.
-    representative = np.zeros((len(neutral) + len(caps), 2), np.float32)
-    representative[mapping] = uv
-    for center, ring in caps:
-        representative[center] = representative[ring].mean(0)
-    scan_atlas, color_report = harmonize_seam(
-        scan, scan_v, scan_f, removed, scan_ring, texture, representative, aligned, flame_ring
+    stitch = surgery.report
+    photo_colour = bake_report["photo_colour"]
+    if photo_colour is None:
+        raise ValueError("No reliable photo skin reference")
+    seam_diagnostics = {}
+    scan_atlas, texture, color_report = recolour_and_crossfade(
+        surgery.scan,
+        surgery.flame,
+        scan.atlas,
+        texture,
+        surgery.scan_ring,
+        surgery.flame_ring,
+        photo_colour["photo_mean_lab"],
+        diagnostics=seam_diagnostics,
     )
-    atlas, scan_uv, flame_uv = pack_atlases(scan_atlas, texture, scan.uv, representative)
-    scan_corners = scan_uv[scan.faces[~removed]]
-    selected = region[faces].all(1)
-    offset = np.array([scan_atlas.shape[1] + 16, 0]) / atlas.shape[0]
-    flame_corners = uv[atlas_faces[selected]] * texture_size / atlas.shape[0] + offset
+    atlas, scan_affine, flame_affine = pack_atlases(
+        scan_atlas, texture, np.array([[0.0, 0.0], [1.0, 1.0]]), np.array([[0.0, 0.0], [1.0, 1.0]])
+    )
+    scan_scale = scan_affine[1] - scan_affine[0]
+    flame_scale = flame_affine[1] - flame_affine[0]
+    offset = flame_affine[0]
+    scan_corners = surgery.scan.C * scan_scale
+    n_flame_regular = stitch["flame_regular_triangles"]
+    flame_corners = surgery.flame.C[:n_flame_regular] * flame_scale + offset
+    vertices = np.vstack((surgery.scan.P, surgery.flame.P))
+    result_faces = np.vstack((surgery.scan.F, surgery.flame.F + len(surgery.scan.P), surgery.bridge))
     n_regular = len(scan_corners) + len(flame_corners)
-    vertex_uv = np.vstack((scan_uv[first], flame_uv))
-    tile_size = min(1024, texture_size, atlas.shape[0] - texture_size - 32)
+    vertex_uv = np.zeros((len(vertices), 2), np.float32)
+    vertex_uv[surgery.scan.F.ravel()] = scan_corners.reshape(-1, 2)
+    vertex_uv[(surgery.flame.F + len(surgery.scan.P)).ravel()] = (surgery.flame.C * flame_scale + offset).reshape(-1, 2)
+    face_side = int(round(flame_scale[0] * atlas.shape[0]))
+    tile_size = min(1024, face_side, atlas.shape[0] - face_side - 32)
     extras = extra_charts(
-        atlas, result_faces[n_regular:], vertex_uv, (scan_atlas.shape[1] + 16, texture_size + 16), tile_size
+        atlas, result_faces[n_regular:], vertex_uv, (int(round(offset[0] * atlas.shape[0])), face_side + 16), tile_size
     )
     corner_uv = np.concatenate((scan_corners, flame_corners, extras))
     out_v, out_f, out_uv = split_uv(vertices, result_faces, corner_uv)
+    # Measure the packed GLB's actual samples against the exact same photo/FLAME points.
+    dy, dx, skin = diagnostics["y"], diagnostics["x"], diagnostics["skin"]
+    packed_px = (np.column_stack((dx + 0.5, dy + 0.5)) / texture_size * flame_scale + offset) * atlas.shape[0]
+    colour_after = paired_colour(diagnostics["reference"], sample(atlas, packed_px).astype(np.uint8), skin)
+    neck_uv = seam_diagnostics["neck_uv"]
+    if len(neck_uv):
+        neck_mean = to_lab(sample(atlas, neck_uv * scan_scale * atlas.shape[0]).astype(np.uint8)).mean(
+            0, dtype=np.float64
+        )
+        face_mean = np.asarray(colour_after["texture_mean_lab"])
+        color_report["packed_neck_mean_lab"] = neck_mean.tolist()
+        color_report["packed_neck_minus_face_lab"] = (neck_mean - face_mean).tolist()
+        color_report["packed_neck_chroma_pass"] = bool(np.all(np.abs(neck_mean[1:] - face_mean[1:]) < 3))
+    baseline = out.parent / "round1/head.glb"
+    before_colour = None
+    if baseline.is_file():
+        old = load_scan(baseline)
+        start = scan.atlas.shape[1] + 16
+        old_texture = old.atlas[:texture_size, start : start + texture_size]
+        if old_texture.shape[:2] == (texture_size, texture_size):
+            before_colour = paired_colour(diagnostics["reference"], old_texture[dy, dx], skin)
+        if len(neck_uv):
+            old_neck = to_lab(sample(old.atlas, neck_uv * scan.atlas.shape[0]).astype(np.uint8)).mean(
+                0, dtype=np.float64
+            )
+            color_report["round1_neck_mean_lab"] = old_neck.tolist()
+            if before_colour is not None:
+                color_report["round1_neck_minus_face_lab"] = (old_neck - before_colour["texture_mean_lab"]).tolist()
     # Check nonzero area and winding consistency as well as edge multiplicity.
     tri = out_v[out_f]
     area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
@@ -199,7 +211,7 @@ def run(
         json.loads((fit / "provenance.json").read_text(encoding="utf-8")) if (fit / "provenance.json").exists() else {}
     )
     marker = {
-        "version": 1,
+        "version": 2,
         "method": "Pixel3DMM/FLAME local face transplant",
         "fitProvenance": provenance,
         "neutralSha256": hashlib.sha256(neutral_path.read_bytes()).hexdigest(),
@@ -215,6 +227,13 @@ def run(
         "texture": {"atlas_method": atlas_method, **bake_report},
         "symmetry": sym_report,
         "seam_colour": color_report,
+        "region": region_report,
+        "colour": {"before": before_colour, "after": colour_after},
+        "atlas_packing": {
+            "max_size": 4096,
+            "face_size": face_side,
+            "scan_size": int(round(scan_scale[0] * atlas.shape[0])),
+        },
         "output": str(out),
         "output_vertices": len(out_v),
         "output_triangles": len(out_f),

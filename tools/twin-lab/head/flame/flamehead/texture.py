@@ -129,7 +129,7 @@ def multiband(images, weights, levels=5):
     return result
 
 
-def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, size):
+def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, size, diagnostics=None):
     fid, bary = rasterize_uv(uv * size, atlas_faces, size, size)
     y, x = np.nonzero(fid >= 0)
     tri = faces[fid[y, x]]
@@ -160,27 +160,32 @@ def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symm
             weight[y[start:end], x[start:end]] = w
         images.append(image)
         weights.append(weight)
-    # Match gains and low-frequency offsets only on shared visible skin, excluding
-    # very dark glasses/mouth and near-white highlights. Preserve all photographed detail.
+    from .colour import from_lab, paired_colour, skin_samples, to_lab
+
+    # The previous independent RGB gains and positive RGB offsets altered white
+    # balance and diluted chroma. Match only CIELAB luminance between the views.
     gains = {}
+    source_front = images[0][y, x].copy()
     for i in (1, 2):
         overlap = (weights[0] > 0.08) & (weights[i] > 0.08)
         l0, li = images[0].mean(2), images[i].mean(2)
         overlap &= (l0 > 0.05) & (li > 0.05) & (l0 < 0.75) & (li < 0.75)
         if overlap.sum() >= 32:
-            a, b = images[0][overlap], images[i][overlap]
-            gain = np.clip(np.std(a, axis=0) / np.maximum(np.std(b, axis=0), 0.02), 0.7, 1.4)
-            offset = np.clip(np.median(a, axis=0) - gain * np.median(b, axis=0), -0.12, 0.12)
+            a = to_lab(linear_to_srgb(images[0][overlap]))
+            b = to_lab(linear_to_srgb(images[i][overlap]))
+            offset_l = float(np.clip(np.median(a[:, 0] - b[:, 0]), -15, 15))
         else:
-            gain, offset = np.ones(3), np.zeros(3)
-        # Colour offsets should not turn black photographed frames/pupils into skin.
-        shadow_gate = np.clip(images[i].mean(2) / 0.06, 0, 1) ** 2
-        images[i] = np.clip(images[i] * gain + offset * shadow_gate[:, :, None], 0, 1)
+            offset_l = 0.0
+        lab = to_lab(linear_to_srgb(images[i]))
+        lab[:, :, 0] += offset_l * np.clip(lab[:, :, 0] / 30, 0, 1) ** 2
+        images[i] = srgb_to_linear(np.clip(from_lab(lab), 0, 1))
         gains[names[i]] = {
-            "gain": gain.tolist(),
-            "offset_linear": offset.tolist(),
+            "luminance_offset_lab": offset_l,
+            "chroma_modified": False,
             "overlap_texels": int(overlap.sum()),
         }
+    # Front is the measured identity/white-balance reference where it is visible.
+    weights[0] *= 4
     total = sum(weights)
     observed = total[y, x] > 1e-5
     if observed.sum() < 32:
@@ -215,7 +220,14 @@ def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symm
         # Pad charts before downsampling to prevent background colour bleeding.
         nearest = ndimage.distance_transform_edt(fid < 0, return_distances=False, return_indices=True)
         images[i][fid < 0] = images[i][nearest[0][fid < 0], nearest[1][fid < 0]]
-    result = multiband(images, weights)
+    labs = [to_lab(linear_to_srgb(im)) for im in images]
+    # Blend shading at multiple scales, while chroma comes only from actual visible
+    # photo samples. Occluded fill cannot dilute the measured a/b channels.
+    luminance = multiband([np.repeat(lab[:, :, :1], 3, axis=2) for lab in labs], weights)[:, :, 0]
+    chroma = sum(lab[:, :, 1:] * w[:, :, None] for lab, w in zip(labs, weights, strict=True)) / np.maximum(
+        total[:, :, None], 1e-12
+    )
+    result = srgb_to_linear(np.clip(from_lab(np.dstack((luminance, chroma))), 0, 1))
     result[y[~observed], x[~observed]] = fallback[~observed]
     # Small positive floor is only a numerical fallback; dark photographed glasses
     # are otherwise preserved. Padding fills the entire canvas for valid mipmaps.
@@ -223,17 +235,39 @@ def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symm
     nearest = ndimage.distance_transform_edt(fid < 0, return_distances=False, return_indices=True)
     result[fid < 0] = result[nearest[0][fid < 0], nearest[1][fid < 0]]
     texture = np.clip(np.rint(linear_to_srgb(result) * 255), 1, 255).astype(np.uint8)
+    semantic_skin = np.zeros(len(neutral), bool)
+    semantic_skin[masks.get("face", [])] = True
+    for key in ("eye_region", "lips", "left_eyeball", "right_eyeball"):
+        semantic_skin[masks.get(key, [])] = False
+    reference = np.clip(linear_to_srgb(source_front), 0, 1)
+    skin = semantic_skin[tri].all(1) & (weights[0][y, x] > 0.1) & skin_samples(to_lab(reference))
+    colour = paired_colour(reference, texture[y, x], skin) if skin.sum() >= 16 else None
+    neck = np.zeros(len(neutral), bool)
+    neck[masks.get("neck", [])] = True
+    chin = neutral[masks["face"], 1].min() if len(masks.get("face", [])) else -np.inf
+    underchin = neck[tri].any(1) & (points[:, 1] < chin) & (points[:, 1] > chin - 0.035) & (weights[0][y, x] > 0.1)
+    if diagnostics is not None:
+        diagnostics.update(y=y, x=x, points=points, reference=reference, skin=skin)
     return texture, {
         "texture_fill_ratio": 1.0,
         "photo_observed_ratio": float(observed.mean()),
         "atlas_surface_texels": len(y),
         "gains": gains,
+        "photo_colour": colour,
+        "underchin_front_visible_texels": int(underchin.sum()),
         "view_weight_share": {n: float(w.sum() / max(total.sum(), 1e-9)) for n, w in zip(names, weights, strict=True)},
     }
 
 
 def pack_atlases(scan_atlas, flame_atlas, scan_uv, flame_uv):
-    """Use a square canvas because shared renderers currently assume square atlases."""
+    """Cap the square atlas at 4096; keep face density before scan body density."""
+    max_side = 4096
+    face_side = min(max(flame_atlas.shape[:2]), 3072)
+    scan_side = min(max(scan_atlas.shape[:2]), max_side - face_side - 16)
+    if max(flame_atlas.shape[:2]) != face_side:
+        flame_atlas = cv2.resize(flame_atlas, (face_side, face_side), interpolation=cv2.INTER_AREA)
+    if max(scan_atlas.shape[:2]) != scan_side:
+        scan_atlas = cv2.resize(scan_atlas, (scan_side, scan_side), interpolation=cv2.INTER_AREA)
     sh, sw = scan_atlas.shape[:2]
     fh, fw = flame_atlas.shape[:2]
     side = max(sw + fw + 16, sh, fh)
