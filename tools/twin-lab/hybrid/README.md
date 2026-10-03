@@ -12,8 +12,10 @@ web app**. Nothing is scanned and no foreign head is grafted.
    island** (`facetex.py`, reusing the proven `head/flame` baker: z-buffer visibility, view-angle weights, luminance
    matching, multiband blend, mirrored right view for the unseen side). The skin tone is propagated to the whole body
    texture and boxer shorts are painted (`skin.py`).
-4. **Parts**: MakeHuman CC0 eyes, lashes, hair (and optionally brows) are bound to the _deformed_ body with the app's own
-   MHCLO binding, so they follow the head (`template.py`, `partstex.py`, `assemble.py`).
+4. **Parts**: MakeHuman CC0 eyes and lashes (and optionally brows) are bound to the _deformed_ body with the app's own
+   MHCLO binding, so they follow the head (`template.py`, `partstex.py`, `assemble.py`). The **hair** is by default
+   procedural: alpha-masked cards grown on the deformed head (`hairgen.py`, see "Procedural hair"); the MakeHuman hair
+   parts stay selectable with `--hair hair-short` etc.
 5. **Outputs**: `hybrid.glb` (single skinless primitive, one atlas) for the existing rig and bundle stages, and a
    portable **face asset** for the app's standard model.
 
@@ -30,7 +32,13 @@ tools/twin-lab/bundle/.venv/Scripts/python.exe tools/twin-lab/run_all.py --body 
 # the stage alone (refine environment)
 tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hybrid.py \
   --bodyfix user-data/twin/out/bodyfix --measurements user-data/twin/measurements.json \
-  --out user-data/twin/out/hybrid/hybrid.glb [--hair hair-short] [--brows] [--texture-size 4096] [--no-previews]
+  --out user-data/twin/out/hybrid/hybrid.glb [--hair procedural|hair-short|hair-tousled|...] [--hair-hex #3a281c] \
+  [--hairline-mm 68] [--hair-top-mm 55] [--hair-side-mm 12] [--hair-param NAME=VALUE ...] [--brows] \
+  [--texture-size 4096] [--no-previews]
+
+# the procedural hair alone on the GENERIC MakeHuman head (no person, no photo): head views + numbers
+tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hairdemo.py \
+  --out user-data/twin/out/hybrid/previews_generic_hair [--gender 1.0] [--hair-hex #3a281c] [--hair-param NAME=VALUE]
 
 # rig and bundle by hand
 tools/twin-lab/rig/.venv/Scripts/python.exe tools/twin-lab/rig/rig_scan.py user-data/twin/out/hybrid/hybrid.glb user-data/twin/out/hybrid/rig --fingers keep --smooth 0
@@ -100,17 +108,74 @@ cut-outs: cards with (almost) no strands are removed (`PRUNE_COVERAGE`), the res
 0.15 mm behind them (never welded) so they show with a front-face-only material. Hair colour is the median of the dark
 pixels under FLAME's scalp (both photos), the iris colour the median of the iris ring around each eyeball's front pole in
 the front photo (the app's `recolorIris` is ported). The brow cards are **off by default** (`--brows`): the photographed
-brows are already baked into the face texture and a second set would double them. Hair choice: `--hair` (any hair part of
-`parts/index.json`; `hair-short` is the default: short, voluminous on top).
+brows are already baked into the face texture and a second set would double them. Hair choice: `--hair procedural` (default) or any hair part of
+`parts/index.json` (`hair-short`, `hair-tousled`, ...); for those the cards above are composited and bound as before.
 
-**Atlas.** `S x (S + S/4)` (default 4096 x 5120, JPEG q95 4:4:4, no alpha): the top `S` rows are the MakeHuman fixed UV
-layout unchanged (head island at its fixed place), the strip below holds the part tiles (hair, eyes, lashes, brows).
+**Atlas.** `S x (S + S/4)` (default 4096 x 5120, RGBA PNG, skin opaque, cut-outs in the alpha channel): the top `S` rows
+are the MakeHuman fixed UV layout unchanged (head island at its fixed place), the strip below holds the part tiles
+(hair, eyes, lashes, brows). The procedural hair tile is `S/2 x S/4` (2048 x 1024; narrower when `--brows` needs the room).
 
 **Rig integration.** The GLB carries `asset.extras.dtHybrid` (`version 1`, frame `MakeHuman-grounded-A-pose`, manifest
 SHA-256, `cutHeightM`), the solution `dtBodyfix`, `dtScanHandsRemoved: false` and `dtHasMakeHumanHands: true`. In the rig
 stage `bodyfix_solution.hybrid_fit` verifies that every vertex below `cutHeightM` is the solved body (2e-5 m) and reuses
 the exact shape with the identity pose; weights come from the template's own skin weights (`--fingers keep --smooth 0`).
 `twin.json` reports the tape measurements.
+
+## Procedural hair (`hair.py`, `hairgen.py`, `hairtex.py`, `haircheck.py`)
+
+The default hair is a modern short cut built on the deformed head: cropped and tapered sides and back (1 to 1.5 cm,
+fading to about 5 mm at the hairline, above the ears and at the nape), more volume on top (4 to 6 cm) swept up and back
+from the forehead, a visible forehead (no fringe) with the hairline about 6.8 cm above the eye centre line. Everything
+is procedural (no asset, no licence concern); nothing needs the person's data except the head surface, the eye line and
+the (optional) photo hair colour.
+
+1. **Head frame** (`measure_head`): skull centre, the eye centre line (FLAME's eyeball centres), the ears (found from
+   the normal deviation of the head surface against a Taubin-smoothed copy: largest patch per side in the temporal zone,
+   one ring dilated) and the nape crease (the height where the back of the skull starts to bulge 6 mm over the neck).
+2. **Hair field** (`HairField`, analytic, shared by the cards and the scalp tint):
+   - the **hairline** is a smooth curve (PCHIP) in (azimuth around the skull, height): front `hairline_front` above the
+     eye line, `temple_recession` higher at the temple corners, a sideburn ending `sideburn_drop` below the ear top,
+     `ear_margin` clear of the ear (distance to the detected ear vertices), behind the ear down towards the lobe, then
+     the nape `nape_above_crease` above the crease. The density is 0.5 on the hairline and ramps over `hairline_fade`.
+   - the **taper line** (`taper_side`, `taper_back`, `taper_band`) separates the long top from the short sides.
+   - **length**: top `length_front` / `length_mid` / `length_crown` along the head (with a ramp from `length_front_edge` at
+     the front hairline), sides and back `length_side`, shrinking to `length_edge` over `fade_band` towards the
+     hairline (the fade). **Lift**: `lift_front` .. `lift_crown` of the length stands off the scalp on top, `lift_side`
+     on the sides. **Flow**: top combed back (slightly spread sideways), sides combed down and back, back down.
+3. **Guides and cards**: Poisson-disc roots (random-priority maximal independent set) in four layers: `undercoat` (dense,
+   short, hides the scalp), `body`, `crest` (long cards on top only) and `stubble` (tiny cards in the soft hairline band).
+   Each guide is grown over the scalp along the flow field with its height above the surface following the lift profile
+   (`1 - (1-u)^1.7`, a little droop at the end), so strands rise at the front and lie flat on the sides; the ribbons have
+   parallel-transported frames lying in the tangent plane (camera independent), a random roll, 1 to 5 segments and 9 to
+   12 mm width (narrower in the hairline edge). Direction noise follows a smooth field (clumps) and is smaller on the
+   sides. The spacing of all layers is rescaled so the triangle count lands within 12 percent of `triangle_target`
+   (30000; one-sided cards, the material is double sided).
+4. **Clearance**: every card vertex (and the interior of every triangle: centroids and edge midpoints) keeps at least
+   `clearance` (2 mm) from the head surface; offenders are pushed out along the line from the closest surface point.
+5. **Strip texture** (`hairtex.py`): the RGBA tile holds 12 long (aspect 1:8) and 20 short strips, each with 14 to 40
+   fine strands that wiggle, vary in brightness and warmth, begin at ragged roots, taper to points and end at different
+   heights (alpha cut-outs, root darker than tip, subtle per-strip tint). Base colour: the photo colour made a natural
+   dark brown (Lab lightness 12..20, chroma and hue of dark brown when the measurement is near-grey); `--hair-hex`
+   overrides it.
+6. **Scalp**: the baked head texture is darkened under the hair with the same density field (`HairField.cover`: full
+   under the hair, a faint stubble shadow outside the hairline), so gaps between cards read as hair, not skin.
+7. **Skinning**: nothing special is needed. The rig stage transfers weights from the closest body vertices, which for
+   cards on the scalp are the head bone (and `neck_01` at the nape). The stage reports the weights the rig will give
+   (`parts.hair.skin_weights`) and `verify_report` fails if fewer than 80 percent of the hair vertices are on the
+   head chain.
+
+All style numbers are millimetres (`HairStyle`, listed with the report under `parts.hair.procedural.style`); the CLI has
+`--hairline-mm`, `--hair-top-mm`, `--hair-side-mm`, `--hair-seed` and `--hair-param NAME=VALUE` for any field.
+`parts.hair.procedural` in the report carries the numbers: `penetration` (vertices inside the head, below the
+clearance, min/median distance, triangle samples), `coverage` (share of the visible scalp hidden behind cards from the
+front, left, right, back and top, alpha-tested at 0.5 mm per pixel), `lengths_mm` per region, `hairline`, `frame`
+(ears, crease), `layers`, `strip`; `parts.hair.skin_weights` has the head-chain weights.
+`verify_report` additionally requires zero penetrating vertices, 8k to 60k triangles and at least 80 percent of the scalp
+hidden from every main view.
+
+`hairdemo.py` runs the same generator on the generic MakeHuman head (default male, flat skin tone, scalp darkened the
+same way, CC0 eyes) and writes front, side, back, 3/4, 3/4-back and top views (textured and clay) plus
+`generic_hair_report.json`: it is the way to judge the hairstyle without any person's face.
 
 ## Outputs (`user-data/twin/out/hybrid/`)
 
@@ -120,7 +185,7 @@ the exact shape with the identity pose; weights come from the template's own ski
 | `rig/`, `twin.glb`                | rig stage output and the app bundle (`run_all --body hybrid`)                                 |
 | `hybrid_report.json`              | the metrics: registration residuals (mm), landmark residuals, displacement, neck girth, texture fill, seam and skin Lab, vertex/photo check, hair/eye/lash placement, mesh validity, hand flags |
 | `face_asset/`                     | the portable face asset (below)                                                               |
-| `previews/`                       | full body front/side/back/3-4, bare and with hair, plus head close-ups (textured and clay); **show the owner only to the owner** |
+| `previews/`                       | full body front/side/back/3-4, bare and with hair, plus head close-ups (textured and clay; with hair also 3/4 back and top); **show the owner only to the owner** |
 
 ## Face asset (`face_asset/`, schema `dt-face-asset/1`)
 
@@ -128,7 +193,7 @@ For the app's standard MakeHuman model (nothing here is wired into `apps/web` ye
 
 - `face-asset.json` - metadata: `template` (manifest SHA-256, `renderVertexCount`, UV layout), `solvedBody` (macros,
   modifiers, tape targets the offsets were computed on), `headOffsets`, `texture`, `skin` (Lab + hex), `parts` (hair id and
-  colour, brows enabled/colour, eyes id + iris colour + per-eye translation in mm, lashes id), `metrics`, `license`.
+  colour; for the procedural hair `id` is `procedural` with `kind`, `style` and a `fallbackId` the app can mount, brows enabled/colour, eyes id + iris colour + per-eye translation in mm, lashes id), `metrics`, `license`.
 - `face-offsets.bin` - the head deformation as a morph target: sparse entries of **`morphs.bin`** layout, little endian,
   16 bytes each: `uint32` vertex index (render vertex of `base.glb`, `< renderVertexCount`, strictly ascending),
   `float32 dx, dy, dz` in metres. Seam copies carry equal offsets. Weight 1 on top of the solved body.
@@ -160,9 +225,13 @@ For the app's standard MakeHuman model (nothing here is wired into `apps/web` ye
   contour is only partly transferred.
 - Texture: only front and right photos exist; the left side is mirrored, the back of the head and under the chin are flat
   skin tone (hidden by hair). Illumination is normalised, not delit. Photographed glasses frames and beard stay in the
-  texture (the separate glasses accessory is not wired here). The hair card composite is opaque and its edge is the card
-  silhouette (ragged hairline).
+  texture (the separate glasses accessory is not wired here). The hair cards are alpha cut-outs: with mip-mapping the
+  strands thin out at long distances (the strips are dense and the scalp is dark, so it reads as hair), and the web
+  app's renderer decides how the cut-outs look (the previews here use nearest-texel alpha).
 - The body skin is procedural (no MakeHuman skin texture is available); the underwear is painted, not geometry.
 - The scan-twin `head.glb` is not used. The skull top of the deformed head can differ from the solved height by a few
-  millimetres (reported as `bare_head_top_m` vs the tape height), and hair adds ~1.2 cm.
+  millimetres (reported as `bare_head_top_m` vs the tape height), and the procedural hair adds 2 to 3 cm of volume.
+- Procedural hair: the hairline, sideburn and nape shapes are tuned on the generic MakeHuman head; the ear and nape
+  detection (`parts.hair.procedural.frame`) are reported so a wrong detection is visible in the numbers. The strands are
+  cards, not curves: no wind, no physics, one fixed style (tune it with the CLI parameters).
 - Registration stiffness is tuned for the MakeHuman head's edge density (~4 mm); synthetic tests use looser values.

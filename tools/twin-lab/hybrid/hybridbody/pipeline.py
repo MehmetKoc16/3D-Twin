@@ -29,14 +29,18 @@ from .facetex import (
     neck_weights,
     vertex_photo_check,
 )
+from .hair import PROCEDURAL, build_procedural_hair
+from .haircheck import skin_weight_report
 from .headfit import build_template, fit_head, load_flame_fit, read_face_map, seam_vertices
 from .partstex import (
     DEFAULT_HAIR_LINEAR,
+    Tile,
     card_tile,
     eye_tile,
     lab_to_srgb255,
     make_tile,
     pack_strip,
+    plausible_hair,
     plausible_iris,
     srgb_hex,
 )
@@ -59,7 +63,8 @@ from .template import load_part
 # Bones whose weight marks "waist and upper legs": the painted boxer shorts stay off arms and hands.
 UNDERWEAR_BONES = ("pelvis", "thigh_l", "thigh_r", "spine_01")
 PART_IDS = {"eyes": "eyes-default", "eyebrows": "eyebrows-default", "eyelashes": "eyelashes-default"}
-DEFAULT_HAIR = "hair-tousled"  # short sides, volume on top swept up and back, no fringe over the forehead
+DEFAULT_HAIR = PROCEDURAL  # procedural cards: short sides and back, volume on top swept up and back, no fringe
+HAIR_FALLBACK_ID = "hair-short"  # what the app's part library mounts for a face asset that says "procedural"
 SCALP_TINT = 0.45  # dark scalp under the hair: hair colour x this (linear-ish factor on sRGB)
 TILE_WIDTHS = {"hair": 1024, "eyes": 512, "eyebrows": 1024, "eyelashes": 1024}
 FALLBACK_SKIN_LAB = np.array([58.35, 7.98, 10.71])
@@ -125,44 +130,84 @@ class PartsBuild:
     colours: dict
     report: dict
     hair_srgb: np.ndarray
+    hair_build: object | None = None  # ``HairBuild`` of the procedural hair (None for a MakeHuman hair part)
 
 
 def build_parts(
-    final, tone, size, flame_eyes, head_surface, head_faces, *, hair, brows, hair_photo, iris
+    final,
+    tone,
+    size,
+    flame_eyes,
+    head_surface,
+    head_faces,
+    *,
+    hair,
+    brows,
+    hair_photo,
+    iris,
+    hair_hex=None,
+    hair_style=None,
 ) -> PartsBuild:
-    """Load, bind (MHCLO binding on the deformed body), recolour and tile the eyes, lashes, hair and optional brows."""
+    """Load, bind (MHCLO binding on the deformed body), recolour and tile the eyes, lashes, hair and optional brows.
+
+    ``hair`` is a MakeHuman hair part id or ``"procedural"`` (cards grown on the deformed head, see ``hairgen``).
+    """
     strip_height = size // 4
+    procedural = hair == PROCEDURAL
     ids = {**PART_IDS, "hair": hair}
     names = tuple(n for n in ("eyes", "eyebrows", "eyelashes", "hair") if brows or n != "eyebrows")
-    loaded = {n: load_part(PARTS_ASSETS, ids[n]) for n in names}
+    loaded = {n: load_part(PARTS_ASSETS, ids[n]) for n in names if not (procedural and n == "hair")}
     bound = {n: part.bind(final) for n, part in loaded.items()}
     shift, eye_report = eye_offsets(bound["eyes"], flame_eyes)
     bound["eyes"] = bound["eyes"] + shift
 
-    hair_linear = (
-        np.power(np.asarray(hair_photo["srgb"]) / 255.0, 2.2) if hair_photo["from_photo"] else DEFAULT_HAIR_LINEAR
-    )
-    hair_srgb = np.power(hair_linear, 1 / 2.2) * 255
+    hair_choice = None
+    if procedural:
+        hair_choice = plausible_hair(hair_photo["srgb"] if hair_photo["from_photo"] else None, hair_hex)
+        hair_srgb = np.asarray(hair_choice["srgb"], float)
+        hair_linear = np.power(hair_srgb / 255.0, 2.2)
+    else:
+        hair_linear = (
+            np.power(np.asarray(hair_photo["srgb"]) / 255.0, 2.2) if hair_photo["from_photo"] else DEFAULT_HAIR_LINEAR
+        )
+        hair_srgb = np.power(hair_linear, 1 / 2.2) * 255
     brow_srgb = np.power(hair_linear * 0.9, 1 / 2.2) * 255
     iris_srgb = np.asarray(iris["srgb"], float)
     images = {
-        "hair": card_tile(loaded["hair"], hair_linear),
         "eyes": eye_tile(loaded["eyes"], iris_srgb),
         "eyelashes": card_tile(loaded["eyelashes"], None),
     }
+    hair_build = None
+    if procedural:
+        eye_y = float(np.mean([v[:, 1].mean() for v in flame_eyes.values()]))
+        # the hair tile gets the strip width the other tiles leave free (with brows there is less room)
+        hair_width = size // 2 if not brows else ((size * 3 // 8 - 32) // 8) * 8
+        hair_build = build_procedural_hair(
+            head_surface, head_faces, eye_y, hair_srgb, style=hair_style, tile_size=(hair_width, strip_height)
+        )
+        loaded["hair"] = hair_build.part
+        bound["hair"] = hair_build.positions
+        images["hair"] = hair_build.tile
+    else:
+        images["hair"] = card_tile(loaded["hair"], hair_linear)
     if brows:
         images["eyebrows"] = card_tile(loaded["eyebrows"], hair_linear * 0.9)
     tiles = {
         n: make_tile(n, images[n], loaded[n].uv, TILE_WIDTHS[n] * size // 4096, strip_height)
         for n in ("hair", "eyes", "eyebrows", "eyelashes")
-        if n in images
+        if n in images and not (procedural and n == "hair")
     }
+    if procedural:  # the procedural tile addresses its own full UV square
+        tiles["hair"] = Tile("hair", images["hair"], np.zeros(2), np.ones(2))
+    tiles = {n: tiles[n] for n in ("hair", "eyes", "eyebrows", "eyelashes") if n in tiles}
     strip = pack_strip(list(tiles.values()), size, strip_height, y_offset=size)
     clearance = {
         n: surface_clearance(bound[n], head_surface, head_faces)
         for n in names
-        if n in ("hair", "eyelashes", "eyebrows")
+        if n in ("eyelashes", "eyebrows") or (n == "hair" and not procedural)
     }
+    if procedural:
+        clearance["hair"] = hair_build.report["penetration"]
     report = {
         "hair": {
             "id": ids["hair"],
@@ -170,6 +215,15 @@ def build_parts(
             "from_photo": hair_photo["from_photo"],
             "samples": hair_photo["samples"],
             "clearance_to_head": clearance["hair"],
+            **(
+                {
+                    "colour_method": hair_choice["method"],
+                    "measured_hex": hair_choice["measured_hex"],
+                    "procedural": hair_build.report,
+                }
+                if procedural
+                else {}
+            ),
         },
         "eyes": {
             "id": ids["eyes"],
@@ -187,10 +241,10 @@ def build_parts(
             else {"enabled": False, "reason": "the photographed brows are baked into the face texture"}
         ),
         "triangles": {n: int(len(loaded[n].faces)) for n in names},
-        "pruned_cards": "none: cards keep the MakeHuman alpha as real cut-outs",
+        "pruned_cards": "none: cards keep their texture alpha as real cut-outs",
     }
     colours = {"hair": srgb_hex(hair_srgb), "eyebrows": srgb_hex(brow_srgb), "iris": srgb_hex(iris_srgb)}
-    return PartsBuild(names, loaded, bound, tiles, strip, colours, report, hair_srgb)
+    return PartsBuild(names, loaded, bound, tiles, strip, colours, report, hair_srgb, hair_build)
 
 
 def run(
@@ -207,6 +261,8 @@ def run(
     previews=True,
     preview_dir=None,
     iris_hex=None,
+    hair_hex=None,
+    hair_style=None,
 ):
     started = time.perf_counter()
     out = Path(out)
@@ -282,6 +338,8 @@ def run(
         brows=brows,
         hair_photo=hair_photo,
         iris=iris,
+        hair_hex=hair_hex,
+        hair_style=hair_style,
     )
 
     canvas = np.zeros((size, size, 3), np.uint8)
@@ -340,13 +398,15 @@ def run(
     log(f"vertex/photo check: {photo_check}")
 
     # Dark scalp under the hair: the gaps between cut-out cards read as hair, not as skin.
-    hair_part = parts.loaded["hair"]
-    hair_surface = sample_hair_surface(parts.bound["hair"], hair_part.faces)
     head_normals = welded_vertex_normals(head_positions, head.faces)
     tri = head_island_triangles(template, head)[face.texel_face]
     texel_normals = np.einsum("ij,ijk->ik", face.texel_bary, head_normals[tri])
     texel_normals /= np.maximum(np.linalg.norm(texel_normals, axis=1, keepdims=True), 1e-9)
-    cover = hair_cover(points, texel_normals, hair_surface)
+    if parts.hair_build is not None:
+        cover = parts.hair_build.field.cover(points)  # the hair density field itself: exact hairline, stubble shadow
+    else:
+        hair_surface = sample_hair_surface(parts.bound["hair"], parts.loaded["hair"].faces)
+        cover = hair_cover(points, texel_normals, hair_surface)
     scalp_lab = to_lab(np.clip(parts.hair_srgb * SCALP_TINT, 1, 255).astype(np.float32).reshape(1, 3) / 255.0)[0]
     texture_under_hair = tint_scalp(texture, ty, tx, cover, scalp_lab)
     eye_y = float(np.mean([v[:, 1].mean() for v in flame_eyes.values()]))
@@ -362,6 +422,7 @@ def run(
         }
     scalp_report = {
         "forehead": forehead,
+        "method": "procedural hair density field" if parts.hair_build is not None else "ray march to the hair surface",
         "tint_lab": scalp_lab.tolist(),
         "covered_texel_fraction": float((cover > 0.5).mean()),
         "head_island_texels": int(len(cover)),
@@ -380,6 +441,16 @@ def run(
         drop_vertices=cavity[cavity < model.nr],
     )
     bare = mesh.without("hair")
+    if parts.hair_build is not None:
+        # the weights the rig stage will transfer to the cards (closest body vertices): they must follow the head bone
+        v0, v1 = mesh.parts["hair"]["vertices"]
+        f0, f1 = mesh.parts["hair"]["faces"]
+        parts.report["hair"]["skin_weights"] = skin_weight_report(
+            model, final[: model.nr], mesh.positions[v0:v1], mesh.faces[f0:f1] - v0
+        )
+        log(
+            f"hair skin weights on the head chain: {parts.report['hair']['skin_weights']['fraction_head_chain_ge_0_95']:.3f}"
+        )
 
     # -------------------------------------------------------------------------------------------- output
     head_ring = np.flatnonzero(np.isin(template.inverse, seam_w) & (template.islands == template.head_island))
@@ -399,6 +470,7 @@ def run(
         "ownsFeet": True,
         "nativeResolve": body_report["nativeResolve"],
         "hair": hair,
+        "hairProcedural": parts.hair_build is not None,
         "license": "MakeHuman CC0 + private non-commercial FLAME/Pixel3DMM fit; never redistribute",
     }
     extras = {"dtHybrid": marker, "dtBodyfix": solution, "dtScanHandsRemoved": False, "dtHasMakeHumanHands": True}
@@ -426,7 +498,7 @@ def run(
             "neck": neck_report,
             "scalp_tint": scalp_report,
             "alpha": {
-                "channel": "RGBA PNG; skin texels alpha 255, cards keep the MakeHuman alpha",
+                "channel": "RGBA PNG; skin texels alpha 255, hair cards carry their strip texture alpha",
                 "opaque_fraction": float((atlas[..., 3] == 255).mean()),
                 "cutout_texels": int((atlas[..., 3] < 128).sum()),
             },
@@ -467,7 +539,21 @@ def run(
         atlas_size=(int(atlas.shape[1]), int(atlas.shape[0])),
         skin={"lab": tone.tolist(), "srgbHex": srgb_hex(lab_to_srgb255(tone))},
         parts={
-            "hair": {"id": hair, "colourHex": parts.colours["hair"]},
+            "hair": {
+                "id": hair,
+                "colourHex": parts.colours["hair"],
+                **(
+                    {
+                        "kind": "procedural-cards",
+                        "fallbackId": HAIR_FALLBACK_ID,
+                        "style": parts.hair_build.style.to_dict(),
+                        "note": "cards grown on the deformed head (hybrid/hairgen.py); the app's part library has no "
+                        "such part, so it mounts fallbackId until the cards are loaded from the twin GLB",
+                    }
+                    if parts.hair_build is not None
+                    else {}
+                ),
+            },
             "eyebrows": {"id": PART_IDS["eyebrows"], "colourHex": parts.colours["eyebrows"], "enabled": bool(brows)},
             "eyelashes": {"id": PART_IDS["eyelashes"]},
             "eyes": {
@@ -510,4 +596,18 @@ def verify_report(report: dict) -> list[str]:
         problems.append("flipped triangles in the deformed head")
     if report["mesh"]["validity"]["body_nonmanifold_edges"]:
         problems.append("non-manifold body edges")
+    hair = report["parts"]["hair"]
+    procedural = hair.get("procedural")
+    if procedural:
+        penetration = procedural["penetration"]
+        if penetration["vertices_inside_head"] or penetration["vertices_below_clearance"]:
+            problems.append("hair card vertices closer to the head than the clearance")
+        if not 8000 <= procedural["triangles"] <= 60000:
+            problems.append("hair triangle count outside 8k..60k")
+        coverage = procedural.get("coverage")
+        if coverage and coverage["min_hidden_fraction"] < 0.8:
+            problems.append("hair leaves more than 20 percent of the scalp visible from a main view")
+        weights = hair.get("skin_weights")
+        if weights and weights["fraction_head_chain_ge_0_95"] < 0.8:
+            problems.append("hair vertices are not weighted to the head/neck bones")
     return problems

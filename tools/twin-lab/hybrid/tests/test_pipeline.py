@@ -109,7 +109,7 @@ def test_face_asset_is_written_next_to_the_glb(run_result):
     document = json.loads((folder / "face-asset.json").read_text())
     assert document["schema"] == "dt-face-asset/1"
     assert report["face_asset"]["offsets"] == document["headOffsets"]["count"]
-    assert document["headOffsets"]["count"] > 1000 and document["parts"]["hair"]["id"] == "hair-tousled"
+    assert document["headOffsets"]["count"] > 1000 and document["parts"]["hair"]["id"] == "procedural"
     assert (folder / "face-offsets.bin").stat().st_size == 16 * document["headOffsets"]["count"]
     assert (folder / "face-texture.png").is_file()
 
@@ -157,3 +157,81 @@ def test_neck_below_the_chin_matches_the_body_skin(run_result):
     after = neck["after"]["below_chin"]
     assert after["texels"] > 0 and abs(after["delta_l_vs_body"]) < 3
     assert report["texture"]["scalp_tint"]["covered_texel_fraction"] >= 0
+
+
+def test_default_hair_is_procedural_cards_that_keep_off_the_skin_and_follow_the_head(run_result):
+    _, out, report, _, _ = run_result
+    hair = report["parts"]["hair"]
+    assert hair["id"] == "procedural" and "procedural" in hair
+    procedural = hair["procedural"]
+    assert procedural["penetration"]["vertices_inside_head"] == 0
+    assert procedural["penetration"]["vertices_below_clearance"] == 0
+    assert 8000 < procedural["triangles"] < 60000 and procedural["coverage"]["min_hidden_fraction"] > 0.8
+    assert hair["skin_weights"]["fraction_head_chain_ge_0_95"] > 0.95
+    assert hair["colour_method"] in ("default", "near-grey measurement -> dark brown", "measured", "lightness clamped")
+    slices = report["parts"]["slices"]["hair"]
+    assert slices["faces"][1] - slices["faces"][0] == procedural["triangles"]  # one-sided cards, no back copies
+    assert report["texture"]["scalp_tint"]["method"] == "procedural hair density field"
+    assert report["texture"]["atlas_size"][0] <= 4096 and report["texture"]["alpha"]["cutout_texels"] > 0
+    scene = read_glb(str(out))
+    assert len(scene.prims) == 1 and scene.extras["dtHybrid"]["hair"] == "procedural"
+    assert scene.extras["dtHybrid"]["hairProcedural"] is True and verify_report(report) == []
+
+
+def test_procedural_hair_takes_a_style_a_colour_and_fits_next_to_the_brow_tile(model, tmp_path):
+    from hybridbody.hairgen import HairStyle
+
+    style = HairStyle.with_overrides({"triangle_target": 8000, "hairline_front": 64.0, "length_side": 9.0})
+    _, out, report, _, _ = execute(model, tmp_path, brows=True, hair_hex="#2b1d14", hair_style=style)
+    hair = report["parts"]["hair"]
+    assert hair["colour_hex"] == "#2b1d14" and hair["colour_method"] == "override"
+    assert abs(hair["procedural"]["triangles"] / 8000 - 1) < 0.25
+    assert hair["procedural"]["style"]["hairline_front"] == 64.0
+    assert "eyebrows" in report["parts"]["slices"]
+    document = json.loads((out.parent / "face_asset/face-asset.json").read_text())
+    assert document["parts"]["hair"]["kind"] == "procedural-cards" and document["parts"]["hair"]["fallbackId"]
+    assert document["parts"]["hair"]["style"]["hairline_front"] == 64.0
+
+
+def test_makehuman_hair_parts_stay_selectable_next_to_the_procedural_one(model, tmp_path):
+    _, _, report, _, _ = execute(model, tmp_path, hair="hair-tousled")
+    hair = report["parts"]["hair"]
+    assert hair["id"] == "hair-tousled" and "procedural" not in hair
+    assert report["texture"]["scalp_tint"]["method"] == "ray march to the hair surface"
+    assert hair["clearance_to_head"]["deeper_than_10mm"] < 0.05 and verify_report(report) == []
+
+
+def test_hybrid_cli_builds_the_hair_style_and_rejects_style_flags_for_makehuman_hair():
+    import argparse
+
+    import hybrid
+
+    parser = argparse.ArgumentParser()
+    base = {
+        "hair": "procedural",
+        "hair_hex": None,
+        "hairline_mm": None,
+        "hair_top_mm": None,
+        "hair_side_mm": None,
+        "hair_seed": None,
+        "hair_param": None,
+    }
+    assert hybrid.hair_style_from(argparse.Namespace(**base), parser) is None
+    style = hybrid.hair_style_from(
+        argparse.Namespace(
+            **{
+                **base,
+                "hairline_mm": 70.0,
+                "hair_top_mm": 60.0,
+                "hair_side_mm": 10.0,
+                "hair_param": ["sideburn_drop=4"],
+            }
+        ),
+        parser,
+    )
+    assert style.hairline_front == 70.0 and style.length_front == 60.0 and style.length_mid == pytest.approx(54.0)
+    assert style.length_side == 10.0 and style.sideburn_drop == 4.0
+    with pytest.raises(SystemExit):
+        hybrid.hair_style_from(argparse.Namespace(**{**base, "hair": "hair-short", "hairline_mm": 70.0}), parser)
+    with pytest.raises(SystemExit):
+        hybrid.hair_style_from(argparse.Namespace(**{**base, "hair_param": ["nope=1"]}), parser)

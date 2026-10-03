@@ -21,6 +21,7 @@ from .template import Part
 
 DEFAULT_HAIR_LINEAR = np.array([0.05, 0.034, 0.025])  # dark brown
 DEFAULT_IRIS_SRGB = np.array([76, 52, 34], float)  # dark brown
+DEFAULT_HAIR_SRGB = np.array([52, 37, 28], float)  # natural dark brown (procedural hair base colour)
 
 
 def srgb_hex(rgb) -> str:
@@ -58,6 +59,42 @@ def plausible_iris(measured_srgb, override_hex: str | None = None) -> dict:
         method = "near-grey measurement -> dark brown"
     elif lightness != lab[0]:
         method = "lightness clamped"
+    new = np.array([lightness, chroma * np.cos(np.radians(hue)), chroma * np.sin(np.radians(hue))], np.float32)
+    rgb = np.clip(from_lab(new.reshape(1, 3))[0] * 255, 0, 255)
+    return {"srgb": rgb, "method": method, "measured_hex": srgb_hex(measured)}
+
+
+def plausible_hair(measured_srgb, override_hex: str | None = None) -> dict:
+    """Base colour of the procedural hair: an explicit override, or the photo measurement made a natural dark brown.
+
+    A photographed hair colour is lit and washed out: its Lab lightness is clamped to 12..20 (dark brown), and a
+    near-grey measurement (Lab chroma below 9) keeps its lightness but gets the chroma and hue of dark brown hair.
+    A clearly chromatic measurement keeps its hue and has only its chroma limited (at most 22).
+    """
+    from flamehead.colour import from_lab
+
+    if override_hex:
+        text = override_hex.strip().lstrip("#")
+        if len(text) != 6:
+            raise ValueError("--hair-hex must be #rrggbb")
+        rgb = np.array([int(text[i : i + 2], 16) for i in (0, 2, 4)], float)
+        return {"srgb": rgb, "method": "override", "measured_hex": None}
+    if measured_srgb is None:
+        return {"srgb": DEFAULT_HAIR_SRGB.copy(), "method": "default", "measured_hex": None}
+    measured = np.asarray(measured_srgb, float)
+    lab = to_lab(measured.astype(np.float32).reshape(1, 3) / 255.0)[0].astype(float)
+    chroma = float(np.hypot(lab[1], lab[2]))
+    hue = float(np.degrees(np.arctan2(lab[2], lab[1])))
+    lightness = float(np.clip(lab[0], 12.0, 20.0))
+    method = "measured"
+    if chroma < 9.0:
+        hue = float(np.clip(hue if chroma > 3.0 else 58.0, 45.0, 68.0))
+        chroma = float(np.clip(11.0 + (9.0 - chroma) * 0.5, 11.0, 15.0))
+        method = "near-grey measurement -> dark brown"
+    else:
+        chroma = min(chroma, 22.0)
+        if lightness != lab[0]:
+            method = "lightness clamped"
     new = np.array([lightness, chroma * np.cos(np.radians(hue)), chroma * np.sin(np.radians(hue))], np.float32)
     rgb = np.clip(from_lab(new.reshape(1, 3))[0] * 255, 0, 255)
     return {"srgb": rgb, "method": method, "measured_hex": srgb_hex(measured)}
