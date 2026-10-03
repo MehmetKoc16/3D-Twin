@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TwinFormatError, type TwinDef } from './twinDef';
 import { envelope, fakeAssets, fakeModel, mapping } from './twinTestkit';
+import { fakeHairModel } from './twinHairTestkit';
 
 const loadTwinModel = vi.fn();
 vi.mock('./twinModel', () => ({ loadTwinModel: (...args: unknown[]) => loadTwinModel(...args) }));
@@ -25,7 +26,7 @@ const pack: TwinPack = {
 const pristine = useTwinStore.getState();
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-function setup() {
+function setup(getRenderer?: () => { getContext(): unknown } | null) {
   const calls: string[] = [];
   const client = {
     setFixedShape: vi.fn(async (shape: unknown) => {
@@ -40,7 +41,7 @@ function setup() {
     return p;
   });
   const requestSolve = vi.fn(() => void calls.push('solve'));
-  const mode = new TwinMode(assets, createParts, requestSolve);
+  const mode = new TwinMode(assets, createParts, requestSolve, getRenderer);
   const twinMesh = () => assets.scene.children.find((c) => c.name === 'twin');
   return { assets, client, calls, parts, createParts, requestSolve, mode, twinMesh };
 }
@@ -100,6 +101,32 @@ describe('TwinMode', () => {
     const shown = mode.displaySolve(fixed);
     expect(shown.achievedCm).toEqual({ ...fixed.result.achievedCm, height: 170, chest: 95 });
     expect(shown.unreachable).toEqual([]);
+    mode.dispose();
+  });
+
+  it('hair: mounted with the twin, and removed when the twin is replaced or left', async () => {
+    const gl = { SAMPLES: 0x80a9, getParameter: () => 4 };
+    const { assets, mode } = setup(() => ({ getContext: () => gl }));
+    const hairNodes = () => assets.scene.children.filter((c) => c.name === 'twin:hair:group');
+    const first = fakeHairModel();
+    loadTwinModel.mockImplementationOnce(async () => ({ ...fakeModel(), hair: first }));
+    chooseTwin();
+    await flush();
+    expect(hairNodes()).toHaveLength(1);
+    const firstDispose = vi.fn();
+    first.atlas.addEventListener('dispose', firstDispose);
+    // a new revision replaces the twin: the old hair is disposed, the new one is mounted
+    const second = fakeHairModel();
+    loadTwinModel.mockImplementationOnce(async () => ({ ...fakeModel(), hair: second }));
+    useTwinStore.setState({ revision: useTwinStore.getState().revision + 1 });
+    await flush();
+    expect(firstDispose).toHaveBeenCalled();
+    expect(hairNodes()).toHaveLength(1);
+    mode.onSolve(envelope(true));
+    expect(hairNodes()[0]?.visible).toBe(true);
+    useTwinStore.getState().setMode('standard');
+    await flush();
+    expect(hairNodes()).toHaveLength(0);
     mode.dispose();
   });
 

@@ -5,6 +5,7 @@ import { MAX_HEAD_RESIDUAL_M, TwinRig } from './twinRig';
 import { loadTwinModel } from './twinModel';
 import { TwinFormatError, twinMacros } from './twinDef';
 import { resolveSkinTone } from './twinSkinTone';
+import type { HairRendererLike } from '../../vendor/threejs-hair-shader/hair-shader.js';
 
 /** Body parts (eyes, brows, hair) are a standard-mode feature: the controller mounts them only in that mode. */
 export interface ModeParts {
@@ -48,6 +49,8 @@ export class TwinMode {
     private readonly assets: AvatarAssets,
     private readonly createParts: () => ModeParts,
     private readonly requestSolve: () => void,
+    /** The WebGL renderer (for the hair shader's MSAA detection); null when unknown. */
+    private readonly getRenderer: () => HairRendererLike | null = () => null,
   ) {
     this.unsubscribe = useTwinStore.subscribe((state, previous) => {
       if (
@@ -119,7 +122,7 @@ export class TwinMode {
             this.assets.skeleton.bones.map((bone) => bone.name),
             pack.glb,
           ),
-        { keepOwnHands: pack.hasMakeHumanHands === true },
+        { keepOwnHands: pack.hasMakeHumanHands === true, renderer: this.getRenderer() },
       );
       this.appliedRevision = state.revision;
       this.requestSolve();

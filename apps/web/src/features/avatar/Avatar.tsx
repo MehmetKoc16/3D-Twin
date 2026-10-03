@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useThree } from '@react-three/fiber';
 import type { CanvasTexture } from 'three';
 import { useAvatarLoadStore } from '../../store/avatarLoadStore';
 import { useAvatarRuntimeStore } from '../../store/avatarRuntimeStore';
@@ -59,6 +60,7 @@ function applyAppearance(assets: AvatarAssets, skin: { current: SkinMap | null }
 /** The MakeHuman body: geometry morphed in a worker, skeleton rebuilt after each solve. Renders inside <Canvas>. */
 export function Avatar() {
   const [assets, setAssets] = useState<AvatarAssets | null>(null);
+  const gl = useThree((state) => state.gl); // the twin's hair shader reads the MSAA sample count from it
   const failure = useAvatarLoadStore((s) => (s.status === 'error' ? s.error : null));
   if (failure !== null) throw new Error(failure);
 
@@ -87,6 +89,7 @@ export function Avatar() {
       assets,
       () => new PartsRig(assets),
       () => assets.client.solve(useBodyStore.getState().params),
+      () => gl,
     );
     const off = assets.onSolve((envelope) => {
       applySolveResult(assets, envelope);
@@ -114,7 +117,7 @@ export function Avatar() {
       twin.dispose();
       rig.dispose();
     };
-  }, [assets]);
+  }, [assets, gl]);
 
   useEffect(() => {
     if (!assets) return;

@@ -19,6 +19,7 @@ import {
 } from './twinBinding';
 import { TwinFormatError, type TwinDef } from './twinDef';
 import { loadTwinAccessories, disposeAccessory } from './twinAccessories';
+import { extractTwinHair, hairSkinnedMeshes, parseTwinHair, type TwinHairModel } from './twinHair';
 
 /**
  * The parsed `rigged.glb` of a twin, re-indexed to the avatar's bone order. Everything is copied out of the glTF, so
@@ -40,6 +41,8 @@ export interface TwinModel {
   remap: Int32Array;
   material: MeshStandardMaterial;
   accessories?: Group[];
+  /** The separate strand-hair node (`asset.extras.dtHairNode`), absent for bundles without hair. */
+  hair?: TwinHairModel;
   dispose(): void;
 }
 
@@ -108,9 +111,11 @@ export async function loadTwinModel(
 ): Promise<TwinModel> {
   let root: Object3D;
   let accessories: Group[];
+  let hairJson: Parameters<typeof parseTwinHair>[0];
   try {
     const loaded = await new GLTFLoader().parseAsync(buffer.slice(0), '');
     root = loaded.scene;
+    hairJson = loaded.parser.json as typeof hairJson;
     accessories = await loadTwinAccessories(loaded.parser);
   } catch (error) {
     throw new TwinFormatError(
@@ -118,7 +123,14 @@ export async function loadTwinModel(
       error instanceof Error ? error.message : 'rigged.glb could not be parsed',
     );
   }
-  const meshes = skinnedMeshes(root);
+  const hairInfo = parseTwinHair(hairJson);
+  const hairMeshes = hairInfo ? hairSkinnedMeshes(root, hairInfo.nodeName) : [];
+  if (hairInfo && hairMeshes.length !== 1)
+    throw new TwinFormatError(
+      'noSkin',
+      `dtHair node "${hairInfo.nodeName}" must hold exactly one skinned mesh (found ${hairMeshes.length})`,
+    );
+  const meshes = skinnedMeshes(root).filter((m) => !hairMeshes.includes(m));
   if (meshes.length !== 1)
     throw new TwinFormatError(
       'noSkin',
@@ -144,6 +156,10 @@ export async function loadTwinModel(
   const weights = copyAttribute(skinWeight);
   normalizeSkinWeights(weights);
   const material = twinMaterial(firstMaterial(mesh.material));
+  const hair =
+    hairInfo && hairMeshes[0]
+      ? extractTwinHair(hairInfo, hairMeshes[0], mesh, appBoneNames)
+      : undefined;
   return {
     vertexCount: position.count,
     position: copyAttribute(position),
@@ -156,7 +172,9 @@ export async function loadTwinModel(
     remap,
     material,
     accessories,
+    ...(hair ? { hair } : {}),
     dispose: () => {
+      hair?.dispose();
       material.map?.dispose();
       material.dispose();
       geometry.dispose();

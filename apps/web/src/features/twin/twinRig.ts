@@ -20,6 +20,8 @@ import type { TwinModel } from './twinModel';
 import { resolveSkinTone } from './twinSkinTone';
 import { TwinOpeningRepair } from './twinOpeningRepair';
 import { TwinAccessories } from './twinAccessories';
+import { TwinHair } from './twinHair';
+import type { HairRendererLike } from '../../vendor/threejs-hair-shader/hair-shader.js';
 import {
   compactTwinIndex,
   hiddenTwinVertices,
@@ -44,6 +46,10 @@ export const MAX_HEAD_RESIDUAL_M = 0.005;
 export interface TwinRigOptions {
   /** Keep the twin's own hands (bundle flag `dtHasMakeHumanHands`): no hand hiding, no mannequin-hand swap. */
   keepOwnHands?: boolean;
+  /** The renderer, so the hair shader can detect MSAA (alpha-to-coverage path). */
+  renderer?: HairRendererLike | null;
+  /** Force the hair render path (tests); by default it follows the renderer's MSAA. */
+  hairMsaa?: boolean;
 }
 
 /**
@@ -77,6 +83,8 @@ export class TwinRig {
   private readonly hands: TwinHands;
   private readonly keepOwnHands: boolean;
   private readonly accessories: TwinAccessories;
+  /** Strand hair (separate skinned node of the bundle); null for bundles without `dtHairNode`. */
+  readonly hair: TwinHair | null;
   private readonly openingRepair: TwinOpeningRepair;
   private readonly rest: Float32Array;
   private handMask: Uint8Array;
@@ -117,6 +125,12 @@ export class TwinRig {
     this.hands = new TwinHands(assets, skinToneHex);
     this.accessories = new TwinAccessories(model.accessories ?? [], assets.skeleton);
     this.openingRepair = new TwinOpeningRepair(model.material, model.uv, skinToneHex);
+    this.hair = model.hair
+      ? new TwinHair(assets.scene, assets.skeleton, assets.mesh.bindMatrix, model.hair, {
+          renderer: options.renderer ?? null,
+          ...(options.hairMsaa === undefined ? {} : { msaa: options.hairMsaa }),
+        })
+      : null;
     // Wardrobe refreshes in its synchronous subscriber first; this also catches size/colour changes without a new index.
     this.offWardrobe = useWardrobeStore.subscribe((state, previous) => {
       if (state.worn !== previous.worn || state.items !== previous.items)
@@ -193,6 +207,7 @@ export class TwinRig {
     this.mesh.bindMatrixInverse.copy(this.assets.mesh.bindMatrix).invert();
     this.mesh.visible = true;
     this.accessories.show();
+    this.hair?.onSolve(alignment.offset, this.assets.mesh.bindMatrix);
     this.assets.mesh.visible = false; // swap with the mannequin body in one go: it stays solved, only hidden
     this.refreshHidden(); // the garments were refitted to this solve before the twin was told
     return alignment;
@@ -357,6 +372,14 @@ export class TwinRig {
       handTriangles: (): number => (this.hands.mesh.geometry.getIndex()?.count ?? 0) / 3,
       handsVisible: (): boolean => this.hands.mesh.visible,
       glassesVisible: (): boolean => this.accessories.visible,
+      hair: (): { visible: boolean; msaa: boolean; passes: string[] } | null =>
+        this.hair
+          ? {
+              visible: this.hair.visible,
+              msaa: this.hair.msaa,
+              passes: this.hair.meshes.map((m) => m.name),
+            }
+          : null,
       handColor: (): string =>
         `#${(this.hands.mesh.material as import('three').MeshStandardMaterial).color.getHexString()}`,
       repairedTexels: (): number => this.openingRepair.painted,
@@ -411,6 +434,7 @@ export class TwinRig {
     this.surfaceCache.clear();
     this.hands.dispose();
     this.accessories.dispose();
+    this.hair?.dispose();
     this.openingRepair.restore();
     Reflect.deleteProperty(this.bodyGeometry, 'setIndex'); // back to the prototype method
     this.assets.mesh.visible = this.bodyWasVisible;

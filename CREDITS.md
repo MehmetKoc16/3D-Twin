@@ -19,6 +19,10 @@
   Pinned commit: `9519bb59bf55fc6a79ed5b9f283d72e6cdfb6678`. Used by the asset pipeline to generate
   `face-map.json` (triangle index triples and index lists only, no vertex positions or UVs are redistributed).
 - three.js, React, @react-three/fiber, drei, zustand, i18next, comlink, idb-keyval, Vite, Tailwind CSS - MIT.
+- **threejs-hair-shader** (`hair-shader.js`, vendored in `apps/web/src/vendor/threejs-hair-shader/` with its LICENSE) -
+  [creategamecharacters/threejs-hair-shader](https://github.com/creategamecharacters/threejs-hair-shader), MIT,
+  Copyright (c) 2026 Sander Morch-Jensen (creategamecharacters.com). Pinned commit
+  `f0d6cf0d4d309c55b9c5d11370e0a04d04ad05d3`. Renders the strand-hair cards of the realistic twin.
 
 ## Garments and other assets
 

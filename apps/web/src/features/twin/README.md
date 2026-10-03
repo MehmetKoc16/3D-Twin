@@ -70,3 +70,21 @@ stand-in e2e covers legacy colour fallback and outfit texture restoration. Real-
 `tools/twin-lab/rig/app_qa.mjs` prefers `<twinDir>/../twin.glb`, then `<twinDir>/twin.glb`; `--legacy` forces the old three-file
 picker path (the mapping remains optional). Screenshots are written only to the specified output directory; `--tag` is
 restricted to a filename prefix so it cannot redirect screenshots elsewhere.
+
+## Strand hair (`dtHairNode`, contract `rcov-groot-bvar/1`)
+
+A `twin.glb` may carry the hair as a SEPARATE skinned node: `asset.extras.dtHairNode` names it and the node's material
+has `extras.dtHair = {format, colorHex, rootHex?, tipHex?, cardCount?}`; its base-colour texture is the strand data
+atlas (R coverage, G root-to-tip, B variation). Bundles without `dtHairNode` behave exactly as before.
+
+- `twinHair.ts` parses and validates the extras (`TwinFormatError('json')`), `twinModel.ts` splits the hair mesh from the
+  single body mesh and remaps the hair skin to the avatar's bone order (it must share the body's rest pose).
+- `TwinRig` mounts a `TwinHair` (group `twin:hair:group`, SkinnedMesh `twin:hair`) bound to the SAME skeleton and bind
+  matrix as the body and translated by the same rest alignment, so every pose drives it. Garment hide-triangles, the
+  footprint pass, push-in, opening repair and the hands never touch it; it is shown and disposed with the twin.
+- The vendored MIT shader (`src/vendor/threejs-hair-shader`) is applied with the atlas as `NoColorSpace` data. With MSAA
+  (`gl.SAMPLES > 0`, the Viewer canvas has `antialias: true`) it draws an opaque alpha-to-coverage pass plus a blended
+  fringe; without MSAA an alpha-tested core plus a blended, depth-writing outer pass. Root and tip colours map to the
+  shader's two-colour `multi` root mode (`rootHex` at the root, `tipHex ?? colorHex` as `color`).
+- Shadow: only the main pass casts, through a `customDepthMaterial` that cuts out on atlas R (coverage), so the hair
+  casts a cut-out shadow, never a block.

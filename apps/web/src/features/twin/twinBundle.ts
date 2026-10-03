@@ -3,13 +3,22 @@ import { Mesh, MeshStandardMaterial } from 'three';
 import { parseTwinDef, TwinFormatError, type TwinDef } from './twinDef';
 import { parseMapping, validateMapping } from './twinMapping';
 import { loadTwinAccessories, disposeAccessory } from './twinAccessories';
+import { parseTwinHair, type TwinHairInfo } from './twinHair';
 
 interface BundleParser {
   json: {
     asset?: {
-      extras?: { dtTwin?: unknown; dtHasMakeHumanHands?: unknown; dtScanHandsRemoved?: unknown };
+      extras?: {
+        dtTwin?: unknown;
+        dtHasMakeHumanHands?: unknown;
+        dtScanHandsRemoved?: unknown;
+        dtHairNode?: unknown;
+      };
     };
     bufferViews?: unknown[];
+    nodes?: unknown[];
+    meshes?: unknown[];
+    materials?: unknown[];
   };
   getDependency(type: 'bufferView', index: number): Promise<ArrayBuffer>;
 }
@@ -23,6 +32,11 @@ export interface TwinBundle {
    * texture, so the rig keeps them instead of swapping in the mannequin's hands. False when absent.
    */
   hasMakeHumanHands: boolean;
+  /**
+   * `asset.extras.dtHairNode` + the hair material's `extras.dtHair` (strand-hair node, contract `rcov-groot-bvar/1`),
+   * validated. Null for bundles without hair, which behave exactly as before.
+   */
+  hair: TwinHairInfo | null;
 }
 
 const record = (v: unknown): v is Record<string, unknown> =>
@@ -40,6 +54,7 @@ export async function parseTwinBundle(parser: BundleParser): Promise<TwinBundle 
     if (flag !== undefined && typeof flag !== 'boolean')
       throw new TwinFormatError('json', `asset.extras.${key} must be a boolean`);
   }
+  const hair = parseTwinHair(parser.json);
   const def = parseTwinDef(raw.twin);
   if (typeof raw.skinToneHex !== 'string' || !/^#[\da-f]{6}$/i.test(raw.skinToneHex))
     throw new TwinFormatError('json', 'dtTwin.skinToneHex must be #rrggbb');
@@ -85,6 +100,7 @@ export async function parseTwinBundle(parser: BundleParser): Promise<TwinBundle 
     mapping,
     skinToneHex: raw.skinToneHex,
     hasMakeHumanHands: extras?.dtHasMakeHumanHands === true,
+    hair,
   };
 }
 
