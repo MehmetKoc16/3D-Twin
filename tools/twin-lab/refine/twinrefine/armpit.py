@@ -12,7 +12,8 @@ parts that are far apart in the skeleton), so the refine stage changes the mesh:
    fitted body, above the free part of the arm). The cut is an open arc: the surface stays attached above it (the
    shoulder keeps deforming like a shoulder) and two lips open below it.
 3. Close both lips with a small cap each (the arm's slot, the torso's window), so both sides stay closed surfaces. Cap
-   triangles use a solid colour patch in unused atlas space (the lips' mean colour).
+   triangles use a solid colour patch in unused atlas space (the brighter part of the surface around the lips: the lips
+   themselves are contact-shadow texels and render almost black on a raised arm).
 4. Nudge the arm side outward a few millimetres (tapering to zero at the apex and below the contact) so the two lips
    are no longer the same points: the rig stage welds vertices by position, which would stitch them together again.
 """
@@ -54,6 +55,8 @@ class ArmpitParams:
     smooth_iters: int = 6  # Laplacian smoothing of the arm / not-arm field before cutting along its zero level
     chain_smooth: int = 4  # Laplacian iterations along the cut line (straightens the lips)
     t_clip: float = 0.12  # keep the inserted cut vertices at least this fraction away from the old vertices
+    colour_radius: float = 0.05  # m around a lip whose (unshadowed) surface colour paints the cap
+    colour_quantile: float = 0.5  # keep the brighter part of the sampled texels (contact shadows are baked into the lips)
 
 
 @dataclass
@@ -246,9 +249,9 @@ def separate_arms(
     cap_faces: list[np.ndarray] = []
     cap_uv: list[np.ndarray] = []
     cap_is_arm: list[bool] = []
+    stats = {"fan_fallback": 0, "ear_clipped": 0, "zippered": 0}
     extra_pts: list[np.ndarray] = []
     nP = len(P2)
-    stats = {"fan_fallback": 0, "ear_clipped": 0, "zippered": 0}
 
     def cap_batch(path: list[int], closed: bool, rgb: tuple[int, int, int] | None, is_arm: bool) -> None:
         nonlocal nP
@@ -274,21 +277,35 @@ def separate_arms(
         cap_uv.append(np.tile(uvc if uvc is not None else np.zeros(2, np.float32), (len(tris_ids), 3, 1)))
         cap_is_arm.append(is_arm)
 
-    def lip_colour(hs: np.ndarray) -> tuple[int, int, int] | None:
+    def lip_colour(hs: np.ndarray, side_is_arm: bool) -> tuple[int, int, int] | None:
+        """Colour of a cap. The lips sit in the contact crease, where the photos saw the surface in deep shadow (a flat
+        plate of that colour renders almost black once the arm is raised), so the colour is taken from the brighter part
+        of the same side's surface around the lip, not from the lip itself."""
         if atlas is None or len(hs) == 0:
             return None
-        fa, ka = hs // 3, hs % 3
-        uv = mc2.C[fa, ka]
+        from scipy.spatial import cKDTree
+
         S = atlas.shape[0]
+        fa = np.unique(hs // 3)
+        lip_v = np.unique(mc2.F[fa].reshape(-1))
+        cen = mc2.P[mc2.F].mean(axis=1)
+        near = np.flatnonzero((arm_face == side_is_arm) & (cKDTree(mc2.P[lip_v]).query(cen)[0] <= prm.colour_radius))
+        near = near[~np.isin(near, fa)]
+        if len(near) < 8:
+            near = fa
+        uv = mc2.C[near].mean(axis=1)
         px = np.clip((uv[:, 0] * S).astype(int), 0, S - 1)
         py = np.clip((uv[:, 1] * S).astype(int), 0, S - 1)
-        col = u8_to_linear(atlas[py, px]).mean(axis=0)
+        lin = u8_to_linear(atlas[py, px])
+        lum = lin @ np.array([0.2126, 0.7152, 0.0722])
+        keep = lum >= np.quantile(lum, prm.colour_quantile)
+        col = lin[keep].mean(axis=0)
         return tuple(int(x) for x in linear_to_u8(col[None, :])[0])
 
     arm_hs = hes[arm_face[hes // 3]]
     torso_hs = hes[~arm_face[hes // 3]]
     for hs, is_arm in ((arm_hs, True), (torso_hs, False)):
-        rgb = lip_colour(hs)
+        rgb = lip_colour(hs, is_arm)
         for path, closed in chain_halfedges(F2, hs):
             if len(path) >= 3:
                 cap_batch(path, closed, rgb, is_arm)

@@ -108,3 +108,29 @@ def test_smooth_field_is_a_contraction_towards_the_mean():
 def test_apex_height_of_the_makehuman_body(model, mh_fit):
     y = armpit.apex_height(model, mh_fit)
     assert 1.15 < y < 1.5
+
+
+def test_separate_arms_cap_colour_ignores_the_shadowed_lip():
+    """Photos see the contact crease in shadow: the cap takes the brighter surface around the lip, not the lip itself."""
+    mc, x_pinch, aw_l, aw_r, atlas = _setup()
+    size = atlas.shape[0]
+    atlas[:] = (200, 190, 180)
+    u0 = (3.0 * x_pinch) % 1.0
+    for dx in range(-6, 7):  # dark vertical band: every texel at the pinch plane's u coordinate
+        atlas[:, int(u0 * size) + dx] = (25, 20, 20)
+    prm = armpit.ArmpitParams(y_top=10.0, y_low=-10.0, chain_smooth=0)
+    out, atlas2, _rep = armpit.separate_arms(mc, atlas.copy(), aw_l, aw_r, y_apex=1.0, params=prm)
+    same = (np.abs(out.C[:, 0] - out.C[:, 1]).max(1) < 1e-9) & (np.abs(out.C[:, 0] - out.C[:, 2]).max(1) < 1e-9)
+    uv = out.C[same][0, 0]
+    cap_rgb = atlas2[int(uv[1] * size), int(uv[0] * size)].astype(float)
+    assert cap_rgb.min() > 150  # the lip's own colour would be ~(25, 20, 20)
+
+
+def test_separate_arms_cap_colour_falls_back_to_the_lip_without_neighbours():
+    mc, x_pinch, aw_l, aw_r, atlas = _setup()
+    atlas[:] = (90, 100, 110)
+    prm = armpit.ArmpitParams(y_top=10.0, y_low=-10.0, chain_smooth=0, colour_radius=1e-6)
+    out, atlas2, _rep = armpit.separate_arms(mc, atlas.copy(), aw_l, aw_r, y_apex=1.0, params=prm)
+    same = (np.abs(out.C[:, 0] - out.C[:, 1]).max(1) < 1e-9) & (np.abs(out.C[:, 0] - out.C[:, 2]).max(1) < 1e-9)
+    uv = out.C[same][0, 0]
+    np.testing.assert_allclose(atlas2[int(uv[1] * 256), int(uv[0] * 256)], (90, 100, 110), atol=2)
