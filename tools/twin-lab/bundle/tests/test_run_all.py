@@ -62,7 +62,7 @@ def test_optional_refine_cli_and_own_interpreters(lab, tmp_path):
     (tmp_path / "input/head").mkdir(parents=True, exist_ok=True)
     (tmp_path / "input/head/front.jpg").write_bytes(b"synthetic")
     stages = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab, with_head=True)
-    assert [stage.name for stage in stages] == list(runner.STAGES)
+    assert [stage.name for stage in stages] == [s for s in runner.STAGES if s != "hybrid"]
     default = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab)
     assert "head" not in [stage.name for stage in default]  # auto skips when no FLAME fit exists
     command = stages[2].command
@@ -297,3 +297,68 @@ def test_existing_shape_cache_checks_height_and_view_set(tmp_path):
     stage.command[-1] = "178.0"
     stage.command.extend(["--back", str(tmp_path / "back.png")])
     assert not runner.is_fresh(stage, stamp)
+
+
+def test_hybrid_chain_keeps_native_hands_and_isolates_outputs(lab, tmp_path):
+    for name in ("head/flame/flame_head.py", "bodyfix/bodyfix.py", "hybrid/hybrid.py"):
+        path = lab / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Synthetic stage\n")
+    inputs, out = tmp_path / "input", tmp_path / "out"
+    stages = runner.build_stages(inputs, out, 178, lab=lab, head="flame", body="hybrid")
+    assert [s.name for s in stages] == ["shape", "texture", "head", "bodyfix", "hybrid", "rig", "bundle"]
+    by_name = {s.name: s for s in stages}
+    hybrid = by_name["hybrid"]
+    assert str(lab / "refine/.venv") in hybrid.command[0]
+    # The template head is deformed to the FLAME fit: no scan head enters the hybrid stage.
+    assert "--head" not in hybrid.command
+    assert out / "head/head.glb" not in hybrid.inputs
+    assert hybrid.command[hybrid.command.index("--bodyfix") + 1] == str(out / "bodyfix")
+    assert hybrid.command[hybrid.command.index("--measurements") + 1] == str(inputs / "measurements.json")
+    assert hybrid.command[hybrid.command.index("--photos") + 1] == str(inputs / "head/colab_upload")
+    assert out / "hybrid/face_asset/face-asset.json" in hybrid.outputs
+    rig = by_name["rig"]
+    assert rig.command[2:4] == [str(out / "hybrid/hybrid.glb"), str(out / "hybrid/rig")]
+    assert "--cut-bridges" not in rig.command and rig.command[rig.command.index("--fingers") + 1] == "keep"
+    assert by_name["bundle"].outputs == [out / "hybrid/twin.glb"]
+    assert out / "twin.glb" not in by_name["bundle"].outputs
+    overridden = runner.build_stages(
+        inputs, out, 178, lab=lab, head="flame", body="hybrid", bundle_out=out / "other.glb"
+    )
+    assert overridden[-1].outputs == [out / "other.glb"]
+
+
+@pytest.mark.parametrize("head", ["none", "recon", "auto"])
+def test_hybrid_requires_flame(lab, tmp_path, head):
+    with pytest.raises(ValueError, match="requires --head flame"):
+        runner.build_stages(tmp_path / "in", tmp_path / "out", 178, lab=lab, body="hybrid", head=head)
+
+
+def test_hybrid_cli_selection_and_bundle_override(lab, tmp_path, monkeypatch, capsys):
+    (lab / "bodyfix").mkdir()
+    (lab / "bodyfix/bodyfix.py").write_text("# Synthetic stage\n")
+    monkeypatch.setattr(runner, "LAB", lab)
+    monkeypatch.setattr(runner, "REPO", tmp_path / "repo")
+    out = tmp_path / "out"
+    code = runner.main(
+        [
+            "--input-dir",
+            str(tmp_path / "in"),
+            "--out-dir",
+            str(out),
+            "--body",
+            "hybrid",
+            "--head",
+            "flame",
+            "--from-stage",
+            "hybrid",
+            "--bundle-out",
+            str(out / "custom.glb"),
+            "--dry-run",
+        ]
+    )
+    assert code == 0
+    text = capsys.readouterr().out
+    assert "[hybrid] RUN" in text and "[rig] RUN" in text and "[bundle] RUN" in text
+    assert "[bodyfix]" not in text and "custom.glb" in text
+    assert not out.exists()

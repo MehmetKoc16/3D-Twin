@@ -58,3 +58,57 @@ def read_solution(extras: dict, model: MHModel) -> dict | None:
     if not isinstance(solution.get("measurementBasis"), str):
         raise ValueError("Missing dtBodyfix measurement basis")
     return solution
+
+
+def hybrid_fit(extras: dict, model: MHModel, solution: dict | None, vertices):
+    """Reuse an exactly solved native A-pose body: no scan pose fit and no shape refit.
+
+    The hybrid stage writes ``asset.extras.dtHybrid`` (frame, manifest hash, ``cutHeightM``) next to ``dtBodyfix``.
+    Every vertex below ``cutHeightM`` must then be the solved MakeHuman body itself (2e-5 m); the head above it may
+    be deformed and carries the bound parts. Returns ``None`` when the marker is absent (the legacy scan path).
+    """
+    if "dtHybrid" not in extras:
+        return None
+    import hashlib
+    from pathlib import Path
+
+    import numpy as np
+    from scipy.spatial import cKDTree
+
+    from mh import BODY_DIR
+    from rigfit import POSE_BONES, FitResult
+
+    marker = extras["dtHybrid"]
+    if not isinstance(marker, dict) or marker.get("version") != 1 or marker.get("frame") != "MakeHuman-grounded-A-pose":
+        raise ValueError("Unsupported dtHybrid frame")
+    if solution is None:
+        raise ValueError("Hybrid requires its exact dtBodyfix solution")
+    digest = hashlib.sha256((Path(BODY_DIR) / "manifest.json").read_bytes()).hexdigest()
+    if marker.get("bodyManifestSha256") != digest:
+        raise ValueError("Hybrid MakeHuman manifest differs from the rig's assets")
+    cut = marker.get("cutHeightM")
+    if isinstance(cut, bool) or not isinstance(cut, (int, float)) or not math.isfinite(cut):
+        raise ValueError("Hybrid needs a finite neck cut")
+    rest = model.shape(solution["fittedMacros"], solution["fittedModifiers"], ground=False)
+    root_t = np.array([0.0, -rest[: model.nr, 1].min(), 0.0])
+    posed = rest[: model.nr] + root_t
+    body = vertices[vertices[:, 1] < cut - 0.001]
+    if len(body) < 8:
+        raise ValueError("Hybrid body is missing")
+    deviation = cKDTree(posed).query(body)[0].max()
+    if deviation > 0.00002:
+        raise ValueError("Hybrid body is not the exact solved MakeHuman A-pose")
+    stats = {
+        "shape_source": "hybrid-bodyfix",
+        "pose_source": "verified-native-A-pose",
+        "native_body_max_deviation_mm": float(deviation * 1000),
+    }
+    return FitResult(
+        dict(solution["fittedMacros"]),
+        dict(solution["fittedModifiers"]),
+        rest,
+        {name: np.zeros(3) for name in POSE_BONES},
+        root_t,
+        posed,
+        stats,
+    )

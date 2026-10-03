@@ -15,7 +15,7 @@ from pathlib import Path
 
 LAB = Path(__file__).resolve().parent
 REPO = LAB.parents[1]
-STAGES = ("shape", "texture", "refine", "head", "bodyfix", "rig", "bundle")
+STAGES = ("shape", "texture", "refine", "head", "bodyfix", "hybrid", "rig", "bundle")
 
 
 @dataclass
@@ -30,7 +30,7 @@ def interpreter(stage: str, lab: Path) -> Path:
     relative = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
     if stage == "bodyfix":
         return lab / "rig" / ".venv" / relative
-    if stage == "head":  # imports the refine / texture / rig stages: runs in the refine environment
+    if stage in {"head", "hybrid"}:  # shared geometry, textures and previews live in refine
         return lab / "refine" / ".venv" / relative
     candidate = lab / stage / ".venv" / relative
     # Bundle can share the existing CPU rig environment, as documented.
@@ -53,7 +53,15 @@ def source_inputs(folder: Path) -> list[Path]:
 
 
 def build_stages(
-    input_dir: Path, out_dir: Path, height_cm: float, *, lab: Path = LAB, head: str = "auto", with_head: bool = False
+    input_dir: Path,
+    out_dir: Path,
+    height_cm: float,
+    *,
+    lab: Path = LAB,
+    head: str = "auto",
+    with_head: bool = False,
+    body: str = "scan",
+    bundle_out: Path | None = None,
 ) -> list[Stage]:
     views = [
         (name, input_dir / f"{name}.png")
@@ -65,6 +73,8 @@ def build_stages(
     refine = out_dir / "refine"
     rig = out_dir / "rig"
     stages = []
+    if body not in {"scan", "hybrid"}:
+        raise ValueError(f"Unknown body mode: {body}")
 
     def add(name: str, script: str, args: list[str], inputs: list[Path], outputs: list[Path]) -> None:
         command = [str(interpreter(name, lab)), str(lab / name / script), *args]
@@ -124,6 +134,8 @@ def build_stages(
     fit = head_photos / "flame/fit"
     if head == "auto":
         head = "flame" if (fit / "head_neutral.obj").is_file() else "none"
+    if body == "hybrid" and head != "flame":
+        raise ValueError("--body hybrid requires --head flame (or auto with a FLAME fit)")
     if head == "flame":
         head_out = out_dir / "head/head.glb"
         photos = head_photos / "colab_upload"
@@ -211,12 +223,76 @@ def build_stages(
             [corrected, corrected.parent / "bodyfix_report.json"],
         )
         scan = corrected
+    if body == "hybrid":
+        if not any(stage.name == "bodyfix" for stage in stages):
+            raise ValueError("--body hybrid requires the bodyfix stage")
+        hybrid = out_dir / "hybrid/hybrid.glb"
+        # Template-character twin: the MakeHuman head is deformed to the FLAME fit. The scan stages above only supply
+        # bodyfix's shape prior; no scan or scan head geometry enters the hybrid mesh.
+        photos = head_photos / "colab_upload"
+        flame_assets = REPO / "user-data/flame"
+        add(
+            "hybrid",
+            "hybrid.py",
+            [
+                "--bodyfix",
+                str(scan.parent),
+                "--measurements",
+                str(input_dir / "measurements.json"),
+                "--fit",
+                str(fit),
+                "--photos",
+                str(photos),
+                "--flame-assets",
+                str(flame_assets),
+                "--out",
+                str(hybrid),
+            ],
+            [
+                scan,
+                input_dir / "measurements.json",
+                *sorted(p for p in fit.rglob("*") if p.is_file()),
+                *[photos / f"{name}.jpg" for name in ("front", "right")],
+                *[
+                    flame_assets / (filename if (flame_assets / filename).is_file() else archive)
+                    for archive, filename in (
+                        ("FLAME_masks.zip", "FLAME_masks.pkl"),
+                        ("mediapipe_landmark_embedding.zip", "mediapipe_landmark_embedding.npz"),
+                    )
+                ],
+                *source_inputs(lab / "head/flame"),
+                *source_inputs(lab / "refine"),
+                *source_inputs(lab / "texture"),
+                *source_inputs(lab / "rig"),
+                *source_inputs(lab / "bodyfix"),
+                *[
+                    body_assets / name
+                    for name in (
+                        "base.glb",
+                        "manifest.json",
+                        "morphs.bin",
+                        "rig.json",
+                        "measures.json",
+                        "face-map.json",
+                    )
+                ],
+                *sorted((body_assets.parent / "parts").glob("*")),
+            ],
+            [hybrid, hybrid.parent / "hybrid_report.json", hybrid.parent / "face_asset/face-asset.json"],
+        )
+        scan = hybrid
+        rig = out_dir / "hybrid/rig"
+    bundled = bundle_out or (out_dir / "hybrid/twin.glb" if body == "hybrid" else out_dir / "twin.glb")
     add(
         "rig",
         "rig_scan.py",
         # Generated scans have fused fists touching the thighs: merge finger weights into the
         # hands and cut hand-thigh bridges (the web app shows MakeHuman hands instead).
-        [str(scan), str(rig), "--fingers", "merge", "--cut-bridges"],
+        (
+            [str(scan), str(rig), "--fingers", "keep", "--smooth", "0"]
+            if body == "hybrid"
+            else [str(scan), str(rig), "--fingers", "merge", "--cut-bridges"]
+        ),
         [
             scan,
             *[
@@ -243,14 +319,16 @@ def build_stages(
             "--mh2twin",
             str(rig / "mh2twin.bin"),
             "--out",
-            str(out_dir / "twin.glb"),
+            str(bundled),
             "--shape",
-            "Hunyuan3D-2",
+            "MakeHuman/FLAME hybrid" if body == "hybrid" else "Hunyuan3D-2",
             "--license",
-            "Tencent Hunyuan 3D 2.0 Community License",
+            "CC0 MakeHuman + non-commercial FLAME/Pixel3DMM fit"
+            if body == "hybrid"
+            else "Tencent Hunyuan 3D 2.0 Community License",
         ],
         [*stages[-1].outputs, body_assets / "rig.json"],
-        [out_dir / "twin.glb"],
+        [bundled],
     )
     return stages
 
@@ -371,6 +449,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--to-stage", choices=STAGES, default="bundle")
     parser.add_argument("--height-cm", type=float, default=178.0)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--body", choices=("scan", "hybrid"), default="scan")
+    parser.add_argument(
+        "--bundle-out", type=Path, help="override the final GLB destination; hybrid defaults to out/hybrid/twin.glb"
+    )
     parser.add_argument(
         "--head",
         choices=("auto", "flame", "recon", "none"),
@@ -397,9 +479,20 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     try:
         ensure_private_output(input_dir, out_dir)
+        if args.bundle_out:
+            ensure_private_output(input_dir, args.bundle_out.resolve().parent)
         if args.with_head:
             print("[head] --with-head is deprecated; use --head recon", file=sys.stderr)
-        stages = build_stages(input_dir, out_dir, args.height_cm, lab=LAB, head=args.head, with_head=args.with_head)
+        stages = build_stages(
+            input_dir,
+            out_dir,
+            args.height_cm,
+            lab=LAB,
+            head=args.head,
+            with_head=args.with_head,
+            body=args.body,
+            bundle_out=args.bundle_out.resolve() if args.bundle_out else None,
+        )
         if first <= STAGES.index("refine") <= last and not any(stage.name == "refine" for stage in stages):
             print(
                 "[refine] SKIP (refine/refine.py does not exist); rig uses textured.glb",

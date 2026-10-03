@@ -71,6 +71,9 @@ The stage preserves photographed eyeglasses without inpainting. The separate
   conversions receive sRGB rather than linear RGB. Missing observations use
   nearest surface samples; hidden eyeballs receive an ivory fallback. Surface
   fills, chart padding and canvas fill prevent black/unassigned texels.
+- `texture.bake` rasterises the FLAME UV layout and delegates to `texture.bake_texels`, which bakes into any set of
+  texels (`(y, x)`, triangle ids and barycentrics on any rectangular canvas, optional per-texel confidence gate, total
+  confidence returned in `diagnostics`). The `hybrid` stage reuses it to bake the same photos into the MakeHuman head UV.
 - Existing MediaPipe helpers render the scan and lift its detected face
   landmarks into 3D. FLAME embedding barycentrics establish correspondences.
   Stable landmark similarity fitting precedes 70%-trimmed, landmark-anchored

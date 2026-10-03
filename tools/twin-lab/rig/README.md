@@ -83,6 +83,16 @@ surface patches (< 2000 triangles) whose dominant bone is skeleton-distant from 
 lying against a thigh is weighted to the thigh by the transfer), instead of letting `--cut-bridges` leave them floating.
 Tests: `tests/test_hand_weights.py`.
 
+## Hybrid (template-character) twins
+
+The `hybrid` stage (`tools/twin-lab/hybrid`) writes the MakeHuman render mesh itself (head deformed to a FLAME fit, parts
+bound to it) with `asset.extras.dtHybrid` = `{version: 1, frame: "MakeHuman-grounded-A-pose", bodyManifestSha256,
+cutHeightM}` next to `dtBodyfix`. `bodyfix_solution.hybrid_fit` then verifies that every vertex below `cutHeightM` is the
+solved body (2e-5 m), skips the scan pose/shape fit (identity pose, `pose_source: verified-native-A-pose`) and the usual
+weight transfer maps the template's own skin weights onto the mesh (distance 0 for the body, nearest head surface for the
+parts). Run it with `--fingers keep --smooth 0` (MakeHuman hands are real hands, nothing is merged or cut). Tests:
+`tests/test_hybrid_fit.py`.
+
 ## Method (approach B, recommended)
 
 Solid-colour atlas caps are recognised by identical UVs on each triangle. Cap-only

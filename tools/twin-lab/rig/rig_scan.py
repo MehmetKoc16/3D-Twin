@@ -23,7 +23,7 @@ from glbio import GlbScene, Prim, _split, read_glb, write_skinned_glb, write_sta
 from mh import MHModel
 from rigfit import Fitter, log, top4, transfer_weights
 from twin_export import canonicalize_fit, write_twin_package
-from bodyfix_solution import read_solution
+from bodyfix_solution import hybrid_fit, read_solution
 from surface import cap_weights, constant_uv_faces
 
 
@@ -69,8 +69,14 @@ def main() -> None:
     extras = _split(Path(args.scan).read_bytes())[0].get("asset", {}).get("extras", {})
     scan_hands_removed = bool(extras.get("dtScanHandsRemoved"))
     bodyfix = read_solution(extras, model)
+    native = hybrid_fit(extras, model, bodyfix, uverts)
     pkl = os.path.join(args.out, "fit.pkl")
-    if bodyfix is not None:
+    if native is not None:
+        log("verified hybrid A-pose: reusing exact body shape and identity pose")
+        res = native
+        with open(pkl, "wb") as fh:
+            pickle.dump(res, fh)
+    elif bodyfix is not None:
         log("bodyfix solution found: keeping shape, fitting pose and translation to the corrected scan")
         # A cached unconstrained fit must never override the embedded solved body.
         res = Fitter(model, pts, nrm, fixed_shape=(bodyfix["fittedMacros"], bodyfix["fittedModifiers"])).run()

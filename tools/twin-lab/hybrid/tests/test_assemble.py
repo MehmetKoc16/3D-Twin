@@ -1,0 +1,114 @@
+import numpy as np
+import pytest
+from glbio import _split, read_glb
+from hybridbody.assemble import KIND, assemble, eye_offsets, mesh_validity, sphere_fit, write_glb
+from hybridbody.partstex import make_tile
+from synth import sphere_template
+from test_template import synthetic_part
+
+
+def test_sphere_fit_recovers_centre_and_radius_from_a_cap():
+    rng = np.random.default_rng(2)
+    direction = rng.normal(size=(400, 3))
+    direction[:, 2] = np.abs(direction[:, 2]) + 0.3  # front cap only
+    direction /= np.linalg.norm(direction, axis=1, keepdims=True)
+    points = np.array([0.03, 1.6, 0.13]) + 0.0125 * direction
+    centre, radius = sphere_fit(points)
+    np.testing.assert_allclose(centre, [0.03, 1.6, 0.13], atol=1e-6)
+    assert radius == pytest.approx(0.0125, abs=1e-6)
+
+
+def test_eye_offsets_align_centre_in_xy_and_front_pole_in_z_with_clamping():
+    rng = np.random.default_rng(4)
+
+    def eye(cx, cz, radius=0.0146):
+        d = rng.normal(size=(300, 3))
+        d[:, 2] = np.abs(d[:, 2]) + 0.2
+        d /= np.linalg.norm(d, axis=1, keepdims=True)
+        return np.array([cx, 1.6, cz]) + radius * d
+
+    bound = np.vstack((eye(0.033, 0.127), eye(-0.033, 0.127)))
+    flame = {"left": eye(0.0338, 0.1312, 0.0131) + [0, -0.001, 0], "right": eye(-0.0338, 0.1312, 0.0131)}
+    shift, report = eye_offsets(bound, flame)
+    left = shift[bound[:, 0] > 0][0]
+    assert abs(left[0] - 0.0008) < 3e-4 and left[1] < 0 and left[2] > 0
+    moved_pole = (bound[bound[:, 0] > 0] + left)[:, 2].max()
+    assert abs(moved_pole - flame["left"][:, 2].max()) < 1e-9
+    big = {k: v + [0.02, 0, 0] for k, v in flame.items()}
+    clamped, _ = eye_offsets(bound, big, limit=0.004)
+    assert np.abs(clamped).max() <= 0.004 + 1e-12 and set(report) == {"left", "right"}
+
+
+def make_mesh():
+    positions, faces, uv, _ = sphere_template(subdivisions=2)
+    hair = synthetic_part()
+    hair.category = "hair"
+    hair_tile = make_tile("hair", np.zeros((16, 16, 3), np.uint8), hair.uv, 16, 16)
+    hair_tile.origin = (0, 64)
+    brow = synthetic_part()
+    brow.category = "eyebrows"
+    brow_tile = make_tile("eyebrows", np.zeros((16, 16, 3), np.uint8), brow.uv, 16, 16)
+    brow_tile.origin = (20, 64)
+    mesh = assemble(
+        positions,
+        faces,
+        uv * [1.0, 64 / 80],
+        [
+            ("eyebrows", brow, brow.positions + [0.0, 1.65, 0.0], brow_tile),
+            ("hair", hair, hair.positions + [0.0, 1.7, 0.0], hair_tile),
+        ],
+        (64, 80),
+    )
+    return mesh, positions, faces
+
+
+def test_assemble_concatenates_parts_and_adds_offset_back_faces_for_cards():
+    mesh, positions, faces = make_mesh()
+    assert mesh.parts["body"]["vertices"] == (0, len(positions))
+    assert mesh.parts["hair"]["vertices"][1] - mesh.parts["hair"]["vertices"][0] == 6  # 3 front + 3 back
+    assert len(mesh.faces) == len(faces) + 2 * 2
+    front = mesh.faces[len(faces) + 2]  # hair front
+    back = mesh.faces[len(faces) + 3]
+    assert set(front) & set(back) == set()  # distinct vertices: never welded
+    gap = np.linalg.norm(mesh.positions[front] - mesh.positions[back[::-1]], axis=1)  # reversed winding
+    assert (gap > 5e-5).all() and (gap < 5e-4).all()
+    assert (mesh.kind[len(positions) :] > 0).all() and KIND["hair"] in mesh.kind
+    assert mesh.uv.shape == (len(mesh.positions), 2) and mesh.uv[len(positions) :, 1].min() >= 64 / 80 - 1e-9
+
+
+def test_without_drops_a_part_and_renumbers():
+    mesh, _, _ = make_mesh()
+    bare = mesh.without("hair")
+    assert len(bare.positions) == len(mesh.positions) - 6 and bare.faces.max() < len(bare.positions)
+    assert (bare.kind != KIND["hair"]).all()
+
+
+def test_drop_vertices_removes_their_faces_and_orphans():
+    positions, faces, uv, _ = sphere_template(subdivisions=2)
+    mesh = assemble(positions, faces, uv, [], (64, 64), drop_vertices=np.array([0, 1, 2]))
+    assert len(mesh.faces) < len(faces) and mesh.faces.max() == len(mesh.positions) - 1
+    assert len(mesh.positions) <= len(positions)
+
+
+def test_mesh_validity_reports_a_closed_sphere_and_an_opened_one():
+    positions, faces, uv, _ = sphere_template(subdivisions=2)
+    closed = assemble(positions, faces, uv, [], (64, 64))
+    report = mesh_validity(closed)
+    assert report["body_boundary_edges"] == 0 and report["body_nonmanifold_edges"] == 0
+    assert report["body_inconsistent_winding_edges"] == 0 and report["finite"] and report["uv_in_range"]
+    opened = assemble(positions, faces[10:], uv, [], (64, 64))
+    assert mesh_validity(opened)["body_boundary_edges"] > 0
+
+
+def test_write_glb_roundtrip_keeps_one_textured_primitive_and_extras(tmp_path):
+    mesh, _, _ = make_mesh()
+    atlas = np.full((80, 64, 3), 120, np.uint8)
+    extras = {"dtHybrid": {"version": 1}, "dtHasMakeHumanHands": True}
+    info = write_glb(tmp_path / "h.glb", mesh, atlas, extras)
+    scene = read_glb(str(tmp_path / "h.glb"))
+    assert len(scene.prims) == 1 and len(scene.prims[0].positions) == len(mesh.positions)
+    assert scene.extras["dtHybrid"] == {"version": 1} and scene.extras["dtHasMakeHumanHands"] is True
+    js, _ = _split((tmp_path / "h.glb").read_bytes())
+    assert len(js["meshes"]) == 1 and len(js["materials"]) == 1 and js["images"][0]["mimeType"] == "image/jpeg"
+    assert info["extras_keys"] == ["dtHasMakeHumanHands", "dtHybrid"]
+    np.testing.assert_allclose(scene.prims[0].uv, mesh.uv.astype(np.float32), atol=1e-6)

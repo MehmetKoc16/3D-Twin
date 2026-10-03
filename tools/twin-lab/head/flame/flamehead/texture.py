@@ -132,8 +132,21 @@ def multiband(images, weights, levels=5):
 def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, size, diagnostics=None):
     fid, bary = rasterize_uv(uv * size, atlas_faces, size, size)
     y, x = np.nonzero(fid >= 0)
-    tri = faces[fid[y, x]]
-    lam = bary[y, x]
+    return bake_texels(
+        neutral, faces, fid, y, x, faces[fid[y, x]], bary[y, x], fitted, cameras, photos, symmetry, masks, diagnostics
+    )
+
+
+def bake_texels(
+    neutral, faces, fid, y, x, tri, lam, fitted, cameras, photos, symmetry, masks, diagnostics=None, gate=None
+):
+    """Bake the photos into the texels ``(y, x)`` of a (rows, cols) canvas whose triangle ids are ``fid``.
+
+    Each texel lies in the triangle ``tri`` (vertex ids into ``neutral`` / ``fitted``) at barycentrics ``lam``. The
+    canvas may be any rectangle (the hybrid stage bakes only the head island's UV rectangle), ``gate`` (optional,
+    one value per texel) scales every view's confidence, and ``diagnostics`` also receives the total ``confidence``.
+    """
+    shape = fid.shape
     points = np.einsum("ij,ijk->ik", lam, neutral[tri])
     images, weights = [], []
     names = ["front", "right", "mirrored_right"]
@@ -143,8 +156,8 @@ def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symm
         mesh, camera = fitted[view], cameras[view]
         depth, edge_distance, scale = visibility(mesh, faces, camera)
         normal = welded_vertex_normals(mesh, faces)
-        image = np.zeros((size, size, 3), np.float32)
-        weight = np.zeros((size, size), np.float32)
+        image = np.zeros((*shape, 3), np.float32)
+        weight = np.zeros(shape, np.float32)
         for start in range(0, len(y), 24000):
             end = start + 24000
             ti = symmetry[tri[start:end]] if name == "mirrored_right" else tri[start:end]
@@ -152,6 +165,8 @@ def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symm
             n = np.einsum("ij,ijk->ik", lam[start:end], normal[ti])
             n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
             color, w = project_samples(q, n, photos[view], camera, depth, edge_distance, scale)
+            if gate is not None:
+                w = w * gate[start:end]
             if name == "mirrored_right":
                 # Symmetry augments only the side opposite the fitted right camera.
                 side = np.sign(camera.center[0]) or 1
@@ -247,7 +262,7 @@ def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symm
     chin = neutral[masks["face"], 1].min() if len(masks.get("face", [])) else -np.inf
     underchin = neck[tri].any(1) & (points[:, 1] < chin) & (points[:, 1] > chin - 0.035) & (weights[0][y, x] > 0.1)
     if diagnostics is not None:
-        diagnostics.update(y=y, x=x, points=points, reference=reference, skin=skin)
+        diagnostics.update(y=y, x=x, points=points, reference=reference, skin=skin, confidence=total)
     return texture, {
         "texture_fill_ratio": 1.0,
         "photo_observed_ratio": float(observed.mean()),
