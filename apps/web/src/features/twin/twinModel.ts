@@ -19,7 +19,13 @@ import {
 } from './twinBinding';
 import { TwinFormatError, type TwinDef } from './twinDef';
 import { loadTwinAccessories, disposeAccessory } from './twinAccessories';
-import { extractTwinHair, hairSkinnedMeshes, parseTwinHair, type TwinHairModel } from './twinHair';
+import {
+  extractTwinHair,
+  hairSkinnedMeshes,
+  HAIR_SHELL_FORMAT,
+  parseTwinHair,
+  type TwinHairModel,
+} from './twinHair';
 
 /**
  * The parsed `rigged.glb` of a twin, re-indexed to the avatar's bone order. Everything is copied out of the glTF, so
@@ -101,6 +107,22 @@ export function twinMaterial(source: Material | undefined): MeshStandardMaterial
 }
 
 /**
+ * The material of a shell-format hair node (`shell/1`): the same alpha / side handling as the body (`twinMaterial`),
+ * plus the glTF roughness, metalness and normal map. The base colour stays sRGB.
+ */
+function shellHairMaterial(source: Material | undefined): MeshStandardMaterial {
+  const material = twinMaterial(source);
+  material.name = 'dtHair';
+  if (source instanceof MeshStandardMaterial) {
+    material.roughness = source.roughness;
+    material.metalness = source.metalness;
+    material.normalMap = source.normalMap;
+    material.normalScale.copy(source.normalScale);
+  }
+  return material;
+}
+
+/**
  * Parses a twin `rigged.glb` and checks it against the avatar's skeleton and `twin.json`.
  * Throws `TwinFormatError` (glb / noSkin / rest / bones / mismatch).
  */
@@ -158,7 +180,15 @@ export async function loadTwinModel(
   const material = twinMaterial(firstMaterial(mesh.material));
   const hair =
     hairInfo && hairMeshes[0]
-      ? extractTwinHair(hairInfo, hairMeshes[0], mesh, appBoneNames)
+      ? extractTwinHair(
+          hairInfo,
+          hairMeshes[0],
+          mesh,
+          appBoneNames,
+          hairInfo.format === HAIR_SHELL_FORMAT
+            ? shellHairMaterial(firstMaterial(hairMeshes[0].material))
+            : undefined,
+        )
       : undefined;
   return {
     vertexCount: position.count,

@@ -1,4 +1,4 @@
-import { DataTexture, NoColorSpace } from 'three';
+import { DataTexture, DoubleSide, MeshStandardMaterial, NoColorSpace, SRGBColorSpace } from 'three';
 import { writeTestGlb } from './twinAccessoryTestkit';
 import { HAIR_FORMAT, type TwinHairInfo, type TwinHairModel } from './twinHair';
 
@@ -186,4 +186,52 @@ export function editGlbJson(
   edit(json);
   const binLength = view.getUint32(20 + jsonLength, true);
   return writeTestGlb(json, new Uint8Array(buffer, 28 + jsonLength, binLength));
+}
+
+export const shellExtras = { format: 'shell/1', colorHex: '#2a1e18' };
+
+export const shellInfo: TwinHairInfo = {
+  nodeName: 'dtHair',
+  format: 'shell/1',
+  colorHex: '#2a1e18',
+  rootHex: null,
+  tipHex: null,
+  cardCount: null,
+};
+
+/**
+ * A shell hair model (one triangle on the last bone) with an sRGB colour map and a normal map; `mask` selects
+ * alphaMode MASK (alphaTest 0.5) over OPAQUE.
+ */
+export function fakeShellModel(mask = true): TwinHairModel & {
+  disposed: { count: number };
+  map: DataTexture;
+  normalMap: DataTexture;
+} {
+  const base = fakeHairModel();
+  const map = new DataTexture(new Uint8Array([200, 150, 100, 255]), 1, 1);
+  map.colorSpace = SRGBColorSpace;
+  const normalMap = new DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+  const shellMaterial = new MeshStandardMaterial({
+    name: 'dtHair',
+    map,
+    normalMap,
+    side: DoubleSide,
+    ...(mask ? { alphaTest: 0.5 } : {}),
+  });
+  const dispose = base.dispose;
+  return {
+    ...base,
+    info: shellInfo,
+    atlas: map,
+    shellMaterial,
+    map,
+    normalMap,
+    dispose: () => {
+      dispose();
+      map.dispose();
+      normalMap.dispose();
+      shellMaterial.dispose();
+    },
+  };
 }

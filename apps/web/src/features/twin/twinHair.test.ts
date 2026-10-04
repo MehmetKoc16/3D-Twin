@@ -4,7 +4,10 @@ import {
   BufferGeometry,
   Matrix4,
   MeshBasicMaterial,
+  DoubleSide,
   MeshDepthMaterial,
+  MeshStandardMaterial,
+  SRGBColorSpace,
   MeshPhysicalMaterial,
   NoColorSpace,
   Quaternion,
@@ -16,7 +19,15 @@ import { bundleExtras } from './twinBundleTestkit';
 import { parseTwinDef, TwinFormatError } from './twinDef';
 import { fakeAssets, fakeModel, envelope, mapping, bodyIndex } from './twinTestkit';
 import { hairBoneRemap, parseTwinHair, rendererHasMsaa } from './twinHair';
-import { editGlbJson, fakeHairModel, hairExtras, hairGlb, hairJson } from './twinHairTestkit';
+import {
+  editGlbJson,
+  fakeHairModel,
+  fakeShellModel,
+  hairExtras,
+  hairGlb,
+  hairJson,
+  shellExtras,
+} from './twinHairTestkit';
 import { loadTwinModel } from './twinModel';
 import { TwinRig } from './twinRig';
 import { filterBodyIndex, hiddenVertexMask } from '../wardrobe/bodyHide';
@@ -249,7 +260,7 @@ describe('TwinRig hair', () => {
   describe('with MSAA (alpha-to-coverage)', () => {
     it('shades the hair as an opaque coverage pass plus a blended fringe', () => {
       const { hair, rig } = rigWithHair({ hairMsaa: true });
-      const shader = rig.hair!.shader;
+      const shader = rig.hair!.shader!;
       expect(rig.hair!.msaa).toBe(true);
       expect(shader.outer).toHaveLength(1);
       expect(shader.inner).toHaveLength(0);
@@ -269,7 +280,7 @@ describe('TwinRig hair', () => {
 
     it('uses the tip colour as the shader colour, the root colour as the root of a two-colour strand', () => {
       const { rig } = rigWithHair({ hairMsaa: true });
-      const outer = rig.hair!.shader.outer[0]!;
+      const outer = rig.hair!.shader!.outer[0]!;
       expect(outer.color.getHexString()).toBe('3a2a20');
       rig.dispose();
     });
@@ -278,7 +289,7 @@ describe('TwinRig hair', () => {
   describe('without MSAA (fallback)', () => {
     it('shades the hair as a blended, depth-writing outer pass over an alpha-tested core', () => {
       const { rig } = rigWithHair({ hairMsaa: false });
-      const shader = rig.hair!.shader;
+      const shader = rig.hair!.shader!;
       expect(rig.hair!.msaa).toBe(false);
       expect(shader.blend).toHaveLength(0);
       expect(shader.inner).toHaveLength(1);
@@ -366,7 +377,7 @@ describe('TwinRig hair', () => {
     for (const hairMsaa of [true, false]) {
       const { assets, hair, rig } = rigWithHair({ hairMsaa });
       const h = rig.hair!;
-      const materials = h.shader.materials.slice();
+      const materials = h.shader!.materials.slice();
       const depth = h.mesh.customDepthMaterial as MeshDepthMaterial;
       const geometry = h.mesh.geometry;
       const disposed = materials.map((m) => vi.spyOn(m, 'dispose'));
@@ -395,5 +406,139 @@ describe('TwinRig hair', () => {
     for (const mesh of rig.hair!.meshes)
       expect(mesh.bindMatrix.equals(new Matrix4().makeTranslation(0, 0.25, 0))).toBe(true);
     rig.dispose();
+  });
+});
+
+describe('shell hair (format shell/1)', () => {
+  const shellJson = (extras: unknown) => hairJson({ extras });
+
+  it('parses both formats and exposes the format; cardCount, rootHex and tipHex are optional for shell', () => {
+    expect(parseTwinHair(hairJson())?.format).toBe('rcov-groot-bvar/1');
+    expect(parseTwinHair(shellJson(shellExtras))).toMatchObject({
+      format: 'shell/1',
+      rootHex: null,
+      tipHex: null,
+      cardCount: null,
+    });
+    expect(parseTwinHair(shellJson({ ...shellExtras, cardCount: 0 }))?.cardCount).toBe(0);
+  });
+
+  it('rejects unknown formats', () => {
+    expect(() => parseTwinHair(shellJson({ ...shellExtras, format: 'shell/2' }))).toThrow(
+      TwinFormatError,
+    );
+  });
+
+  describe('loading', () => {
+    const def = parseTwinDef(bundleExtras().twin);
+    beforeAll(() => {
+      vi.stubGlobal('self', globalThis);
+      vi.stubGlobal('createImageBitmap', async () => ({
+        width: 1,
+        height: 1,
+        close: () => undefined,
+      }));
+    });
+    afterAll(() => vi.unstubAllGlobals());
+
+    it('keeps the base colour sRGB and honours MASK / doubleSided', async () => {
+      const model = await loadTwinModel(hairGlb({ extras: shellExtras }), def, ['Root']);
+      const hair = model.hair!;
+      expect(hair.info.format).toBe('shell/1');
+      expect(hair.atlas.colorSpace).toBe(SRGBColorSpace);
+      const material = hair.shellMaterial!;
+      expect(material.map).toBe(hair.atlas);
+      expect(material.map!.colorSpace).toBe(SRGBColorSpace);
+      expect(material.alphaTest).toBe(0.5);
+      expect(material.side).toBe(DoubleSide);
+      model.dispose();
+    });
+
+    it('strand format keeps NoColorSpace and has no shell material', async () => {
+      const model = await loadTwinModel(hairGlb(), def, ['Root']);
+      expect(model.hair!.atlas.colorSpace).toBe(NoColorSpace);
+      expect(model.hair!.shellMaterial).toBeUndefined();
+      model.dispose();
+    });
+  });
+
+  const rigWithShell = (mask = true) => {
+    const assets = fakeAssets();
+    const hair = fakeShellModel(mask);
+    const rig = new TwinRig(assets, { ...fakeModel(), hair }, mapping);
+    return { assets, hair, rig };
+  };
+
+  it('renders the glTF material (normal map kept) without the strand shader', () => {
+    const { hair, rig } = rigWithShell();
+    const h = rig.hair!;
+    expect(h.shader).toBeNull();
+    expect(h.format).toBe('shell/1');
+    expect(h.meshes).toHaveLength(1);
+    expect(h.mesh.material).toBe(hair.shellMaterial);
+    expect((h.mesh.material as MeshStandardMaterial).normalMap).toBe(hair.normalMap);
+    expect((h.mesh.material as MeshStandardMaterial).map!.colorSpace).toBe(SRGBColorSpace);
+    rig.dispose();
+  });
+
+  it('binds, hides until the first solve and follows alignment like strand hair', () => {
+    const { assets, rig } = rigWithShell();
+    expect(rig.hair!.group.visible).toBe(false);
+    expect(rig.hair!.mesh.skeleton).toBe(assets.skeleton);
+    rig.onSolve(envelope(true));
+    expect(rig.hair!.group.visible).toBe(true);
+    rig.dispose();
+  });
+
+  it('casts a normal shadow, cut out on the base colour alpha when MASK', () => {
+    const masked = rigWithShell(true);
+    const depth = masked.rig.hair!.mesh.customDepthMaterial as MeshDepthMaterial;
+    expect(masked.rig.hair!.mesh.castShadow).toBe(true);
+    expect(depth).toBeInstanceOf(MeshDepthMaterial);
+    expect(depth.map).toBe(masked.hair.map);
+    expect(depth.alphaTest).toBe(0.5);
+    expect(depth.alphaMap).toBeNull(); // not the strand-atlas R cut-out
+    masked.rig.dispose();
+    const opaque = rigWithShell(false);
+    expect(opaque.rig.hair!.mesh.castShadow).toBe(true);
+    expect(opaque.rig.hair!.mesh.customDepthMaterial).toBeUndefined();
+    opaque.rig.dispose();
+  });
+
+  it('is never hidden by garments', () => {
+    const { assets, rig } = rigWithShell();
+    rig.onSolve(envelope(true));
+    const garment = new BufferGeometry();
+    garment.setAttribute(
+      'position',
+      new BufferAttribute(Float32Array.from([-1, 0.5, 0.104, 3, 0.5, 0.104, 1, 2.5, 0.104]), 3),
+    );
+    garment.setIndex(new BufferAttribute(Uint32Array.from([0, 1, 2]), 1));
+    const surface = new SkinnedMesh(garment, new MeshBasicMaterial());
+    surface.name = 'garment:test';
+    assets.scene.add(surface);
+    assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1));
+    expect(rig.hair!.group.visible).toBe(true);
+    expect(rig.hair!.mesh.visible).toBe(true);
+    expect(rig.hair!.mesh.geometry.drawRange.count).toBe(Infinity);
+    rig.dispose();
+  });
+
+  it('disposes material, normal map, base colour map, depth material and geometry; idempotent', () => {
+    const { assets, hair, rig } = rigWithShell();
+    const h = rig.hair!;
+    const depth = h.mesh.customDepthMaterial as MeshDepthMaterial;
+    const spies = [
+      vi.spyOn(hair.shellMaterial!, 'dispose'),
+      vi.spyOn(depth, 'dispose'),
+      vi.spyOn(h.mesh.geometry, 'dispose'),
+      vi.spyOn(hair.map, 'dispose'),
+      vi.spyOn(hair.normalMap, 'dispose'),
+    ];
+    rig.dispose();
+    for (const spy of spies) expect(spy).toHaveBeenCalled();
+    expect(h.group.parent).toBeNull();
+    expect(assets.scene.children.some((c) => c.name.startsWith('twin:hair'))).toBe(false);
+    expect(() => h.dispose()).not.toThrow();
   });
 });

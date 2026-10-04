@@ -372,11 +372,12 @@ export class TwinRig {
       handTriangles: (): number => (this.hands.mesh.geometry.getIndex()?.count ?? 0) / 3,
       handsVisible: (): boolean => this.hands.mesh.visible,
       glassesVisible: (): boolean => this.accessories.visible,
-      hair: (): { visible: boolean; msaa: boolean; passes: string[] } | null =>
+      hair: (): { visible: boolean; msaa: boolean; passes: string[]; format: string } | null =>
         this.hair
           ? {
               visible: this.hair.visible,
               msaa: this.hair.msaa,
+              format: this.hair.format,
               passes: this.hair.meshes.map((m) => m.name),
             }
           : null,

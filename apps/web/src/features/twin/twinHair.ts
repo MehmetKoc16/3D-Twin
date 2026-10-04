@@ -37,11 +37,14 @@ import { TwinFormatError } from './twinDef';
  */
 
 export const HAIR_FORMAT = 'rcov-groot-bvar/1';
+/** Addendum v1.1: a solid textured hair shell from a photo-derived model, rendered with its glTF material. */
+export const HAIR_SHELL_FORMAT = 'shell/1';
+export type HairFormat = typeof HAIR_FORMAT | typeof HAIR_SHELL_FORMAT;
 
 /** `asset.extras.dtHairNode` plus the hair material's `extras.dtHair`, validated. */
 export interface TwinHairInfo {
   nodeName: string;
-  format: typeof HAIR_FORMAT;
+  format: HairFormat;
   /** sRGB hex of the base hair colour (`color` of the shader). */
   colorHex: string;
   rootHex: string | null;
@@ -98,8 +101,11 @@ export function parseTwinHair(json: HairJson): TwinHairInfo | null {
     .map((m) => (record(m) && record(m.extras) ? m.extras.dtHair : undefined))
     .find((extras) => extras !== undefined);
   if (!record(raw)) throw new TwinFormatError('json', 'the hair material needs extras.dtHair');
-  if (raw.format !== HAIR_FORMAT)
-    throw new TwinFormatError('json', `dtHair.format must be "${HAIR_FORMAT}"`);
+  if (raw.format !== HAIR_FORMAT && raw.format !== HAIR_SHELL_FORMAT)
+    throw new TwinFormatError(
+      'json',
+      `dtHair.format must be "${HAIR_FORMAT}" or "${HAIR_SHELL_FORMAT}"`,
+    );
   if (typeof raw.colorHex !== 'string' || !HEX.test(raw.colorHex))
     throw new TwinFormatError('json', 'dtHair.colorHex must be #rrggbb');
   const cardCount = raw.cardCount;
@@ -110,7 +116,7 @@ export function parseTwinHair(json: HairJson): TwinHairInfo | null {
     throw new TwinFormatError('json', 'dtHair.cardCount must be a non-negative integer');
   return {
     nodeName,
-    format: HAIR_FORMAT,
+    format: raw.format,
     colorHex: raw.colorHex,
     rootHex: optionalHex(raw, 'rootHex'),
     tipHex: optionalHex(raw, 'tipHex'),
@@ -129,8 +135,13 @@ export interface TwinHairModel {
   index: Uint32Array;
   skinIndex: Uint16Array;
   skinWeight: Float32Array;
-  /** Strand data atlas, `NoColorSpace` (R coverage, G root-to-tip, B variation). */
+  /**
+   * Strand format: the strand data atlas, `NoColorSpace` (R coverage, G root-to-tip, B variation). Shell format: the
+   * sRGB base-colour map of `shellMaterial`.
+   */
   atlas: Texture;
+  /** Shell format only: the glTF material as loaded (sRGB base colour, normal map, MASK / doubleSided). */
+  shellMaterial?: MeshStandardMaterial;
   /** Frees the atlas and the loader's geometry and material. */
   dispose(): void;
 }
@@ -199,7 +210,9 @@ export function extractTwinHair(
   mesh: SkinnedMesh,
   body: SkinnedMesh,
   appNames: readonly string[],
+  shellMaterial?: MeshStandardMaterial,
 ): TwinHairModel {
+  const shell = info.format === HAIR_SHELL_FORMAT;
   const geometry = mesh.geometry;
   const index = geometry.getIndex();
   const position = geometry.getAttribute('position');
@@ -219,8 +232,10 @@ export function extractTwinHair(
   if (!geometry.getAttribute('normal')) geometry.computeVertexNormals();
   const weights = copyAttribute(skinWeight);
   normalizeSkinWeights(weights);
-  // GLTFLoader tags base-colour textures sRGB; the atlas is data. Set before the first GPU upload.
-  atlas.colorSpace = NoColorSpace;
+  // GLTFLoader tags base-colour textures sRGB; a strand atlas is data (set before the first GPU upload), a shell's
+  // base colour stays sRGB.
+  if (!shell) atlas.colorSpace = NoColorSpace;
+  const extra = shell ? shellMaterial : undefined;
   return {
     info,
     vertexCount: position.count,
@@ -231,8 +246,13 @@ export function extractTwinHair(
     skinIndex: remapSkinIndices(copyAttribute(skinIndex), remap),
     skinWeight: weights,
     atlas,
+    ...(extra ? { shellMaterial: extra } : {}),
     dispose: () => {
       atlas.dispose();
+      if (extra) {
+        extra.normalMap?.dispose();
+        extra.dispose();
+      }
       source?.dispose();
       geometry.dispose();
     },
@@ -257,6 +277,17 @@ export function rendererHasMsaa(renderer: HairRendererLike | null | undefined): 
   } catch {
     return false;
   }
+}
+
+/** Shadow caster for a shell: cut out on the alpha of the base colour map (three's `alphaTest` path). */
+export function shellDepthMaterial(map: Texture | null, alphaTest: number): MeshDepthMaterial {
+  const material = new MeshDepthMaterial({
+    depthPacking: RGBADepthPacking,
+    side: DoubleSide,
+    ...(map && alphaTest > 0 ? { map, alphaTest } : {}),
+  });
+  material.name = 'dtHair:shadow';
+  return material;
 }
 
 /** Shadow caster for hair cards: cuts out on atlas R (three's own alphaMap reads G, the root-to-tip channel). */
@@ -294,12 +325,13 @@ export interface TwinHairOptions {
 export class TwinHair {
   readonly group = new Group();
   readonly mesh: SkinnedMesh;
-  readonly shader: HairShaderHandle;
+  /** The strand shader passes; null for the shell format, which keeps its glTF material. */
+  readonly shader: HairShaderHandle | null;
   /** True when the alpha-to-coverage (MSAA) path is used. */
   readonly msaa: boolean;
   private readonly geometry = new BufferGeometry();
   private readonly position: BufferAttribute;
-  private readonly depth: MeshDepthMaterial;
+  private readonly depth: MeshDepthMaterial | null;
   private disposed = false;
 
   constructor(
@@ -333,6 +365,17 @@ export class TwinHair {
     parent.add(this.group);
 
     const { info } = model;
+    if (info.format === HAIR_SHELL_FORMAT && model.shellMaterial) {
+      // Solid shell: the loaded material as is, a normal (cut-out when MASK) mesh shadow, no strand shader.
+      const material = model.shellMaterial;
+      this.shader = null;
+      this.mesh.material = material;
+      placeholder.dispose();
+      this.depth =
+        material.alphaTest > 0 ? shellDepthMaterial(material.map, material.alphaTest) : null;
+      if (this.depth) this.mesh.customDepthMaterial = this.depth;
+      return;
+    }
     const multi = info.rootHex !== null;
     // The shader runs root -> tip between `rootColor` and `color`; with only colorHex it is one colour.
     this.shader = applyHairShader(this.group, {
@@ -343,15 +386,20 @@ export class TwinHair {
       ...(multi ? { rootMode: 'multi' as const, rootColor: info.rootHex! } : {}),
       alphaToCoverage: this.msaa,
     });
-    this.depth = hairDepthMaterial(model.atlas);
+    const depth = hairDepthMaterial(model.atlas);
+    this.depth = depth;
     this.group.traverse((o) => {
       if (!(o instanceof Mesh)) return;
       o.frustumCulled = false;
       // Only the main pass casts (cut-out); the core / fringe passes would double or block it.
       const casts = o === this.mesh;
       o.castShadow = casts;
-      if (casts) o.customDepthMaterial = this.depth;
+      if (casts) o.customDepthMaterial = depth;
     });
+  }
+
+  get format(): HairFormat {
+    return this.model.info.format;
   }
 
   /** Every mesh of the hair (main pass first, then the core or fringe pass the shader added). */
@@ -383,8 +431,8 @@ export class TwinHair {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.shader.dispose();
-    this.depth.dispose();
+    this.shader?.dispose();
+    this.depth?.dispose();
     this.geometry.dispose();
     this.group.removeFromParent();
     this.model.dispose();
