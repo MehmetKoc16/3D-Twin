@@ -81,9 +81,12 @@ def test_skinned_writer_passes_a_shell_hair_material_with_its_colour_and_normal_
         {"data": b"normal", "mimeType": "image/jpeg"},
     ]
     textures = [{"sampler": 0, "source": i} for i in range(3)]
+    body = {"name": "twin", "normalTexture": {"index": 3, "scale": 1.0}}
+    images.append({"data": b"body-normal", "mimeType": "image/png"})
+    textures.append({"sampler": 0, "source": 3})
     scene = GlbScene(
         [prim("twin", 0), prim("dtHair", 1)],
-        [{"name": "twin"}, shell],
+        [body, shell],
         textures,
         [{"magFilter": 9729, "minFilter": 9987}],
         images,
@@ -94,6 +97,6 @@ def test_skinned_writer_passes_a_shell_hair_material_with_its_colour_and_normal_
     path = tmp_path / "rigged.glb"
     write_skinned_glb(str(path), scene, joints, skin_j, skin_w)
     back = read_glb(str(path))
-    assert back.materials[1] == shell and back.textures == textures
+    assert back.materials == [body, shell] and back.textures == textures
     assert [(i["data"], i["mimeType"]) for i in back.images] == [(i["data"], i["mimeType"]) for i in images]
     assert split_hair_prim(back) == (0, 1)

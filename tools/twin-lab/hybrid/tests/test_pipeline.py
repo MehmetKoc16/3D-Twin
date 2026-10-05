@@ -31,16 +31,17 @@ def execute(model, root, **options):
     template = build_template(combined[: model.nr], model.faces, face_map, neck["verts"])
     flame = mh_flame(template, face_map, fit)
     photos = write_fit_files(fit, flame)
-    original_repo, original_load = pipeline.REPO, pipeline.load_flame_fit
+    original_repo, original_load, original_skin = pipeline.REPO, pipeline.load_flame_fit, pipeline.load_skin
     pipeline.REPO = root
     pipeline.load_flame_fit = lambda *a, **k: flame
+    pipeline.load_skin = lambda **k: (None, {"source": "synthetic procedural skin", "license": "CC0"})
     try:
         out = root / "user-data/hybrid/hybrid.glb"
         report = pipeline.run(
             bodyfix, out, fit=fit, photos=photos, flame_assets=fit, texture_size=SIZE, previews=False, **options
         )
     finally:
-        pipeline.REPO, pipeline.load_flame_fit = original_repo, original_load
+        pipeline.REPO, pipeline.load_flame_fit, pipeline.load_skin = original_repo, original_load, original_skin
     return root, out, report, solution, combined
 
 
@@ -117,7 +118,8 @@ def test_deglass_hook_audits_mask_and_respects_opt_out(model, tmp_path, monkeypa
 def test_glb_has_the_textured_body_and_a_separate_hair_node_with_the_hybrid_marker_and_hand_flags(run_result):
     _, out, report, solution, _ = run_result
     scene = read_glb(str(out))
-    assert len(scene.prims) == 2 and len(scene.images) == 2 and scene.prims[0].uv is not None
+    assert len(scene.prims) == 2 and len(scene.images) == 3 and scene.prims[0].uv is not None
+    assert scene.materials[0]["normalTexture"] == {"index": 1, "scale": 1.0}
     assert [p.name for p in scene.prims] == ["twin", "dtHair"]
     extras = scene.extras
     assert extras["dtScanHandsRemoved"] is False and extras["dtHasMakeHumanHands"] is True
@@ -412,7 +414,8 @@ def test_hy3d_face_asset_names_the_shell_and_the_rig_accepts_the_two_meshes(hy3d
     assert [n["name"] for n in nodes] == ["twin", "dtHair"] and {n["skin"] for n in nodes} == {0}
     shell_material = js["materials"][1]
     assert shell_material["extras"]["dtHair"]["format"] == "shell/1" and "normalTexture" in shell_material
-    assert len(js["images"]) == 3 and [i["mimeType"] for i in js["images"]] == ["image/png", "image/png", "image/jpeg"]
+    assert len(js["images"]) == 4 and [i["mimeType"] for i in js["images"]] == ["image/png", "image/png", "image/png", "image/jpeg"]
+    assert js["materials"][0]["normalTexture"] == {"index": 1, "scale": 1.0}
     rig = json.loads((folder / "rig_report.json").read_text())["hair"]
     assert rig["node"] == "dtHair" and rig["head_chain_weight_mean"] > 0.9
 

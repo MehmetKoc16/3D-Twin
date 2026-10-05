@@ -278,7 +278,7 @@ def tube(path: np.ndarray, radius: float, closed: bool = False, sides: int = 8):
     return vertices, normals, np.asarray(triangles, dtype=np.uint32)
 
 
-def nose_pad(centre: np.ndarray):
+def nose_pad(centre: np.ndarray, scale: float = 1.0):
     """Small solid oval with smooth ellipsoid normals, flattened along face depth."""
     sides, stacks = 16, 8
     unit = [[0, 1, 0]]
@@ -295,7 +295,7 @@ def nose_pad(centre: np.ndarray):
             )
     unit.append([0, -1, 0])
     unit = np.array(unit)
-    radii = np.array([0.0022, 0.0034, 0.0007])
+    radii = np.array([0.0022, 0.0034, 0.0007]) * scale
     normals = unit / radii
     normals /= np.linalg.norm(normals, axis=1)[:, None]
     faces = []
@@ -315,7 +315,7 @@ def frame_geometry(params: dict, centre: np.ndarray):
     r, bridge = params["outerRadius"], params["bridgeWidth"]
     wire, half = params["thickness"] / 2, params["frameWidth"] / 2
     distance = r + bridge / 2
-    pieces = []
+    pieces, pads = [], []
     angles = np.arange(64) * 2 * np.pi / 64
     for sign in (-1, 1):
         pieces.append(
@@ -367,7 +367,7 @@ def frame_geometry(params: dict, centre: np.ndarray):
                 wire,
             )
         )
-        pieces.append(nose_pad(np.array([sign * (bridge / 2 - 0.002), -0.011, -0.005])))
+        pads.append(nose_pad(np.array([sign * (bridge / 2 - 0.002), -0.011, -0.005]), scale=0.48))
     t = np.linspace(0, np.pi, 20)
     pieces.append(
         tube(
@@ -375,6 +375,7 @@ def frame_geometry(params: dict, centre: np.ndarray):
             wire,
         )
     )
+    pieces.extend(pads)
     vertices, normals, triangles, offset = [], [], [], 0
     for p, n, f in pieces:
         vertices.append(p + centre)
@@ -456,7 +457,10 @@ def encode_glasses(
         }
 
     p, n, f = frame_geometry(params, centre) if geometry is None else geometry
-    primitives = [primitive(p, n, f, 0)]
+    pad_start = (placement or {}).get("nose_pad_face_start")
+    if geometry is None:
+        pad_start = len(f) - 2 * len(nose_pad(np.zeros(3), scale=0.48)[2])
+    primitives = [primitive(p, n, f if pad_start is None else f[:pad_start], 0)]
     # glTF baseColorFactor is linear RGB; the supplied hex is sRGB.
     colour = np.array([int(params["colour"][i : i + 2], 16) / 255 for i in (1, 3, 5)])
     colour = np.where(
@@ -472,6 +476,13 @@ def encode_glasses(
             },
         }
     ]
+    if pad_start is not None:
+        document["materials"].append({
+            "name": "small satin silver nose pads",
+            "pbrMetallicRoughness": {"baseColorFactor": [0.72, 0.72, 0.72, 1.0],
+                                     "metallicFactor": 0.15, "roughnessFactor": 0.32},
+        })
+        primitives.append(primitive(p, n, f[pad_start:], len(document["materials"]) - 1))
     if params["clearLenses"]:
         document["materials"].append(
             {
@@ -506,7 +517,7 @@ def encode_glasses(
             if lenses is None
             else lenses
         )
-        primitives.append(primitive(*lens_geometry, 1))
+        primitives.append(primitive(*lens_geometry, len(document["materials"]) - 1))
     document["meshes"] = [{"name": "glasses", "primitives": primitives}]
     document["skins"] = [
         {

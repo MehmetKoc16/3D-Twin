@@ -202,3 +202,27 @@ def test_hair_colours_and_the_default_colour_choice():
     assert srgb_hex(choose_hair_colour(photo, "#102030")["srgb"]) == "#102030"
     assert choose_hair_colour(photo, "photo")["method"].startswith("photo: near-grey")
     assert hair_colours([255, 250, 240])["tipHex"] == "#ffffff"  # the tip colour is clipped, never above white
+
+
+def test_body_normal_texture_uses_its_own_image_and_keeps_hair_indices_correct(tmp_path):
+    import io
+
+    from PIL import Image
+
+    mesh, _, _ = make_mesh()
+    atlas = np.full((80, 64, 4), 255, np.uint8)
+    normal = np.full((80, 64, 3), [130, 125, 255], np.uint8)
+    hair = synthetic_hair()
+    # Exercise both body and hair normals in the same file.
+    hair.format = "shell/1"
+    hair.normal_atlas = np.full((*hair.atlas.shape[:2], 3), [128, 128, 255], np.uint8)
+    path = tmp_path / "normals.glb"
+    info = write_glb(path, mesh, atlas, {}, hair=hair, normal_atlas=normal)
+    scene = read_glb(str(path))
+    body, hair_material = scene.materials
+    assert body["normalTexture"] == {"index": 1, "scale": 1.0}
+    assert hair_material["pbrMetallicRoughness"]["baseColorTexture"]["index"] == 2
+    assert hair_material["normalTexture"]["index"] == 3
+    decoded = np.asarray(Image.open(io.BytesIO(scene.images[scene.textures[1]["source"]]["data"])))
+    np.testing.assert_array_equal(decoded, normal)
+    assert info["body_normal"]["size"] == [64, 80]

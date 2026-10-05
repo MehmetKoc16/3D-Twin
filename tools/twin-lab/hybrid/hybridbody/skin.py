@@ -1,8 +1,8 @@
 """Procedural body skin at the photographed tone, painted underwear, and the head/neck tone hand-over.
 
-The MakeHuman distribution used here ships no skin texture, so the body albedo is a flat Lab tone (the measured
-photo skin tone) with fine 3-D grain. It is painted straight into the template's fixed UV layout from the texel's
-own 3-D position, so islands never disagree at their seams.
+The optional pinned CC0 MakeHuman skin supplies anatomy and colour variation,
+retinted to the measured photo Lab. Fine world-space grain and pores also work
+without the asset. UV borders are repaired before their final colours are padded.
 """
 
 from __future__ import annotations
@@ -83,15 +83,51 @@ def paint_body(
     tone_lab,
     underwear: Underwear | None,
     size: int,
+    *,
+    source=None,
+    normal_canvas: np.ndarray | None = None,
+    neck_y: float | None = None,
 ) -> dict:
     """Write skin (and underwear) into ``canvas`` (size x size x 3, sRGB uint8) at every covered texel."""
     boxer_texels = 0
+    source_gradients = None
+    if source is not None:
+        source_lab, reference = source
+        height = source_lab[..., 0] - ndimage.gaussian_filter(source_lab[..., 0], 5.0)
+        source_gradients = np.gradient(height)
+    # Per-triangle UV tangent frames, including mirrored charts. glTF V runs
+    # downward: the normal map's green axis follows increasing V.
+    tri_p, tri_uv = positions[faces], uv[faces]
+    duv1, duv2 = tri_uv[:, 1] - tri_uv[:, 0], tri_uv[:, 2] - tri_uv[:, 0]
+    edge1, edge2 = tri_p[:, 1] - tri_p[:, 0], tri_p[:, 2] - tri_p[:, 0]
+    det = duv1[:, 0] * duv2[:, 1] - duv1[:, 1] * duv2[:, 0]
+    safe = np.where(np.abs(det) > 1e-12, det, 1.0)
+    tangent = (edge1 * duv2[:, 1, None] - edge2 * duv1[:, 1, None]) / safe[:, None]
+    bitangent = (edge2 * duv1[:, 0, None] - edge1 * duv2[:, 0, None]) / safe[:, None]
+    tangent /= np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-12)
+    bitangent -= tangent * np.einsum("ij,ij->i", tangent, bitangent)[:, None]
+    bitangent /= np.maximum(np.linalg.norm(bitangent, axis=1, keepdims=True), 1e-12)
+    directions = np.random.default_rng(71).normal(size=(12, 3))
+    directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+    directions *= np.linspace(5000, 11000, 12)[:, None]
     for r0, y, x, face, bary in rasterize_bands(uv, faces, size):
         if len(y) == 0:
             continue
         tri = faces[face]
         points = np.einsum("ij,ijk->ik", bary, positions[tri])
         lab = skin_lab(points, tone_lab)
+        detail_weight = np.ones(len(points)) if neck_y is None else smoothstep((neck_y - points[:, 1]) / 0.018)
+        coords = None
+        if source is not None:
+            coords = [(r0 + y + 0.5) * source_lab.shape[0] / size - 0.5,
+                      (x + 0.5) * source_lab.shape[1] / size - 0.5]
+            sampled = np.column_stack([ndimage.map_coordinates(source_lab[..., k], coords, order=1, mode="nearest")
+                                       for k in range(3)])
+            # Preserve anatomy and fine variation, without transferring the
+            # source's illumination or the colour of unrelated chart gutters.
+            detail = np.clip(sampled - reference, [-9, -3, -3], [9, 3, 3])
+            lab += detail * detail_weight[:, None]
+        mask = np.zeros(len(points))
         if underwear is not None:
             g = np.einsum("ij,ij->i", bary, gate[tri])
             mask = underwear_mask(points, g, underwear)
@@ -99,6 +135,17 @@ def paint_body(
             lab = lab * (1 - mask[:, None]) + cloth * mask[:, None]
             boxer_texels += int((mask > 0.5).sum())
         canvas[r0 + y, x] = np.clip(np.rint(from_lab(lab) * 255), 1, 255).astype(np.uint8)
+        if normal_canvas is not None:
+            gradient = (np.cos(points @ directions.T) @ directions) * (0.000006 / len(directions))
+            tilt = np.column_stack((-np.einsum("ij,ij->i", gradient, tangent[face]),
+                                    -np.einsum("ij,ij->i", gradient, bitangent[face])))
+            if source_gradients is not None:
+                gy, gx = [ndimage.map_coordinates(g, coords, order=1, mode="nearest") for g in source_gradients]
+                tilt += np.column_stack((-gx, -gy)) * 0.018 * detail_weight[:, None]
+            tilt *= (1 - mask[:, None])
+            normals = np.column_stack((np.clip(tilt, -0.12, 0.12), np.ones(len(points))))
+            normals /= np.linalg.norm(normals, axis=1, keepdims=True)
+            normal_canvas[r0 + y, x] = np.rint((normals * 0.5 + 0.5) * 255).astype(np.uint8)
         covered[r0 + y, x] = True
     return {"skin_lab": [float(v) for v in tone_lab], "underwear_texels": boxer_texels}
 
@@ -106,6 +153,8 @@ def paint_body(
 def pad_texture(canvas: np.ndarray, covered: np.ndarray, pixels: int = 12) -> np.ndarray:
     """Bleed chart colours outward so mipmaps and bilinear taps never mix in unrelated colours."""
     out = canvas.copy()
+    if not covered.any():
+        return out
     distance, (iy, ix) = ndimage.distance_transform_edt(~covered, return_indices=True)
     ring = ~covered & (distance <= pixels)
     out[ring] = canvas[iy[ring], ix[ring]]
@@ -114,6 +163,65 @@ def pad_texture(canvas: np.ndarray, covered: np.ndarray, pixels: int = 12) -> np
         # Unused atlas space: the mean covered colour keeps mip levels clean.
         out[far] = np.rint(canvas[covered].mean(0)).astype(np.uint8)
     return out
+
+
+def border_audit(canvas: np.ndarray, covered: np.ndarray, pixels: int = 12) -> dict:
+    """Count anomalous chart-border texels against nearby interior colour.
+
+    Report inside light outliers separately from stale outside gutters; only
+    padding defects are repaired automatically, preserving photographed detail.
+    Thresholds are Lab dE76 > 6 and dL > 4 for inside light outliers, dE > 2
+    for gutters. Interior references are at least three pixels inside a chart.
+    """
+    if not covered.any():
+        return {"inside_light_outliers": 0, "gutter_outliers": 0, "border_texels": 0}
+    inside_distance = ndimage.distance_transform_edt(covered)
+    interior = inside_distance >= 3
+    border = covered & (inside_distance < 2)
+    _, (iy, ix) = ndimage.distance_transform_edt(~interior, return_indices=True)
+    y, x = np.nonzero(border)
+    lab = to_lab(canvas[y, x, :3])
+    reference = to_lab(canvas[iy[y, x], ix[y, x], :3])
+    delta = lab - reference
+    inside_bad = (np.linalg.norm(delta, axis=1) > 6) & (delta[:, 0] > 4)
+    distance, (iy, ix) = ndimage.distance_transform_edt(~covered, return_indices=True)
+    y, x = np.nonzero(~covered & (distance <= pixels))
+    delta = to_lab(canvas[y, x, :3]) - to_lab(canvas[iy[y, x], ix[y, x], :3])
+    gutter_bad = np.linalg.norm(delta, axis=1) > 2
+    return {"inside_light_outliers": int(inside_bad.sum()), "gutter_outliers": int(gutter_bad.sum()),
+            "border_texels": int(border.sum()), "gutter_texels": int(len(y)), "padding_px": pixels,
+            "thresholds": {"inside_de76": 6, "inside_dL": 4, "gutter_de76": 2}}
+
+
+def repair_border_colours(canvas: np.ndarray, covered: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Replace isolated light border contamination and black fill gaps.
+
+    Only the first chart texel ring is eligible; colour more than three pixels
+    into the island supplies the reference. Photo features within the island
+    remain untouched. This fixes propagation errors that outward padding alone
+    faithfully copies into the gutter.
+    """
+    out = canvas.copy()
+    distance = ndimage.distance_transform_edt(covered)
+    interior = distance >= 3
+    if not interior.any():
+        return out, {"light_texels_repaired": 0, "fill_gaps_repaired": 0}
+    _, (iy, ix) = ndimage.distance_transform_edt(~interior, return_indices=True)
+    y, x = np.nonzero(covered & (distance < 2))
+    lab = to_lab(canvas[y, x, :3])
+    reference = to_lab(canvas[iy[y, x], ix[y, x], :3])
+    delta = lab - reference
+    light = (np.linalg.norm(delta, axis=1) > 6) & (delta[:, 0] > 4)
+    gaps = (lab[:, 0] < 5) & (reference[:, 0] > 25)
+    bad = light | gaps
+    out[y[bad], x[bad]] = canvas[iy[y[bad], x[bad]], ix[y[bad], x[bad]]]
+    return out, {"light_texels_repaired": int(light.sum()), "fill_gaps_repaired": int(gaps.sum())}
+
+
+def finish_texture(canvas: np.ndarray, covered: np.ndarray) -> np.ndarray:
+    """Repair the skin chart boundary, then dilate its final colours outward."""
+    repaired, _ = repair_border_colours(canvas, covered)
+    return pad_texture(repaired, covered)
 
 
 def match_mean(texture: np.ndarray, covered: np.ndarray, samples: np.ndarray, target_lab, limit: float = 3.0):

@@ -254,7 +254,8 @@ def encode_jpeg(image: np.ndarray, quality: int = 92) -> bytes:
     return buffer.getvalue()
 
 
-def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: str | None = None, hair=None) -> dict:
+def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: str | None = None, hair=None,
+              normal_atlas: np.ndarray | None = None) -> dict:
     """Write the skinless textured primitive of the body (the rig stage skins it) and validate a re-read.
 
     An RGBA atlas is stored as PNG (the alpha channel drives the cut-outs); an RGB atlas as JPEG unless ``mime`` says
@@ -279,6 +280,14 @@ def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: s
     materials = [material_json()]
     textures = [{"sampler": 0, "source": 0}]
     images = [{"data": data, "mimeType": mime}]
+    body_normal_data = b""
+    if normal_atlas is not None:
+        if normal_atlas.shape != (*atlas.shape[:2], 3):
+            raise ValueError("Body normal atlas must share the body colour UV layout")
+        body_normal_data = encode_png(normal_atlas)
+        textures.append({"sampler": 0, "source": len(images)})
+        images.append({"data": body_normal_data, "mimeType": "image/png"})
+        materials[0]["normalTexture"] = {"index": len(textures) - 1, "scale": 1.0}
     extras = dict(extras)
     hair_data = b""
     if hair is not None:
@@ -293,15 +302,16 @@ def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: s
                 hair.node,
             )
         )
-        textures.append({"sampler": 0, "source": 1})
+        hair_texture_index = len(textures)
+        textures.append({"sampler": 0, "source": len(images)})
         images.append({"data": hair_data, "mimeType": "image/png"})
         normal_index = None
         if getattr(hair, "normal_atlas", None) is not None:
             normal_data = encode_jpeg(hair.normal_atlas)
-            textures.append({"sampler": 0, "source": 2})
+            textures.append({"sampler": 0, "source": len(images)})
             images.append({"data": normal_data, "mimeType": "image/jpeg"})
             normal_index = len(textures) - 1
-        materials.append(hair_material_json(hair, 1, normal_index))
+        materials.append(hair_material_json(hair, hair_texture_index, normal_index))
         extras["dtHairNode"] = hair.node
     scene = GlbScene(
         prims,
@@ -325,6 +335,9 @@ def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: s
         "material": js["materials"][0],
         "extras_keys": sorted(js["asset"]["extras"]),
     }
+    if normal_atlas is not None:
+        info["body_normal"] = {"bytes": len(body_normal_data), "size": [int(atlas.shape[1]), int(atlas.shape[0])],
+                               "mime": "image/png", "scale": 1.0}
     if hair is not None:
         hair_prim = checked.prims[1]
         if hair_prim.name != hair.node or len(hair_prim.positions) != len(hair.positions) or hair_prim.uv is None:

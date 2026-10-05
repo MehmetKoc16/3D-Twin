@@ -48,16 +48,20 @@ from .photocolours import hair_colour, iris_colour
 from .register import Surface, smoothstep
 from .skin import (
     Underwear,
+    border_audit,
     fade_to_tone,
+    finish_texture,
     hair_cover,
     match_mean,
     neck_luminance,
     pad_texture,
     paint_body,
+    repair_border_colours,
     sample_hair_surface,
     seam_blend,
     tint_scalp,
 )
+from .skin_source import load_skin
 from .template import load_part
 
 # Bones whose weight marks "waist and upper legs": the painted boxer shorts stay off arms and hands.
@@ -311,6 +315,7 @@ def run(
     hair_style=None,
     deglass=True,
     glasses_bust=None,
+    fetch_skin=False,
 ):
     started = time.perf_counter()
     hair = resolve_hair(hair)
@@ -353,6 +358,8 @@ def run(
 
     # ------------------------------------------------------------------------------------- face texture
     size = texture_size
+    if size > 4096:
+        raise ValueError("Body atlas width must not exceed 4096")
     head = build_head_mesh(template)
     log("baking the face from the photos")
     face = bake_face(template, head_fit, flame, head, model.uv, photos, size, log=log)
@@ -411,21 +418,37 @@ def run(
     underwear = Underwear(bottom_y=float(final[inseam["vert"], 1] - 0.11), top_y=float(pelvis_y + 0.09))
     log("painting body skin and underwear")
     gate = vertex_gate(model, UNDERWEAR_BONES)
-    skin_report = paint_body(canvas, covered, final[: model.nr], model.faces, model.uv, gate, tone, underwear, size)
+    source, provenance = load_skin(fetch=fetch_skin)
+    normal_canvas = np.full((size, size, 3), [128, 128, 255], np.uint8)
+    cavity = parts.loaded["eyes"].delete_verts
+    deleted = np.zeros(model.nr, bool)
+    deleted[cavity[cavity < model.nr]] = True
+    skin_faces = model.faces[~deleted[model.faces].any(1)]
+    skin_report = paint_body(canvas, covered, final[: model.nr], skin_faces, model.uv, gate, tone, underwear, size,
+                             source=source, normal_canvas=normal_canvas, neck_y=template.anchor_y)
+    skin_report["detail"] = provenance
+    padding_steps = {"body": border_audit(canvas, covered)}
+    canvas, padding_steps["body_repair"] = repair_border_colours(canvas, covered)
+    canvas = pad_texture(canvas, covered)
+    normal_canvas = pad_texture(normal_canvas, covered)
 
     texture, observed = blend_unobserved(face.texture, face.covered, face.confidence, tone)
+    texture = finish_texture(texture, face.covered)
     texture, match = match_mean(texture, face.covered, face.skin_mask, tone)
+    texture = finish_texture(texture, face.covered)
     torso_island = int(template.islands[neck["verts"][0]])
     seam_w = seam_vertices(template, torso_island)
     moved = template.base + head_fit.displacement
     texture, seam_blur = seam_blend(texture, face.texel_points, face.texel_y, face.texel_x, moved[seam_w], tone)
+    texture = finish_texture(texture, face.covered)
 
     accessory_bust = Path(glasses_bust) if glasses_bust else REPO / BUST_RELATIVE
     deglass_report = {"enabled": False, "reason": "opt out" if not deglass else "no glasses accessory bust"}
     if deglass and accessory_bust.is_file():
+        from PIL import Image
+
         from .deglass_tex import projection_from_report, remove_glasses_frames
         from .glasses_hy3d import removal_report_from_bake
-        from PIL import Image
 
         log("removing photographed glasses frames from the current face bake")
         h, w = texture.shape[:2]
@@ -448,6 +471,7 @@ def run(
             Image.fromarray(mask.astype(np.uint8) * 255).save(preview_dir / "deglass_uv_mask.png")
             Image.fromarray(before).save(preview_dir / "deglass_before.png")
             Image.fromarray(texture).save(preview_dir / "deglass_after.png")
+        texture = finish_texture(texture, face.covered)
 
     # Under the jaw the photos only carry the chin shadow (and beard stubble): take the body skin there.
     ty, tx, points = face.texel_y, face.texel_x, face.texel_points
@@ -461,6 +485,7 @@ def run(
         smoothstep((nw["smooth"] - 0.25) / 0.5), smoothstep((nw["chin_y"] - 0.002 - points[:, 1]) / 0.006)
     )
     texture = fade_to_tone(texture, ty, tx, hand_over, tone)
+    texture = finish_texture(texture, face.covered)
     neck_after = {k: neck_luminance(texture, ty, tx, points, v, tone) for k, v in neck_sets.items()}
     neck_report = {
         "chin_y_m": nw["chin_y"],
@@ -482,7 +507,8 @@ def run(
         out[y0 : y0 + h, x0 : x0 + w][face.covered] = source[face.covered]
         return out
 
-    covered[y0 : y0 + h, x0 : x0 + w] |= face.covered
+    # Keep the rendered-body coverage: the head bake can still contain triangles
+    # removed for the eye apertures. Those must become padding, not fill sources.
     photo_check = vertex_photo_check(
         face, head, template, model.uv[head.ids], pad_texture(paste(texture), covered), size
     )
@@ -509,11 +535,13 @@ def run(
     if not isinstance(field, ShellField):
         scalp_lab = to_lab(np.clip(parts.hair_srgb * SCALP_TINT, 1, 255).astype(np.float32).reshape(1, 3) / 255.0)[0]
     texture_under_hair = tint_scalp(texture, ty, tx, cover, scalp_lab)
+    texture_under_hair = finish_texture(texture_under_hair, face.covered)
     temple_report = {"texels": 0}
     if isinstance(field, ShellField):
         extended, band = field.tint_cover(points, texel_normals, cover)
         before_lab = to_lab(texture_under_hair[ty[band], tx[band]])
         texture_under_hair = tint_scalp(texture, ty, tx, extended, scalp_lab)
+        texture_under_hair = finish_texture(texture_under_hair, face.covered)
         after_lab = to_lab(texture_under_hair[ty[band], tx[band]])
         temple_report = {
             "texels": int(band.sum()), "pale_threshold_l": 35.0,
@@ -542,11 +570,16 @@ def run(
         "head_island_texels": int(len(cover)),
         "temple_gap": temple_report,
     }
-    body_atlas = np.dstack((pad_texture(paste(texture_under_hair), covered), np.full((size, size), 255, np.uint8)))
+    unpadded = paste(texture_under_hair)
+    padding_steps["final_before"] = border_audit(unpadded, covered)
+    repaired, padding_steps["final_repair"] = repair_border_colours(unpadded, covered)
+    padded = pad_texture(repaired, covered)
+    padding_steps["final_after"] = border_audit(padded, covered)
+    body_atlas = np.dstack((padded, np.full((size, size), 255, np.uint8)))
     atlas = np.vstack((body_atlas, parts.strip))
+    normal_atlas = np.vstack((normal_canvas, np.full((*parts.strip.shape[:2], 3), [128, 128, 255], np.uint8)))
     atlas_height = atlas.shape[0]
     body_uv = model.uv * np.array([1.0, size / atlas_height])
-    cavity = parts.loaded["eyes"].delete_verts
     mesh = assemble(
         final[: model.nr],
         model.faces,
@@ -618,7 +651,7 @@ def run(
     extras = {"dtHybrid": marker, "dtBodyfix": solution, "dtScanHandsRemoved": False, "dtHasMakeHumanHands": True}
     extras["dtDeglass"] = {k: v for k, v in deglass_report.items() if k != "glasses_report"}
     log("writing the hybrid GLB")
-    glb = write_glb(out, mesh, atlas, extras, hair=hair_mesh)
+    glb = write_glb(out, mesh, atlas, extras, hair=hair_mesh, normal_atlas=normal_atlas)
 
     report = {
         "version": 2,
@@ -637,6 +670,7 @@ def run(
             "vertex_photo_check": photo_check,
             "mean_match": match,
             "body": skin_report,
+            "border_padding": padding_steps,
             "seam_blend": seam_blur,
             "deglass": deglass_report,
             "neck": neck_report,

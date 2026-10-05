@@ -111,3 +111,46 @@ def test_fade_to_tone_and_scalp_tint_only_touch_listed_texels():
     hair = np.array([[0.0, 0.02, 0.0]])
     cover = hair_cover(np.zeros((2, 3)), np.array([[0.0, 1.0, 0.0], [0.0, -1.0, 0.0]]), hair)
     assert cover[0] > 0.9 and cover[1] < 0.1  # hair above the texel, not below it
+
+
+def test_border_repair_removes_light_cracks_and_fill_gaps_before_dilation():
+    from hybridbody.skin import border_audit, finish_texture, repair_border_colours
+
+    image = np.zeros((64, 64, 3), np.uint8)
+    covered = np.zeros((64, 64), bool)
+    covered[12:52, 12:52] = True
+    image[covered] = [180, 132, 116]
+    image[12, 18:28] = 255
+    image[51, 20:23] = 0
+    original = image.copy()
+    before = border_audit(image, covered)
+    assert before["inside_light_outliers"] == 10 and before["gutter_outliers"] > 0
+    repaired, report = repair_border_colours(image, covered)
+    assert report == {"light_texels_repaired": 10, "fill_gaps_repaired": 3}
+    after = finish_texture(image, covered)
+    assert border_audit(after, covered)["inside_light_outliers"] == 0
+    assert border_audit(after, covered)["gutter_outliers"] == 0
+    np.testing.assert_array_equal(image, original)
+    np.testing.assert_array_equal(repaired[20:40, 20:40], original[20:40, 20:40])
+
+
+def test_cc0_skin_tint_and_normal_map_are_finite_subtle_and_uv_aligned():
+    from hybridbody.skin import paint_body
+
+    # Analytic planar chart, no person or downloaded texture.
+    positions = np.array([[0, 0, 0], [.1, 0, 0], [.1, .1, 0], [0, .1, 0]])
+    faces = np.array([[0, 1, 2], [0, 2, 3]])
+    uv = np.array([[.1, .1], [.9, .1], [.9, .9], [.1, .9]])
+    yy, xx = np.mgrid[:64, :64]
+    source_lab = np.full((64, 64, 3), [70., 9., 12.])
+    source_lab[..., 0] += .8 * np.sin(xx * .8) * np.cos(yy * .7)
+    canvas = np.zeros((64, 64, 3), np.uint8)
+    covered = np.zeros((64, 64), bool)
+    normals = np.full((64, 64, 3), [128, 128, 255], np.uint8)
+    paint_body(canvas, covered, positions, faces, uv, np.zeros(4), TONE, None, 64,
+               source=(source_lab, np.array([70., 9., 12.])), normal_canvas=normals)
+    assert np.max(np.abs(to_lab(canvas[covered]).mean(0) - TONE)) < 1
+    decoded = normals[covered].astype(float) / 127.5 - 1
+    assert np.linalg.norm(decoded, axis=1).min() > .99
+    assert decoded[:, 2].min() > .98
+    assert np.std(decoded[:, :2]) > .002

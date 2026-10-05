@@ -167,6 +167,26 @@ def test_hair_node_round_trips_and_is_validated(synthetic):  # noqa: F811
     assert bundle.validate_bundle(out)["vertices"] == json.loads(twin.read_text())["mapping"]["twinVertexCount"]
 
 
+def test_body_normal_map_survives_bundle_next_to_shell_maps(synthetic):  # noqa: F811
+    rigged, twin, mapping, out = with_hair(synthetic, shell=True)
+    document, blob = bundle.read_glb(rigged)
+    normal = io.BytesIO()
+    Image.fromarray(normal_texture(), "RGB").save(normal, format="PNG")
+    blob = bytearray(blob)
+    blob.extend(b"\0" * (-len(blob) % 4))
+    document["bufferViews"].append({"buffer": 0, "byteOffset": len(blob), "byteLength": len(normal.getvalue())})
+    blob.extend(normal.getvalue())
+    document["images"].append({"bufferView": len(document["bufferViews"]) - 1, "mimeType": "image/png"})
+    document["textures"].append({"source": len(document["images"]) - 1, "sampler": 0})
+    document["materials"][0]["normalTexture"] = {"index": len(document["textures"]) - 1, "scale": 1.0}
+    save_glb(rigged, document, bytes(blob))
+    bundle.write_bundle(rigged, twin, mapping, out, shape="synthetic", license_name="CC0")
+    result, binary = bundle.read_glb(out)
+    for key in ("materials", "images", "textures"):
+        assert result[key] == document[key]
+    assert binary[:len(blob)] == bytes(blob)
+
+
 @pytest.mark.parametrize(
     "options,match",
     [

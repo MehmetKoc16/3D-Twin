@@ -154,6 +154,7 @@ def main(argv=None):
             preview_dir=args.preview_dir,
             deglass=not args.no_deglass,
             glasses_bust=args.glasses_bust,
+            fetch_skin=True,
         )
     except (OSError, ValueError, KeyError, np.linalg.LinAlgError) as error:
         print(json.dumps({"status": "failed", "error": str(error)}), file=sys.stderr)

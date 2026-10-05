@@ -32,9 +32,10 @@ Snake-case equivalents are accepted, plus `lensRadius`, `wireThickness`, and `co
 `outerRadius` is the rim tube centreline radius; thickness is the wire diameter.
 Bridge width is the gap between inner rim centreline points; frame width is the hinge-to-hinge
 width. Only round lenses are supported. Geometry has 64 segments per rim, eight radial
-wire segments, capped arms, separate hinges and solid flattened oval nose pads. Optional lens discs use
+wire segments, capped arms, separate hinges and tiny flattened oval nose pads. Optional lens discs use
 alpha 0.035. Hex colour is sRGB, converted to linear glTF material factors; metalness 1,
-roughness 0.3. Nose pads share the metal material for a single frame primitive.
+roughness 0.3. Pads use a separate satin silver material (metalness 0.15, roughness 0.32) to remain light without an
+environment map; their full dimensions are approximately 2.1 x 3.3 x 0.7 mm. Both primitives share the rigid head skin.
 
 Placement reads the rest head node (including its parent transforms) and converts scan
 positions into its local frame. It searches `refine/refine_report.json` beside the twin,
@@ -103,7 +104,13 @@ fit centres lenses on the eyes in front projection, then verifies frame vertices
 triangle centres and all edge midpoints against the skin (at least 1 mm). Rims
 are measured on the bust; their final horizontal gap follows the twin's eye
 spacing. The bridge plane and pads clear the nose. Arms curve over the ear tops
-and down behind them. All accessory positions are transformed to rest-head-local
+and down behind them. Each temple samples lateral intersections with the exact head and optional `shell/1` hair.
+The hinge runs straight back to the lateral silhouette, then the shaft follows the side with a target 2 mm wire-surface
+clearance. The ear hook stays above the ear until behind it. Dense centreline samples (with wire radius subtracted),
+wire vertices, triangle centres and edge midpoints check skin and hair clearance. Collision corrections are local;
+no shared lateral offset can push the entire opposite arm outward. `placement.temple_clearance` records minimum
+skin/hair clearance, supported-run percentiles and maximum, and the free hinge connection length separately.
+Tiny satin silver pads use their own standard PBR material. All accessory positions are transformed to rest-head-local
 metres and rigidly weighted to an identity `head` bone. The frame uses ordinary
 metallic/roughness PBR; clear lenses are omitted. No transmission shader, texture
 or external decoder is required. Python previews approximate PBR highlights.

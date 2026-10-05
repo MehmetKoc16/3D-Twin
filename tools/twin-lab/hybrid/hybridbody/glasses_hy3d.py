@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -46,6 +46,8 @@ class TwinHead:
     landmark_index: np.ndarray
     inverse_head: np.ndarray
     report: dict
+    hair_positions: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    hair_faces: np.ndarray = field(default_factory=lambda: np.empty((0, 3), int))
 
 
 def private_output(path: Path) -> None:
@@ -100,7 +102,9 @@ def load_twin_head(twin: Path, hybrid_dir: Path, fit: Path, assets: Path) -> Twi
         if len(region) < 4:
             raise ValueError("Insufficient template ear geometry")
         top = region[region[:, 1] > np.percentile(region[:, 1], 95)]
-        ears.append(top.mean(0))
+        ear = top.mean(0)
+        ear[1] = region[:, 1].max()
+        ears.append(ear)
     ears = np.array(ears)
     ears = ears[np.argsort(ears[:, 0])]
     document, _ = read_glb(twin)
@@ -109,7 +113,7 @@ def load_twin_head(twin: Path, hybrid_dir: Path, fit: Path, assets: Path) -> Twi
     if len(joint) != 1:
         raise ValueError("Twin needs one head bone")
     landmarks = np.asarray(template.landmark_bary @ final[template.first])
-    return TwinHead(
+    result = TwinHead(
         points,
         head.faces,
         model.uv[head.ids],
@@ -121,6 +125,37 @@ def load_twin_head(twin: Path, hybrid_dir: Path, fit: Path, assets: Path) -> Twi
         np.linalg.inv(worlds[joint[0]]),
         report,
     )
+    if document.get("asset", {}).get("extras", {}).get("dtHairNode"):
+        from glbio import read_glb as read_scene
+
+        scene = read_scene(str(twin))
+        shell = next((p for p in scene.prims if p.name == "dtHair"), None)
+        if shell is not None and scene.materials[shell.material].get("extras", {}).get("dtHair", {}).get("format") == "shell/1":
+            result.hair_positions, result.hair_faces = shell.positions, shell.indices
+    return result
+
+
+def lateral_envelope(positions, faces, yz, sign, centre_x):
+    """Outermost intersection of lateral rays with skin or shell triangles.
+
+    Query in the YZ plane, so ears and asymmetric hair are measured at each arm
+    station rather than turning the widest skull/ear point into a constant X.
+    """
+    tri = positions[faces]
+    a = tri[:, 0, 1:]
+    b, c = tri[:, 1, 1:] - a, tri[:, 2, 1:] - a
+    det = b[:, 0] * c[:, 1] - b[:, 1] * c[:, 0]
+    safe = np.where(np.abs(det) > 1e-12, det, 1)
+    output = []
+    for point in yz:
+        delta = point - a
+        u = (delta[:, 0] * c[:, 1] - delta[:, 1] * c[:, 0]) / safe
+        v = (b[:, 0] * delta[:, 1] - b[:, 1] * delta[:, 0]) / safe
+        valid = (np.abs(det) > 1e-12) & (u >= -1e-8) & (v >= -1e-8) & (u + v <= 1 + 1e-8)
+        x = tri[:, 0, 0] + u * (tri[:, 1, 0] - tri[:, 0, 0]) + v * (tri[:, 2, 0] - tri[:, 0, 0])
+        lateral = sign * (x[valid] - centre_x)
+        output.append(float(lateral.max()) if len(lateral) else np.nan)
+    return np.asarray(output)
 
 
 def aligned_bust(path: Path, head: TwinHead):
@@ -403,6 +438,8 @@ def fit_accessory(head: TwinHead, radii: np.ndarray, colour: str = "#b9b4ad"):
     global dimensions change; noisy bust triangles never enter the final GLB.
     """
     from scipy.interpolate import PchipInterpolator
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.spatial import cKDTree
 
     from .hairgen import HeadSurface
 
@@ -416,32 +453,92 @@ def fit_accessory(head: TwinHead, radii: np.ndarray, colour: str = "#b9b4ad"):
     centre[2] = max(head.nose[2] + 0.0018, centre[2] + 0.015)
     wire = 0.00055
     bridge_width = 2 * (half_ipd - rx)
-    ear_x = float(np.abs(head.ears[:, 0] - centre[0]).mean())
-    ear_y = float(head.ears[:, 1].mean())
     ear_z = float(head.ears[:, 2].mean())
     surface = HeadSurface(head.positions, head.faces)
+    hair_surface = HeadSurface(head.hair_positions, head.hair_faces) if len(head.hair_faces) else None
     roll = np.arctan2(head.eyes[1, 1] - head.eyes[0, 1], head.eyes[1, 0] - head.eyes[0, 0])
     rotation = np.array([[np.cos(roll), -np.sin(roll), 0], [np.sin(roll), np.cos(roll), 0], [0, 0, 1]])
     angle = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    local_offsets = np.zeros((2, 56))
 
-    def build(front_z, side_x):
+    def build(front_z):
         base = np.array([centre[0], centre[1], front_z])
-        pieces, fronts, arms = [], [], []
-        for sign in (-1, 1):
+        pieces, fronts, arms, pads, support_starts = [], [], [], [], []
+        for index, sign in enumerate((-1, 1)):
             path = np.column_stack((sign * half_ipd + rx * np.cos(angle), ry * np.sin(angle), np.zeros(len(angle))))
             fronts.append(path @ rotation.T + base)
             pieces.append(tube(fronts[-1], wire, True))
-            hinge_x = max(half_ipd + rx + 0.004, side_x - 0.007)
+            hinge_x = half_ipd + rx + 0.004
             hinge = np.array([sign * hinge_x, 0.004, -0.004]) @ rotation.T + base
             end = np.array([sign * (half_ipd + rx), 0, 0]) @ rotation.T + base
             fronts.append(np.linspace(end, hinge, 16))
             pieces.append(tube(fronts[-1], wire))
-            # Smooth curve stays outside the temples and passes ABOVE the ear top.
-            zs = np.array([ear_z - 0.030, ear_z - 0.012, ear_z + 0.002, front_z - 0.028, hinge[2]])
-            xs = np.array([side_x + 0.003, side_x + 0.005, side_x + 0.004, side_x, hinge_x])
-            ys = np.array([ear_y - 0.014, ear_y + 0.001, ear_y + 0.003, centre[1] + 0.006, hinge[1]])
-            z = np.linspace(zs[-1], zs[0], 28)
-            path = np.column_stack((centre[0] + sign * PchipInterpolator(zs, xs)(z), PchipInterpolator(zs, ys)(z), z))
+            # Almost straight side run, then a short downturned hook. Independent
+            # lateral surface intersections keep both arms close to this head.
+            ear = head.ears[index]
+            # Keep the shaft above the ear until the hook is behind it. Dropping
+            # at the ear's centre would route the wire around its widest helix.
+            zs = np.array([ear[2] - 0.045, ear[2] - 0.032, ear[2] - 0.024, ear[2] + 0.002, hinge[2]])
+            ys = np.array([ear[1] - 0.014, ear[1] + 0.001, ear[1] + 0.003, ear[1] + 0.003, hinge[1]])
+            z = np.linspace(zs[-1], zs[0], 56)
+            y = PchipInterpolator(zs, ys)(z)
+            yz = np.column_stack((y, z))
+            envelope = lateral_envelope(head.positions, head.faces, yz, sign, centre[0])
+            if hair_surface is not None:
+                hair_x = lateral_envelope(head.hair_positions, head.hair_faces, yz, sign, centre[0])
+                envelope = np.fmax(envelope, hair_x)
+            known = np.isfinite(envelope)
+            if not known.any():
+                raise ValueError("Temple path has no head-side intersections")
+            # The nose/forehead may intersect the first rays near the frame.
+            # Those central surfaces are not the side of the head: connect the
+            # hinge straight back until the lateral silhouette reaches it.
+            side_hits = np.flatnonzero(known & (envelope >= hinge_x - .001))
+            first = int(side_hits[0] if len(side_hits) else np.flatnonzero(known)[0])
+            known[:first] = False
+            support_starts.append(first)
+            xs = np.interp(np.arange(len(z)), np.flatnonzero(known), envelope[known] + wire + 0.002)
+            xs[:first + 1] = np.linspace(hinge_x, xs[first], first + 1)
+            xs[z >= ear[2] - .024] = np.maximum(xs[z >= ear[2] - .024], hinge_x)
+            xs = gaussian_filter1d(xs, 1.1, mode="nearest")
+            xs[0] = hinge_x
+            path = np.column_stack((centre[0] + sign * xs, y, z))
+            # Correct local clearance only, never increase the whole arm's splay.
+            for _ in range(16):
+                d, _, normals = surface.signed_distance(path, candidates=32)
+                bad = d < wire + 0.0018
+                if not bad.any():
+                    break
+                path[bad, 0] += sign * np.maximum(0.0001, (wire + 0.0019 - d[bad]) / np.maximum(sign * normals[bad, 0], 0.2))
+            path[:, 0] += sign * local_offsets[index]
+            if hair_surface is not None:
+                for _ in range(16):
+                    cp, _, _, _ = hair_surface.closest(path, candidates=32)
+                    d = np.linalg.norm(path - cp, axis=1)
+                    bad = d < wire + 0.0018
+                    if not bad.any():
+                        break
+                    path[bad, 0] += sign * (wire + 0.0019 - d[bad])
+            # On the supported run solve the lateral coordinate for 2 mm
+            # clearance, including hair; avoid accumulating excessive offsets.
+            lo = np.where(known, envelope, xs)
+            hi = lo + .025
+            for _ in range(14):
+                lateral = (lo + hi) / 2
+                query = np.column_stack((centre[0] + sign * lateral, y, z))
+                d = surface.signed_distance(query, candidates=64)[0]
+                if hair_surface is not None:
+                    cp, _, _, _ = hair_surface.closest(query, candidates=64)
+                    d = np.minimum(d, np.linalg.norm(query - cp, axis=1))
+                too_close = d < wire + .002
+                lo = np.where(too_close, lateral, lo)
+                hi = np.where(too_close, hi, lateral)
+            # Free hinge segment is straight. Behind it the side run follows
+            # the actual surface; local corrections only protect tube interiors.
+            fit_x = (lo + hi) / 2 + local_offsets[index]
+            path[known, 0] = centre[0] + sign * fit_x[known]
+            if first:
+                path[:first, 0] = np.linspace(hinge[0], path[first, 0], first + 1)[:-1]
             arms.append(path)
             pieces.append(tube(path, wire))
             # Fitted stalks/pads sit forward of the nose, not inside its surface.
@@ -449,16 +546,18 @@ def fit_accessory(head: TwinHead, radii: np.ndarray, colour: str = "#b9b4ad"):
             stalk = np.array([sign * bridge_width / 2, -0.003, 0]) @ rotation.T + base
             fronts.append(np.linspace(stalk, pad, 12))
             pieces.append(tube(fronts[-1], wire * 0.65))
-            pieces.append(nose_pad(pad))
+            pads.append(nose_pad(pad, scale=0.48))
         t = np.linspace(0, np.pi, 24)
         bridge = np.column_stack((-bridge_width / 2 * np.cos(t), 0.004 * np.sin(t), np.zeros(len(t))))
         fronts.append(bridge @ rotation.T + base)
         pieces.append(tube(fronts[-1], wire))
-        return pack_pieces(pieces), np.vstack(fronts), np.vstack(arms)
+        pad_face_start = sum(len(piece[2]) for piece in pieces)
+        pieces.extend(pads)
+        return pack_pieces(pieces), np.vstack(fronts), np.vstack(arms), pad_face_start, support_starts
 
-    front_z, side_x = float(centre[2]), max(ear_x + 0.0015, half_ipd + rx + 0.008)
+    front_z = float(centre[2])
     for _ in range(30):
-        geometry, front, arms = build(front_z, side_x)
+        geometry, front, arms, pad_face_start, support_starts = build(front_z)
         p, _, f = geometry
         samples = np.vstack(
             (
@@ -469,15 +568,35 @@ def fit_accessory(head: TwinHead, radii: np.ndarray, colour: str = "#b9b4ad"):
                 (p[f[:, 2]] + p[f[:, 0]]) / 2,
             )
         )
-        distance, _, normal = surface.signed_distance(samples, candidates=24)
+        dense = np.vstack([np.linspace(a, b, 8, endpoint=False) for arm in np.split(arms, 2)
+                           for a, b in zip(arm[:-1], arm[1:], strict=True)])
+        samples = np.vstack((samples, dense))
+        distance, _, normal = surface.signed_distance(samples, candidates=64)
+        # Dense centreline checks include the tube radius conservatively.
+        distance[-len(dense):] -= wire
+        if hair_surface is not None:
+            cp, _, _, hn = hair_surface.closest(samples, candidates=64)
+            hd = np.linalg.norm(samples - cp, axis=1)
+            hd[-len(dense):] -= wire
+            nearer = hd < distance
+            distance[nearer], normal[nearer] = hd[nearer], hn[nearer]
         bad = distance < 0.0011
         if not bad.any():
             break
-        face_bad = bad & (samples[:, 2] > front_z - 0.022)
+        arm_distance, arm_station = cKDTree(arms).query(samples)
+        arm_bad = bad & (arm_distance < .004) & (samples[:, 2] < front_z - .008)
+        face_bad = bad & ~arm_bad
         if face_bad.any():
             front_z += min(0.002, max(0.0002, 0.0012 - float(distance[face_bad].min())))
-        if (bad & ~face_bad).any():
-            side_x += 0.0005
+        for station in np.unique(arm_station[arm_bad]):
+            group = arm_bad & (arm_station == station)
+            side, index = divmod(int(station), 56)
+            sign = -1 if side == 0 else 1
+            correction = float(np.max((.0014 - distance[group]) / np.maximum(sign * normal[group, 0], .25)))
+            for offset, weight in ((-2, .3), (-1, .7), (0, 1), (1, .7), (2, .3)):
+                k = index + offset
+                if 0 <= k < 56:
+                    local_offsets[side, k] += min(.002, correction) * weight
     else:
         raise ValueError("Cannot fit symmetric glasses with 1 mm surface clearance")
     # Lenses are optional: omitted for clear visibility, permitted by the contract.
@@ -487,15 +606,21 @@ def fit_accessory(head: TwinHead, radii: np.ndarray, colour: str = "#b9b4ad"):
     eye_errors = np.linalg.norm(centres[:, :2] - head.eyes[:, :2], axis=1) * 1000
     bridge_points = front[(np.abs(front[:, 0] - centre[0]) < bridge_width / 2 + 0.0001) & (front[:, 1] >= centre[1])]
     bridge_clearance = surface.signed_distance(bridge_points)[0].min() * 1000 - wire * 1000
+    rim_clearance = []
+    for lens in centres:
+        rim = np.column_stack((rx * np.cos(angle), ry * np.sin(angle), np.zeros(len(angle)))) @ rotation.T + lens
+        d = (surface.signed_distance(rim, candidates=64)[0] - wire) * 1000
+        rim_clearance.append({"min_mm": float(d.min()), "upper_arc_min_mm": float(d[np.sin(angle) > .5].min()),
+                              "lower_arc_min_mm": float(d[np.sin(angle) < -.5].min())})
     params = {
         **DEFAULTS,
         "outerRadius": float(rx),
         "lensAspect": float(ry / rx),
         "bridgeWidth": float(bridge_width),
-        "frameWidth": float(2 * side_x),
+        "frameWidth": float(2 * (half_ipd + rx + 0.004)),
         "thickness": 2 * wire,
         "colour": colour,
-        "templeLength": float(front_z - (ear_z - 0.030)),
+        "templeLength": float(front_z - (ear_z - 0.045)),
         "clearLenses": False,
     }
     metrics = {
@@ -512,19 +637,47 @@ def fit_accessory(head: TwinHead, radii: np.ndarray, colour: str = "#b9b4ad"):
         "triangle_samples_checked": int(len(samples)),
         "triangles": int(len(f)),
         "rim_radii_mm": [float(rx * 1000), float(ry * 1000)],
+        "rim_skin_clearance": rim_clearance,
         "interpupillary_mm": float(2 * half_ipd * 1000),
-        "temple_endpoints_m": arms[[27, -1]].tolist(),
+        "temple_endpoints_m": arms[[55, -1]].tolist(),
+        "temple_paths_m": [arm.tolist() for arm in np.split(arms, 2)],
         "temple_path_length_mm": [
             float(np.linalg.norm(np.diff(arm, axis=0), axis=1).sum() * 1000) for arm in np.split(arms, 2)
         ],
-        "temple_splay_deg": float(np.degrees(np.arctan2(side_x - (half_ipd + rx), front_z - ear_z))),
-        "temple_side_x_mm": float(side_x * 1000),
+        "temple_splay_deg": float(max(np.degrees(np.arctan2(abs(arm[-1, 0] - centre[0]) - abs(arm[0, 0] - centre[0]), front_z - ear_z)) for arm in np.split(arms, 2))),
+        "temple_side_x_mm": float(np.abs(arms[:, 0] - centre[0]).max() * 1000),
+        "temple_clearance": temple_metrics(arms, surface, hair_surface, wire, support_starts),
+        "nose_pad_face_start": pad_face_start,
+        "nose_pads": {"size_mm": [2.112, 3.264, 0.672], "material": "satin silver, metalness 0.15, roughness 0.32"},
         "temple_ear_top_clearance_design_mm": 3.0,
         "eye_axis_roll_deg": float(np.degrees(roll)),
         "lenses": "omitted (clear)",
         "metal": colour,
     }
     return params, (local_p, local_n, geometry[2]), front, arms, metrics
+
+
+def temple_metrics(arms, surface, hair_surface, wire, support_starts):
+    samples = np.vstack([np.linspace(a, b, 8, endpoint=False) for arm in np.split(arms, 2)
+                         for a, b in zip(arm[:-1], arm[1:], strict=True)])
+    skin = surface.signed_distance(samples, candidates=64)[0] - wire
+    nearest = skin.copy()
+    result = {"skin_min_mm": float(skin.min() * 1000), "samples": int(len(samples))}
+    if hair_surface is not None:
+        cp, _, _, _ = hair_surface.closest(samples, candidates=64)
+        hair = np.linalg.norm(samples - cp, axis=1) - wire
+        nearest = np.minimum(nearest, hair)
+        result["hair_min_mm"] = float(hair.min() * 1000)
+    # The anterior free segment connects the eyewire to the skin silhouette.
+    supported = np.concatenate([np.arange(55 * 8) >= first * 8 for first in support_starts])
+    result.update(min_mm=float(nearest.min() * 1000),
+                  supported_median_mm=float(np.median(nearest[supported]) * 1000),
+                  supported_p95_mm=float(np.percentile(nearest[supported], 95) * 1000),
+                  supported_max_mm=float(nearest[supported].max() * 1000),
+                  over_3mm_samples=int((nearest[supported] > .003).sum()),
+                  hinge_free_run_mm=[float(np.linalg.norm(np.diff(arm[:first+1], axis=0), axis=1).sum() * 1000)
+                                     for arm, first in zip(np.split(arms, 2), support_starts, strict=True)])
+    return result
 
 
 def measured_curves(rims, eyes, z):

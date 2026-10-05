@@ -452,4 +452,13 @@ def write_previews(
         )
         rows = [np.concatenate(sheets[("head", variant, clay)], axis=1) for clay in (False, True)]
         Image.fromarray(np.concatenate(rows, axis=0)).save(folder / f"head_{variant}_contact.png")
+    # Dedicated texture seam QA; these renders never load original photographs.
+    shoulder = full.positions[(full.positions[:, 1] > head_y - .20) & (full.positions[:, 1] < head_y + .06)
+                              & (np.abs(full.positions[:, 0]) < .34)]
+    for name, angle in (("shoulder_neck_front", 0), ("shoulder_neck_back", 180), ("shoulder_neck_three_quarter", 45)):
+        camera = OrthoCamera.azimuth(name, angle).fit_bounds(shoulder, 1000, 650, margin=.06)
+        image = _render(full, atlas, camera, (1000, 650), hair=hair)
+        path = folder / f"{name}.png"
+        Image.fromarray(image).save(path)
+        paths[name] = str(path)
     return paths

@@ -99,10 +99,24 @@ skin is shifted so its mean Lab equals the photo skin tone (clamped to 3); withi
 neck) it fades to the body tone. `vertex_photo_check` verifies the whole UV chain independently (photo colour at a
 vertex's projection vs the atlas at its UV, against shuffled colours).
 
-**Body skin** (`skin.py`). The MakeHuman distribution used here ships no skin texture, so the albedo is the photo skin
-tone (Lab) plus fine 3-D grain, painted from each texel's own position. Painted underwear: slate boxer shorts from
+**Body skin** (`skin.py`, `skin_source.py`). The CLI fetches the pinned `young_caucasian_male` skin from the official
+MakeHuman system CC0 pack into `hybrid/.cache/skin/`. Both the pack item's CC0 licence and the material's explicit
+September 2020 CC0 release are checked, together with SHA-256 hashes. The source is
+`young_lightskinned_male_diffuse.png`; the material declares no normal or specular image. Its Lab variation is shifted
+to the measured photo tone, bounded to avoid transferring strong source lighting, and faded to the body tone at the
+neck. The baked face and scalp keep their existing hand-over. World-space grain is the fallback without a cached skin.
+A lossless tangent-space body normal PNG combines source-albedo high-pass relief with subtle analytic world-space
+pores. Mirrored UV charts use their own tangent frames; the eye/lash/brow strip has a neutral normal. `normalTexture`
+on the body material passes unchanged through rigging and bundling. The app must retain that map and `normalScale`
+when replacing the loader's material. Painted underwear: slate boxer shorts from
 crotch - 11 cm to pelvis + 9 cm, gated by the pelvis/thigh/spine_01 skin weights (arms and hands are never covered),
-with a darker waistband and hem. Charts are padded by 12 px.
+with a darker waistband and hem. Each colour write repairs light border contamination / black fill gaps, then pads
+charts by 12 px. The final coverage excludes deleted eye-socket faces, matching the actual rendered body. Reports
+under `texture.border_padding` count light outliers against a reference at least three texels inside each chart
+(dE76 > 6 and dL > 4) and gutter mismatches (dE76 > 2). Normal maps are padded without colour repair. Dedicated
+`shoulder_neck_{front,back,three_quarter}.png` previews support seam QA. Atlas width is capped at 4096.
+
+Licence evidence: <https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html>.
 
 **Parts** (`template.py`, `partstex.py`, `photocolours.py`). `Part.bind` is `bindGarment` of avatar-core (barycentric body
 positions + axis-scaled MHCLO offset) evaluated on the deformed body. Eyes are translated per eye so the sphere centre
@@ -352,7 +366,7 @@ For the app's standard MakeHuman model (nothing here is wired into `apps/web` ye
   texture (the separate glasses accessory is not wired here). The hair is soft strand-atlas cards for the hair shader
   (mip-mapped coverage with a gain of 2.5, so cards stay solid at a distance); the real look is decided by the web
   app's shader and its renderer settings (MSAA, texture anisotropy), the previews here are an approximation.
-- The body skin is procedural (no MakeHuman skin texture is available); the underwear is painted, not geometry.
+- The CC0 body skin supplies generic anatomy and pores; it is not a scan of the user's body. Underwear is painted.
 - The scan-twin `head.glb` is not used. The skull top of the deformed head can differ from the solved height by a few
   millimetres (reported as `bare_head_top_m` vs the tape height), and the procedural hair adds 2 to 3 cm of volume (the body mesh and `twinHeightM` of `twin.json` do not include it).
 - hy3d hair: the bust's back of the head is the generator's guess (flat grey and a light patch), replaced here by the

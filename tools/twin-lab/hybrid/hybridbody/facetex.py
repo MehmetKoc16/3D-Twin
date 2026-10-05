@@ -205,6 +205,9 @@ def bake_face(
         diagnostics,
         gate=gate.astype(np.float32),
     )
+    from .skin import finish_texture
+
+    texture = finish_texture(texture, fid >= 0)
     report = dict(report)
     report["uv_window"] = {"x": x0, "y": y0, "width": w, "height": h}
     report["island_texels"] = int(len(y))

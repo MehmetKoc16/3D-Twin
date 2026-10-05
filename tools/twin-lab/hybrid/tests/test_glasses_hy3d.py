@@ -5,7 +5,6 @@ import importlib
 import numpy as np
 import pytest
 import trimesh
-
 from hybridbody.glasses_hy3d import TwinHead, fit_accessory, measured_curves, segment_glasses
 
 # Import the standalone generator after glasses_hy3d registers its stage folder.
@@ -41,7 +40,7 @@ def test_symmetric_fit_eye_centres_clearance_and_contract():
     assert max(metrics["eye_xy_error_mm"]) < 1e-7
     assert metrics["min_surface_clearance_mm"] >= 1
     assert metrics["bridge_clearance_mm"] >= 1
-    assert np.allclose(arms[:28] * [-1, 1, 1], arms[28:])
+    assert np.allclose(arms[:56] * [-1, 1, 1], arms[56:])
     # Verify triangle topology by welding cap copies, not array index seams.
     mesh = trimesh.Trimesh(geometry[0], geometry[2], process=True)
     assert mesh.is_watertight
@@ -54,6 +53,21 @@ def test_symmetric_fit_eye_centres_clearance_and_contract():
     assert np.all(accessor_array(doc, blob, attrs["WEIGHTS_0"]) == [1, 0, 0, 0])
     assert doc["materials"][0]["pbrMetallicRoughness"]["metallicFactor"] == 1
     assert not doc.get("images")
+    pads = doc["materials"][1]["pbrMetallicRoughness"]
+    assert pads["metallicFactor"] == 0.15 and min(pads["baseColorFactor"][:3]) > 0.7
+    assert metrics["temple_clearance"]["min_mm"] >= 1.0
+    assert metrics["temple_clearance"]["supported_median_mm"] < 3.0
+
+
+def test_temples_follow_asymmetric_hair_shell_without_global_splay():
+    head = synthetic_head()
+    shell = trimesh.creation.icosphere(subdivisions=3)
+    head.hair_positions = shell.vertices * [.082, .124, .089] + [.003, .10, 0]
+    head.hair_faces = shell.faces
+    _, _, _, arms, metrics = fit_accessory(head, np.array([.024, .023]))
+    assert metrics["temple_clearance"]["hair_min_mm"] >= 1.0
+    assert metrics["temple_clearance"]["supported_median_mm"] < 3.0
+    assert not np.allclose(arms[:56] * [-1, 1, 1], arms[56:])
 
 
 def test_segmentation_excludes_blue_hair_and_flags_skin_filled_lenses():
@@ -86,8 +100,9 @@ def test_invalid_radii_fail_closed(radii):
 @pytest.mark.parametrize("enabled", [True, False])
 def test_accessory_preserves_hybrid_deglass_decision_and_never_inpaints_twice(tmp_path, monkeypatch, enabled):
     from types import SimpleNamespace
-    from PIL import Image
+
     from hybridbody import glasses_hy3d as module
+    from PIL import Image
 
     monkeypatch.setattr(module, "REPO", tmp_path)
     folder = tmp_path / "user-data/hybrid"
