@@ -213,6 +213,7 @@ def mesh_info(
 
 
 HAIR_FORMAT = "rcov-groot-bvar/1"
+SHELL_FORMAT = "shell/1"  # contract addendum v1.1: a solid textured shell with a regular PBR material
 HAIR_ATTRIBUTES = ("POSITION", "NORMAL", "TEXCOORD_0", "JOINTS_0", "WEIGHTS_0")
 
 
@@ -220,8 +221,12 @@ def validate_hair(document: dict, blob: bytes, joint_count: int) -> dict | None:
     """Validate the separate hair node (``dtHairNode``); ``None`` when the bundle has no hair.
 
     The node holds one skinned mesh that shares the skin of the body (same joints, rest pose and inverse binds), with its
-    own material ``dtHair`` (MASK 0.5, double sided, the strand data atlas as base colour texture) and
-    ``extras.dtHair`` (format, sRGB colours, card count).
+    own material ``dtHair`` and ``extras.dtHair``. Two formats:
+
+    * ``rcov-groot-bvar/1`` (strand cards): ``MASK`` 0.5, double sided, the strand data atlas as base colour texture,
+      sRGB colours and a card count;
+    * ``shell/1`` (a solid textured shell): ``MASK`` 0.5 or ``OPAQUE``, double sided, an sRGB colour texture, an optional
+      tangent-space normal texture, ``colorHex`` (``rootHex`` / ``tipHex`` optional) and no cards.
     """
     name = hair_node_name(document)
     if name is None:
@@ -281,16 +286,23 @@ def validate_hair(document: dict, blob: bytes, joint_count: int) -> dict | None:
     if material_index == body_primitive.get("material"):
         raise ValueError("The hair needs its own material, not the body material")
     material = document["materials"][material_index]
+    extras = material.get("extras", {}).get("dtHair")
+    hair_format = extras.get("format") if isinstance(extras, dict) else None
+    shell = hair_format == SHELL_FORMAT
+    mask = material.get("alphaMode") == "MASK" and material.get("alphaCutoff") == 0.5
     if (
         material.get("name") != "dtHair"
         or material.get("doubleSided") is not True
-        or material.get("alphaMode") != "MASK"
-        or material.get("alphaCutoff") != 0.5
+        or not (mask or (shell and material.get("alphaMode") == "OPAQUE"))
     ):
-        raise ValueError("The hair material must be named dtHair, double sided, alphaMode MASK at 0.5")
+        raise ValueError(
+            "The hair material must be named dtHair, double sided, alphaMode MASK at 0.5 (shell/1 may be OPAQUE)"
+        )
+    if hair_format not in (HAIR_FORMAT, SHELL_FORMAT):
+        raise ValueError(f"The hair material needs extras.dtHair with format {HAIR_FORMAT} or {SHELL_FORMAT}")
     info = material.get("pbrMetallicRoughness", {}).get("baseColorTexture")
     if info is None:
-        raise ValueError("The hair material requires the strand data atlas as baseColorTexture")
+        raise ValueError("The hair material requires its texture as baseColorTexture")
     texture = document["textures"][info["index"]]
     _, body_texture = base_color_info(document, body_primitive)
     if texture["source"] == body_texture["source"]:
@@ -299,11 +311,10 @@ def validate_hair(document: dict, blob: bytes, joint_count: int) -> dict | None:
     if atlas.mode not in ("RGB", "RGBA") or min(atlas.size) < 64:
         raise ValueError("The hair atlas must be an RGB(A) image of at least 64 px")
     data = np.asarray(atlas.convert("RGBA"), dtype=np.float64) / 255
+    if shell:
+        return validate_shell(document, blob, material, extras, texture, data, atlas.size, name, count, indices)
     if not 0.02 < data[..., 0].mean() < 0.9 or data[..., 0].max() < 0.5:
         raise ValueError("The hair atlas has implausible strand coverage in its R channel")
-    extras = material.get("extras", {}).get("dtHair")
-    if not isinstance(extras, dict) or extras.get("format") != HAIR_FORMAT:
-        raise ValueError(f"The hair material needs extras.dtHair with format {HAIR_FORMAT}")
     for key in ("colorHex", "rootHex", "tipHex"):
         if not re.fullmatch(r"#[0-9a-f]{6}", str(extras.get(key, ""))):
             raise ValueError(f"Invalid dtHair {key}")
@@ -316,6 +327,57 @@ def validate_hair(document: dict, blob: bytes, joint_count: int) -> dict | None:
         "triangles": int(len(indices) // 3),
         "cardCount": cards,
         "atlas": list(atlas.size),
+    }
+
+
+def validate_shell(
+    document: dict,
+    blob: bytes,
+    material: dict,
+    extras: dict,
+    texture: dict,
+    colour: np.ndarray,
+    size: tuple[int, int],
+    name: str,
+    count: int,
+    indices: np.ndarray,
+) -> dict:
+    """The ``shell/1`` hair material: sRGB colour (with the hairline fringe in alpha), optional normal map, no cards."""
+    if not re.fullmatch(r"#[0-9a-f]{6}", str(extras.get("colorHex", ""))):
+        raise ValueError("Invalid dtHair colorHex")
+    for key in ("rootHex", "tipHex"):
+        if key in extras and not re.fullmatch(r"#[0-9a-f]{6}", str(extras[key])):
+            raise ValueError(f"Invalid dtHair {key}")
+    if extras.get("cardCount", 0) != 0:
+        raise ValueError("A shell/1 hair has no cards: dtHair cardCount must be absent or 0")
+    if colour[..., :3].std() < 1e-3:
+        raise ValueError("The shell colour texture is a flat image")
+    if material.get("alphaMode") == "MASK" and (colour[..., 3] >= 0.5).mean() < 0.05:
+        raise ValueError("The shell colour texture is almost entirely cut out by its alpha channel")
+    normal_size = None
+    normal = material.get("normalTexture")
+    if normal is not None:
+        index = normal.get("index")
+        if type(index) is not int or not 0 <= index < len(document["textures"]):
+            raise ValueError("Invalid hair normalTexture")
+        normal_texture = document["textures"][index]
+        if normal_texture["source"] == texture["source"]:
+            raise ValueError("The hair normal map must be its own image")
+        image = Image.open(io.BytesIO(embedded_image(document, blob, normal_texture)))
+        if image.mode not in ("RGB", "RGBA") or min(image.size) < 64:
+            raise ValueError("The hair normal map must be an RGB(A) image of at least 64 px")
+        pixels = np.asarray(image.convert("RGB"), dtype=np.float64) / 255
+        if pixels[..., 2].mean() < 0.6 or abs(pixels[..., :2].mean() - 0.5) > 0.1:
+            raise ValueError("The hair normal map is not a tangent-space normal map (blue-dominant, centred at 0.5)")
+        normal_size = list(image.size)
+    return {
+        "node": name,
+        "vertices": int(count),
+        "triangles": int(len(indices) // 3),
+        "cardCount": 0,
+        "atlas": list(size),
+        "format": SHELL_FORMAT,
+        "normalMap": normal_size,
     }
 
 

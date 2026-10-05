@@ -29,8 +29,9 @@ from .facetex import (
     neck_weights,
     vertex_photo_check,
 )
-from .hair import PROCEDURAL, build_procedural_hair
+from .hair import FORMAT_SHELL, HY3D, PROCEDURAL, build_procedural_hair
 from .haircheck import skin_weight_report
+from .hairhy3d import DEFAULT_BUST, ShellField, ShellStyle, build_hy3d_hair
 from .headfit import build_template, fit_head, load_flame_fit, read_face_map, seam_vertices
 from .partstex import (
     DEFAULT_HAIR_LINEAR,
@@ -63,6 +64,14 @@ from .template import load_part
 UNDERWEAR_BONES = ("pelvis", "thigh_l", "thigh_r", "spine_01")
 PART_IDS = {"eyes": "eyes-default", "eyebrows": "eyebrows-default", "eyelashes": "eyelashes-default"}
 DEFAULT_HAIR = PROCEDURAL  # procedural cards in their own dtHair node: short sides and back, volume on top, no fringe
+BUST_RELATIVE = DEFAULT_BUST.relative_to(REPO)  # user-data/twin/hy3d/hy3d.glb: the user's own hair, when it exists
+
+
+def resolve_hair(hair: str | None, repo: Path | None = None) -> str:
+    """``None`` (the default) picks the user's own hair (``hy3d``) when the bust exists in ``user-data/``, else cards."""
+    if hair:
+        return hair
+    return HY3D if (Path(repo or REPO) / BUST_RELATIVE).is_file() else DEFAULT_HAIR
 HAIR_FALLBACK_ID = "hair-short"  # what the app's part library mounts for a face asset that says "procedural"
 SCALP_TINT = 0.45  # dark scalp under the hair: hair colour x this (linear-ish factor on sRGB)
 TILE_WIDTHS = {"hair": 1024, "eyes": 512, "eyebrows": 1024, "eyelashes": 1024}
@@ -168,13 +177,16 @@ def build_parts(
     iris,
     hair_hex=None,
     hair_style=None,
+    bust=None,
 ) -> PartsBuild:
     """Load, bind (MHCLO binding on the deformed body), recolour and tile the eyes, lashes, hair and optional brows.
 
-    ``hair`` is a MakeHuman hair part id or ``"procedural"`` (cards grown on the deformed head, see ``hairgen``).
+    ``hair`` is a MakeHuman hair part id, ``"procedural"`` (cards grown on the deformed head, see ``hairgen``) or
+    ``"hy3d"`` (the shell cut out of the user's bust, see ``hairhy3d``; ``bust`` carries its inputs).
     """
     strip_height = size // 4
-    procedural = hair == PROCEDURAL
+    shell = hair == HY3D
+    procedural = hair == PROCEDURAL or shell  # a separate dtHair node, no MakeHuman hair part
     ids = {**PART_IDS, "hair": hair}
     names = tuple(
         n
@@ -187,7 +199,22 @@ def build_parts(
     bound["eyes"] = bound["eyes"] + shift
 
     hair_choice = None
-    if procedural:
+    hair_build = None
+    if shell:
+        eye_y = float(np.mean([v[:, 1].mean() for v in flame_eyes.values()]))
+        hair_build = build_hy3d_hair(
+            bust["path"],
+            head_surface,
+            head_faces,
+            eye_y,
+            bust["landmark_points"],
+            bust["landmark_index"],
+            style=bust.get("style"),
+        )
+        hair_srgb = np.array([int(hair_build.mesh.colours["colorHex"][i : i + 2], 16) for i in (1, 3, 5)], float)
+        hair_choice = {"srgb": hair_srgb, "method": "mean colour of the hy3d shell", "measured_hex": None}
+        hair_linear = np.power(hair_srgb / 255.0, 2.2)
+    elif procedural:
         hair_choice = choose_hair_colour(hair_photo, hair_hex)
         hair_srgb = np.asarray(hair_choice["srgb"], float)
         hair_linear = np.power(hair_srgb / 255.0, 2.2)
@@ -202,13 +229,12 @@ def build_parts(
         "eyes": eye_tile(loaded["eyes"], iris_srgb),
         "eyelashes": card_tile(loaded["eyelashes"], None),
     }
-    hair_build = None
-    if procedural:
+    if procedural and not shell:
         eye_y = float(np.mean([v[:, 1].mean() for v in flame_eyes.values()]))
         hair_build = build_procedural_hair(
             head_surface, head_faces, eye_y, hair_srgb, style=hair_style, atlas_size=HAIR_ATLAS_SIZE
         )
-    else:
+    elif not procedural:
         images["hair"] = card_tile(loaded["hair"], hair_linear)
     if brows:
         images["eyebrows"] = card_tile(loaded["eyebrows"], hair_linear * 0.9)
@@ -238,7 +264,7 @@ def build_parts(
                     "measured_hex": hair_choice["measured_hex"],
                     "node": hair_build.mesh.node,
                     "colours": hair_build.mesh.colours,
-                    "procedural": hair_build.report,
+                    ("shell" if shell else "procedural"): hair_build.report,
                 }
                 if procedural
                 else {}
@@ -274,7 +300,7 @@ def run(
     fit=None,
     photos=None,
     flame_assets=None,
-    hair=DEFAULT_HAIR,
+    hair=None,
     brows=False,
     texture_size=4096,
     previews=True,
@@ -284,6 +310,7 @@ def run(
     hair_style=None,
 ):
     started = time.perf_counter()
+    hair = resolve_hair(hair)
     out = Path(out)
     private_output(out)
     preview_dir = Path(preview_dir) if preview_dir else out.parent / "previews"
@@ -346,6 +373,18 @@ def run(
     aligned = head_fit.aligned_flame
     flame_eyes = {"left": aligned[flame.masks["left_eyeball"]], "right": aligned[flame.masks["right_eyeball"]]}
     head_positions = final[: model.nr][head.ids]
+    bust = None
+    if hair == HY3D:
+        bust_path = REPO / BUST_RELATIVE
+        if not bust_path.is_file():
+            raise ValueError(f"--hair hy3d needs the Hunyuan3D bust at {bust_path}")
+        moved_landmarks = np.asarray(template.landmark_bary @ (template.base + head_fit.displacement))
+        bust = {
+            "path": bust_path,
+            "landmark_points": moved_landmarks,
+            "landmark_index": template.landmark_index,
+            "style": hair_style if isinstance(hair_style, ShellStyle) else None,
+        }
     parts = build_parts(
         final,
         tone,
@@ -358,7 +397,8 @@ def run(
         hair_photo=hair_photo,
         iris=iris,
         hair_hex=hair_hex,
-        hair_style=hair_style,
+        hair_style=None if hair == HY3D else hair_style,
+        bust=bust,
     )
 
     canvas = np.zeros((size, size, 3), np.uint8)
@@ -421,12 +461,21 @@ def run(
     tri = head_island_triangles(template, head)[face.texel_face]
     texel_normals = np.einsum("ij,ijk->ik", face.texel_bary, head_normals[tri])
     texel_normals /= np.maximum(np.linalg.norm(texel_normals, axis=1, keepdims=True), 1e-9)
-    if parts.hair_build is not None:
-        cover = parts.hair_build.field.cover(points)  # the hair density field itself: exact hairline, stubble shadow
+    field = parts.hair_build.field if parts.hair_build is not None else None
+    if isinstance(field, ShellField):
+        # the solid shell: coverage along the head normals, and the scalp takes the colour of the shell next to it
+        cover = field.cover(points, texel_normals)
+        scalp_lab = field.tint_lab(points)
+        scalp_method = "hy3d shell coverage along the head normals, tinted with the colour of the shell next to it"
+    elif field is not None:
+        cover = field.cover(points)  # the hair density field itself: exact hairline, stubble shadow
+        scalp_method = "procedural hair density field"
     else:
         hair_surface = sample_hair_surface(parts.bound["hair"], parts.loaded["hair"].faces)
         cover = hair_cover(points, texel_normals, hair_surface)
-    scalp_lab = to_lab(np.clip(parts.hair_srgb * SCALP_TINT, 1, 255).astype(np.float32).reshape(1, 3) / 255.0)[0]
+        scalp_method = "ray march to the hair surface"
+    if not isinstance(field, ShellField):
+        scalp_lab = to_lab(np.clip(parts.hair_srgb * SCALP_TINT, 1, 255).astype(np.float32).reshape(1, 3) / 255.0)[0]
     texture_under_hair = tint_scalp(texture, ty, tx, cover, scalp_lab)
     eye_y = float(np.mean([v[:, 1].mean() for v in flame_eyes.values()]))
     front = (texel_normals[:, 2] > 0.6) & (points[:, 1] > eye_y + 0.03) & (np.abs(points[:, 0]) < 0.02)
@@ -441,8 +490,10 @@ def run(
         }
     scalp_report = {
         "forehead": forehead,
-        "method": "procedural hair density field" if parts.hair_build is not None else "ray march to the hair surface",
-        "tint_lab": scalp_lab.tolist(),
+        "method": scalp_method,
+        "tint_lab": (scalp_lab[cover > 0.5].mean(0) if (cover > 0.5).any() else scalp_lab.mean(0)).tolist()
+        if scalp_lab.ndim == 2
+        else scalp_lab.tolist(),
         "covered_texel_fraction": float((cover > 0.5).mean()),
         "head_island_texels": int(len(cover)),
     }
@@ -491,7 +542,20 @@ def run(
         "ownsFeet": True,
         "nativeResolve": body_report["nativeResolve"],
         "hair": hair,
-        "hairProcedural": parts.hair_build is not None,
+        "hairProcedural": parts.hair_build is not None and hair != HY3D,
+        **(
+            {
+                "hairShell": {
+                    "format": FORMAT_SHELL,
+                    "source": "Hunyuan3D bust of the user (user-data/twin/hy3d/hy3d.glb), cut out and fitted to this head",
+                    "colourSize": [int(hair_mesh.atlas.shape[1]), int(hair_mesh.atlas.shape[0])],
+                    "normalSize": [int(hair_mesh.normal_atlas.shape[1]), int(hair_mesh.normal_atlas.shape[0])],
+                    "triangles": int(len(hair_mesh.faces)),
+                }
+            }
+            if hair == HY3D and hair_mesh is not None
+            else {}
+        ),
         **(
             {
                 "hairAtlas": {
@@ -501,7 +565,7 @@ def run(
                     "shader": "creategamecharacters/threejs-hair-shader (MIT), compact atlas",
                 }
             }
-            if hair_mesh is not None
+            if hair_mesh is not None and hair != HY3D
             else {}
         ),
         "license": "MakeHuman CC0 + private non-commercial FLAME/Pixel3DMM fit; never redistribute",
@@ -578,14 +642,20 @@ def run(
                 "colourHex": parts.colours["hair"],
                 **(
                     {
-                        "kind": "procedural-cards",
+                        "kind": "bust-shell" if hair == HY3D else "procedural-cards",
                         "fallbackId": HAIR_FALLBACK_ID,
                         "style": parts.hair_build.style.to_dict(),
-                        "format": "rcov-groot-bvar/1",
+                        "format": hair_mesh.format,
                         "colours": hair_mesh.colours,
-                        "note": "cards grown on the deformed head (hybrid/hairgen.py), a separate dtHair node with a strand "
-                        "data atlas for the hair shader; the app's part library has no such part, so it mounts "
-                        "fallbackId until the cards are loaded from the twin GLB",
+                        "note": (
+                            "a textured shell cut out of the own Hunyuan3D bust of the user and fitted to this head "
+                            "(hybrid/hairhy3d.py), a separate dtHair node of format shell/1; private to the user"
+                            if hair == HY3D
+                            else "cards grown on the deformed head (hybrid/hairgen.py), a separate dtHair node with a "
+                            "strand data atlas for the hair shader"
+                        )
+                        + "; the part library of the app has no such part, so it mounts fallbackId until the hair is "
+                        "loaded from the twin GLB",
                     }
                     if parts.hair_build is not None
                     else {}
@@ -634,11 +704,14 @@ def verify_report(report: dict) -> list[str]:
     if report["mesh"]["validity"]["body_nonmanifold_edges"]:
         problems.append("non-manifold body edges")
     hair = report["parts"]["hair"]
-    procedural = hair.get("procedural")
+    shell = hair.get("shell")
+    procedural = hair.get("procedural") or shell
     if procedural:
         penetration = procedural["penetration"]
         if penetration["vertices_inside_head"] or penetration["vertices_below_clearance"]:
-            problems.append("hair card vertices closer to the head than the clearance")
+            problems.append("hair vertices closer to the head than the clearance")
+        if penetration.get("samples_inside_head"):
+            problems.append("hair triangles cut into the head")
         if not 8000 <= procedural["triangles"] <= 60000:
             problems.append("hair triangle count outside 8k..60k")
         coverage = procedural.get("coverage")
@@ -647,4 +720,19 @@ def verify_report(report: dict) -> list[str]:
         weights = hair.get("skin_weights")
         if weights and weights["fraction_head_chain_ge_0_95"] < 0.8:
             problems.append("hair vertices are not weighted to the head/neck bones")
+    if shell:
+        if not 15000 <= shell["triangles"] <= 30000:
+            problems.append("hy3d hair: triangle count outside 15k..30k")
+        clearance = shell["fit"]["clearance"]
+        if clearance["min_sample_mm"] < 1.5 or clearance["samples_inside_head"]:
+            problems.append("hy3d hair: triangle interiors do not keep 1.5 mm clearance")
+        front = shell["hairline"]["front_mm_above_eye_shell"]
+        if front is None or not 40.0 <= front <= 100.0:
+            problems.append("hy3d hair: the front hairline is not 4 to 10 cm above the eye line")
+        edge = shell["edge_gap"]
+        if edge.get("vertices") and edge["median_mm"] > 4.0:
+            problems.append("hy3d hair: the hairline edge floats more than 4 mm above the scalp")
+        visible = shell["visible_clearance"]["min_mm"]
+        if visible is not None and visible < 1.5:
+            problems.append("hy3d hair: the visible shell is closer than 1.5 mm to the head")
     return problems

@@ -13,10 +13,12 @@ web app**. Nothing is scanned and no foreign head is grafted.
    matching, multiband blend, mirrored right view for the unseen side). The skin tone is propagated to the whole body
    texture and boxer shorts are painted (`skin.py`).
 4. **Parts**: MakeHuman CC0 eyes and lashes (and optionally brows) are bound to the _deformed_ body with the app's own
-   MHCLO binding, so they follow the head (`template.py`, `partstex.py`, `assemble.py`). The **hair** is by default
-   procedural: soft hair cards grown on the deformed head as a **separate `dtHair` node** with its own strand data atlas
-   for the MIT three.js hair-card shader (`hairgen.py`, `hairtex.py`, see "Procedural hair"); the MakeHuman hair parts
-   stay selectable with `--hair hair-short` etc. (legacy: cards merged into the body mesh and atlas).
+   MHCLO binding, so they follow the head (`template.py`, `partstex.py`, `assemble.py`). The **hair** is a **separate
+   `dtHair` node** with its own material. By default (when `user-data/twin/hy3d/hy3d.glb` exists) it is the user's own hair
+   cut out of a Hunyuan3D bust and fitted to the head as a solid textured shell (`--hair hy3d`, format `shell/1`, see "Hair
+   from the Hunyuan3D bust"); without the bust it is procedural: soft hair cards with a strand data atlas for the MIT three.js
+   hair-card shader (`--hair procedural`, format `rcov-groot-bvar/1`, `hairgen.py`, `hairtex.py`, see "Procedural hair");
+   the MakeHuman hair parts stay selectable with `--hair hair-short` etc. (legacy: cards merged into the body mesh and atlas).
 5. **Outputs**: `hybrid.glb` (the skinless body primitive with its atlas, plus the `dtHair` primitive with its material
    and atlas) for the existing rig and bundle stages, and a portable **face asset** for the app's standard model.
 
@@ -33,9 +35,11 @@ tools/twin-lab/bundle/.venv/Scripts/python.exe tools/twin-lab/run_all.py --body 
 # the stage alone (refine environment)
 tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hybrid.py \
   --bodyfix user-data/twin/out/bodyfix --measurements user-data/twin/measurements.json \
-  --out user-data/twin/out/hybrid/hybrid.glb [--hair procedural|hair-short|hair-tousled|...] [--hair-hex #2a1e18|photo] \
+  --out user-data/twin/out/hybrid/hybrid.glb [--hair hy3d|procedural|hair-short|hair-tousled|...] [--hair-hex #2a1e18|photo] \
   [--hairline-mm 68] [--hair-top-mm 55] [--hair-side-mm 8] [--hair-param NAME=VALUE ...] [--brows] \
   [--texture-size 4096] [--no-previews]
+# --hair defaults to hy3d when user-data/twin/hy3d/hy3d.glb exists, else procedural; for hy3d --hair-param takes any field of
+# the segmentation / shell / fit groups (hair_lightness=40, target_triangles=30000, clearance=2, thickness_short=4, ...)
 
 # the procedural hair alone on the GENERIC MakeHuman head (no person, no photo): head views + numbers
 tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hairdemo.py \
@@ -105,7 +109,7 @@ positions + axis-scaled MHCLO offset) evaluated on the deformed body. Eyes are t
 matches FLAME's eyeball in x/y and the front pole in z (clamped to 4 mm); the eye-socket cavity faces are removed
 (`eyes-default.delete.bin`). The body is drawn by the app with one material (`MASK` 0.5): the skin texels are opaque, the
 eyelash (and optional brow) cards keep the real alpha of their MakeHuman texture as cut-outs and are one-sided. Hair
-choice: `--hair procedural` (default, see below) or any hair part of `parts/index.json` (`hair-short`, `hair-tousled`,
+choice: `--hair hy3d` (default with the local bust), `--hair procedural` (default without it), or any hair part of `parts/index.json` (`hair-short`, `hair-tousled`,
 ...): those are legacy, their cards are bound like the lashes and merged into the body mesh and atlas (with the
 `--hair-hex` colour of `partstex.card_tile`). The iris colour is the median of the iris ring around each eyeball's front
 pole in the front photo (the app's `recolorIris` is ported). The brow cards are **off by default** (`--brows`): the
@@ -124,7 +128,7 @@ the exact shape with the identity pose; weights come from the template's own ski
 
 ## Procedural hair (`hair.py`, `hairgen.py`, `hairtex.py`, `haircheck.py`)
 
-The default hair is a modern short cut built on the deformed head: cropped and tapered sides and back (8 mm, fading to
+The fallback procedural hair is a modern short cut built on the deformed head: cropped and tapered sides and back (8 mm, fading to
 about 4 mm at the hairline, above the ears and at the nape), more volume on top (4.5 to 5.5 cm) swept up and back from the
 forehead, a visible forehead (no fringe) with the hairline about 6.8 cm above the eye centre line, dark brown `#2a1e18`.
 Everything is procedural (no asset, no licence concern); nothing needs the person's data except the head surface and the
@@ -208,11 +212,85 @@ decides per sample with an ordered 3 x 3 dither (like alpha to coverage), the co
 the shader's `seedVariation` 0.36 on `B` and its normal-based self occlusion, lit with the smooth card normals. There
 is no anisotropic highlight and no blended fringe: the real look is the shader in the app.
 
+## Hair from the Hunyuan3D bust (`hy3d.py`, `hairseg.py`, `hairshell.py`, `shellfit.py`, `hairhy3d.py`)
+
+The user generated a textured head-and-shoulders bust of themselves with Tencent Hunyuan3D (web, one mesh, one PBR material
+with 4096 px base colour / metallic-roughness textures, no skin) and saved it as `user-data/twin/hy3d/hy3d.glb`.
+`--hair hy3d` (the default when that file exists) puts THIS hair on the twin. The bust is a private asset: code reads it from
+`user-data/` only and everything derived from it stays there. Steps (`build_hy3d_hair`):
+
+1. **Axes and scale** (`hy3d.py`). The glTF node of the generator carries a +90 degree rotation about X (its raw files are
+   Z-up); `read_glb` bakes it, after which the bust is +Y up and faces +Z (verified by a face detector: `find_orientation`
+   falls back to the 24 axis rotations when the identity shows no face). The bust is not in metres. A front render goes through
+   MediaPipe's face landmarker (the model file the web app ships), the landmark pixels are lifted to 3-D with the depth buffer
+   of the same render (two passes: the head, then a render framed on the face), and a trimmed Umeyama similarity maps the
+   stable landmarks (nose bridge, forehead, upper oval; not eyes, brows, lips, cheeks: glasses, a smile) onto the same
+   landmarks on the deformed twin head (the app's `face-map.json` binding). A damped rigid point-to-plane ICP on the forehead /
+   temple skin and the short side hair then refines it (skipped when a fringe hides the forehead). The mesh is position-welded
+   on load (the generator splits vertices at every UV seam, which cuts any graph into islands). The report carries the
+   scale to metres, the total rotation / translation (`p_twin = scale * R @ p_bust + t`) and the residuals.
+2. **Segmentation** (`hairseg.py`: colour AND geometry). Hair texels are dark, nearly neutral and not red; skin, ears and
+   cheeks are much lighter or redder: the smoothed CIELAB lightness (a few mesh-graph rings) is thresholded half way (`42`) and
+   a smoothed `a* > 4.5` is skin even when dark (the ear canal, sideburn shadows). Geometry bounds it from below: a floor curve
+   over the azimuth around the skull (generous in front so eyebrows, glasses and beard are never hair, the sideburn ending at
+   the top of the ear, the nape 18 mm above the neck crease) and a 5 mm margin around the twin's ears. Behind
+   `colour_azimuth` (125 degrees) colour cannot decide - the generator never saw the back of the head and fills it with a
+   flat grey that is as dark as the nape - so only the floor does. The mask is then cleaned on the welded mesh graph: largest
+   component, one open and one close (spurs, notches), holes filled, boundary smoothed by diffusing the indicator and
+   re-thresholding.
+3. **Colour artefacts** (`hairshell.attach_fill`). The generator also paints a light patch on the unseen back of the head and
+   fills the rest of it with one featureless grey. Both are flagged (a lightness spike far from the edge; a near-zero local
+   variance with near-zero chroma) and replaced by the harmonic extension of the real hair around them (only vertices inside
+   the hairline count), a little lighter towards the hairline (a fade) plus a fine texel-space grain (stubble).
+4. **Shell** (`hairshell.py`). Direct quadric reduction of the noisy bust produced folds and non-manifold edges in the
+   earlier implementation. Keep its radial surface repair first: the cap is resampled through a Lambert equal-area
+   projection at twice the requested triangle budget. Each node takes the outer surface in its direction; a leaning brim
+   can lose its underside. `fast_simplification` then performs quadric reduction to 24000 triangles, and xatlas packs new
+   UV charts with padding. Scalp fitting works on welded geometry; the xatlas vertex mapping keeps all seam copies
+   coincident in the final mesh. The surface extends a 10 mm margin beyond the hairline; texture alpha defines the cut.
+5. **Bake** (`hairshell.bake`). The textures are looked up on dense samples (0.25 mm) of the high-poly surface through the
+   ORIGINAL UVs, so the strand detail of the 4096 px textures survives: **colour** (sRGB 2048 px, RGBA PNG; texels at and beyond
+   the hairline take the colour of the nearest sample 2.5 mm inside, never skin), **alpha** (255 inside, a noisy ramp of 2.5 mm
+   centred on the hairline: 0.5 at the edge, `MASK` 0.5 then gives an irregular cut-out like a real hairline) and a
+   **normal map** (geometric relief, plus the source normal map when available, in the tangent space of the low poly; glTF
+   convention +X right, +Y up the image, +Z out; stored as JPEG q92 4:4:4).
+6. **Fit** (`shellfit.py`). The bust's skull differs from the twin's (a statistical FLAME fit; the back of both is a guess) by up
+   to a centimetre, so the shell is warped: where the hair is short (below the cut's taper line: sides, back, a band along
+   the whole hairline and the margin) it is pulled to a thickness above the scalp (2 mm at the hairline, 3.5 mm inside); the
+   long hair (top, swept-up front) is not pulled at all, the volume is the person's hair; in between a Laplacian-regularised
+   displacement field (membrane on the regular grid, data weights per surface area so the mesh density does not matter, a weak
+   anchor) makes the correction decay smoothly. The solve is the one of `register.py` (point-to-plane + weak point term,
+   one sparse solve per iteration, closest points on the scalp WITHOUT the ears refreshed). A last pass lifts every vertex
+   and every triangle sample (centroids, edge midpoints) at least 1.8 mm outside the WHOLE head surface (ears and face
+   included), spreading each push to the neighbours.
+7. **Scalp tint** (`hairhy3d.ShellField`). The baked head texture is darkened under the shell with the coverage of the shell
+   itself (a head point is covered when the shell is near it along its normal or along the ray from the skull centre, which
+   is how the shell was built), and the tint colour is the colour of the shell next to each texel, so the hairline fade
+   continues into the scalp.
+
+Output per contract addendum v1.1: the `dtHair` node (the same skin as the body), `extras.dtHair = {format: "shell/1",
+colorHex, cardCount: 0}` (the mean colour of the visible texels), a normal PBR material (`baseColorTexture` sRGB with the
+fringe in its alpha, `normalTexture`, `MASK` 0.5, `doubleSided`, roughness 0.62) and `asset.extras.dtHairNode`. The rig stage
+needed no change (weights come from the closest body vertices, materials / textures / images pass through verbatim; test in
+`rig/tests/test_hair_prim.py`), the bundle validates both formats (`bundle/write_twin_glb.py`, tests in
+`bundle/tests/test_hair_node.py`).
+
+`parts.hair.shell` in the report carries the numbers: the alignment (`transform`), the segmentation, the colour fill, the shell
+(`edge_mm`, `surface_error`, `bake`), the fit (`warp`, `clearance`), `penetration` (vertices and triangle samples inside the
+head or closer than the clearance, min / median / p05 / p95 distance), `visible_clearance`, `edge_gap` (the visible edge ring's
+distance to the scalp), `coverage` (share of the scalp that lies under the shell and is hidden by it from the front, left,
+right, back and top), `hairline` (front hairline above the eye line on the bust and on the fitted shell, next to the
+procedural target) and the style. `verify_report` additionally requires zero penetration, 15k to 30k shell triangles, at least
+80 percent of the covered scalp hidden from every main view, a front hairline between 4 and 10 cm above the eye line, a median
+edge gap of at most 4 mm and at least 1.5 mm of vertex and triangle-sample clearance. Tests (`tests/test_hy3d.py`, `test_hairseg.py`,
+`test_hairshell.py`, `test_shellfit.py`, `test_hairhy3d.py`, the `hy3d` cases of `test_pipeline.py`) use a synthetic bust built
+from the generic CC0 MakeHuman head (`tests/synth_bust.py`; the landmarks come from a fake detector).
+
 ## Outputs (`user-data/twin/out/hybrid/`)
 
 | file                              | content                                                                                       |
 | --------------------------------- | --------------------------------------------------------------------------------------------- |
-| `hybrid.glb`                      | skinless body primitive + atlas and the `dtHair` primitive with its own material and strand data atlas; input of the rig stage |
+| `hybrid.glb`                      | skinless body primitive + atlas and the `dtHair` primitive with its own material (strand data atlas, or the shell's colour texture and normal map); input of the rig stage |
 | `rig/`, `twin.glb`                | rig stage output and the app bundle (`run_all --body hybrid`)                                 |
 | `hybrid_report.json`              | the metrics: registration residuals (mm), landmark residuals, displacement, neck girth, texture fill, seam and skin Lab, vertex/photo check, hair/eye/lash placement, mesh validity, hand flags |
 | `face_asset/`                     | the portable face asset (below)                                                               |
@@ -263,6 +341,13 @@ For the app's standard MakeHuman model (nothing here is wired into `apps/web` ye
 - The body skin is procedural (no MakeHuman skin texture is available); the underwear is painted, not geometry.
 - The scan-twin `head.glb` is not used. The skull top of the deformed head can differ from the solved height by a few
   millimetres (reported as `bare_head_top_m` vs the tape height), and the procedural hair adds 2 to 3 cm of volume (the body mesh and `twinHeightM` of `twin.json` do not include it).
+- hy3d hair: the bust's back of the head is the generator's guess (flat grey and a light patch), replaced here by the
+  surrounding hair colour plus a grain, so the back of the cut is plausible, not photographed. The shell is a solid surface:
+  no strands move, no wind, no physics, hair-through-hair translucency does not exist; a forward-leaning brim loses its
+  underside (the grid is a height field from the middle of the head); where the bust's skull is wider than the twin's the
+  short hair is pulled in by up to about a centimetre; a bust with a fringe over the forehead skips the ICP refinement and
+  the front hairline then depends on the landmark similarity alone. `run_all` does not list the bust as an input of the hybrid
+  stage, so a replaced bust needs `--from-stage hybrid` (or `--force`).
 - Procedural hair: the hairline, sideburn and nape shapes are tuned on the generic MakeHuman head; the ear and nape
   detection (`parts.hair.procedural.frame`) are reported so a wrong detection is visible in the numbers. The strands are
   cards, not curves: no wind, no physics, one fixed style (tune it with the CLI parameters).

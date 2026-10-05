@@ -14,13 +14,39 @@ import numpy as np
 # The package directory is this script's folder.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hybridbody.hair import PROCEDURAL  # noqa: E402
+from hybridbody.hair import HY3D, PROCEDURAL  # noqa: E402
 from hybridbody.hairgen import HairStyle  # noqa: E402
-from hybridbody.pipeline import DEFAULT_HAIR, run, verify_report  # noqa: E402
+from hybridbody.hairhy3d import ShellStyle  # noqa: E402
+from hybridbody.pipeline import resolve_hair, run, verify_report  # noqa: E402
 
 
-def hair_style_from(args, parser) -> HairStyle | None:
-    """The procedural hair style from the CLI flags (None = defaults); errors for flags given with a MakeHuman hair."""
+def hair_style_from(args, parser):
+    """The hair style from the CLI flags: a ``HairStyle`` for ``procedural``, a ``ShellStyle`` for ``hy3d`` (None =
+    defaults); errors for style flags given with a hair they do not apply to."""
+    if resolve_hair(args.hair) == HY3D:
+        flags = {
+            "--hairline-mm": getattr(args, "hairline_mm", None),
+            "--hair-top-mm": getattr(args, "hair_top_mm", None),
+            "--hair-side-mm": getattr(args, "hair_side_mm", None),
+            "--hair-seed": getattr(args, "hair_seed", None),
+            "--hair-hex": getattr(args, "hair_hex", None),
+        }
+        given = [name for name, value in flags.items() if value is not None]
+        if given:
+            parser.error(f"{', '.join(given)} only apply to --hair procedural (hy3d takes --hair-param NAME=VALUE)")
+        overrides = {}
+        for item in args.hair_param or []:
+            key, _, value = item.partition("=")
+            if not value:
+                parser.error(f"--hair-param expects NAME=VALUE, got {item!r}")
+            try:
+                overrides[key.strip()] = float(value)
+            except ValueError:
+                parser.error(f"--hair-param {key}: {value!r} is not a number")
+        try:
+            return ShellStyle.with_overrides(overrides) if overrides else None
+        except ValueError as error:
+            parser.error(str(error))
     overrides = {}
     if args.hairline_mm is not None:
         overrides["hairline_front"] = args.hairline_mm
@@ -43,7 +69,7 @@ def hair_style_from(args, parser) -> HairStyle | None:
         except ValueError:
             parser.error(f"--hair-param {key}: {value!r} is not a number")
     if overrides and args.hair != PROCEDURAL:
-        parser.error("the hair style flags only apply to --hair procedural")
+        parser.error("the hair style flags only apply to --hair procedural (hy3d takes --hair-param NAME=VALUE)")
     if args.hair_hex and args.hair != PROCEDURAL:
         parser.error("--hair-hex only applies to --hair procedural")
     try:
@@ -66,8 +92,10 @@ def main(argv=None):
     parser.add_argument("--out", type=Path, required=True, help="hybrid.glb path (under user-data/)")
     parser.add_argument(
         "--hair",
-        default=DEFAULT_HAIR,
-        help="'procedural' (default: hair cards grown on the deformed head as the separate dtHair node, short sides and "
+        default=None,
+        help="'hy3d' (default when user-data/twin/hy3d/hy3d.glb exists: the user's own hair, cut out of the Hunyuan3D "
+        "bust and fitted to the head as a textured shell, the separate dtHair node, format shell/1), 'procedural' "
+        "(default without the bust: hair cards grown on the deformed head as the separate dtHair node, short sides and "
         "back, volume on top swept up and back, no fringe) or a MakeHuman CC0 hair part id from parts/index.json "
         "(hair-short, hair-tousled, ...: legacy, merged into the body mesh)",
     )
@@ -85,7 +113,9 @@ def main(argv=None):
         action="append",
         metavar="NAME=VALUE",
         help="procedural hair: any HairStyle field in millimetres (repeatable), e.g. temple_recession=8, "
-        "sideburn_drop=5, nape_above_crease=25, taper_side=48, triangle_target=25000, lift_front=0.4",
+        "sideburn_drop=5, nape_above_crease=25, taper_side=48, triangle_target=25000, lift_front=0.4; hy3d hair: any "
+        "segmentation, shell or fit field, e.g. hair_lightness=40, target_triangles=30000, clearance=2, "
+        "thickness_short=4",
     )
     parser.add_argument(
         "--iris-hex",
@@ -102,6 +132,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not 512 <= args.texture_size <= 4096 or args.texture_size % 256:
         parser.error("--texture-size must be a multiple of 256 between 512 and 4096")
+    args.hair = resolve_hair(args.hair)
     style = hair_style_from(args, parser)
     try:
         report = run(

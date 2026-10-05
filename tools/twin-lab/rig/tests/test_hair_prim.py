@@ -58,3 +58,42 @@ def test_skinned_writer_keeps_two_meshes_on_one_skin_with_their_own_materials(tm
     back = read_glb(str(path))
     assert [p.name for p in back.prims] == ["twin", "dtHair"] and [p.material for p in back.prims] == [0, 1]
     assert back.extras["dtHairNode"] == "dtHair" and back.materials[1]["extras"]["dtHair"]["format"] == "rcov-groot-bvar/1"
+
+
+def test_skinned_writer_passes_a_shell_hair_material_with_its_colour_and_normal_textures_through(tmp_path, model):
+    """``shell/1`` (hair contract addendum v1.1): a colour texture, a normal map and the material extras survive the rig."""
+    joints = [
+        {"name": name, "parent": model.bone_names[bone.parent] if bone.parent >= 0 else None, "head": np.zeros(3)}
+        for name, bone in zip(model.bone_names, model.bones)
+    ]
+    shell = {
+        "name": "dtHair",
+        "pbrMetallicRoughness": {"baseColorTexture": {"index": 1}, "metallicFactor": 0.0, "roughnessFactor": 0.62},
+        "normalTexture": {"index": 2, "scale": 1.0},
+        "alphaMode": "MASK",
+        "alphaCutoff": 0.5,
+        "doubleSided": True,
+        "extras": {"dtHair": {"format": "shell/1", "colorHex": "#2a2d34", "cardCount": 0}},
+    }
+    images = [
+        {"data": b"body", "mimeType": "image/png"},
+        {"data": b"colour", "mimeType": "image/png"},
+        {"data": b"normal", "mimeType": "image/jpeg"},
+    ]
+    textures = [{"sampler": 0, "source": i} for i in range(3)]
+    scene = GlbScene(
+        [prim("twin", 0), prim("dtHair", 1)],
+        [{"name": "twin"}, shell],
+        textures,
+        [{"magFilter": 9729, "minFilter": 9987}],
+        images,
+        extras={"dtHairNode": "dtHair"},
+    )
+    skin_j = [np.zeros((3, 4), np.uint16)] * 2
+    skin_w = [np.tile(np.array([1, 0, 0, 0], np.float32), (3, 1))] * 2
+    path = tmp_path / "rigged.glb"
+    write_skinned_glb(str(path), scene, joints, skin_j, skin_w)
+    back = read_glb(str(path))
+    assert back.materials[1] == shell and back.textures == textures
+    assert [(i["data"], i["mimeType"]) for i in back.images] == [(i["data"], i["mimeType"]) for i in images]
+    assert split_hair_prim(back) == (0, 1)

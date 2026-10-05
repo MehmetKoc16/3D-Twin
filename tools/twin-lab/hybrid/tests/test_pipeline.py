@@ -287,3 +287,127 @@ def test_hybrid_cli_builds_the_hair_style_and_rejects_style_flags_for_makehuman_
         hybrid.hair_style_from(argparse.Namespace(**{**base, "hair": "hair-short", "hairline_mm": 70.0}), parser)
     with pytest.raises(SystemExit):
         hybrid.hair_style_from(argparse.Namespace(**{**base, "hair_param": ["nope=1"]}), parser)
+
+
+# ------------------------------------------------------------------------------------------- hy3d (the user's own hair)
+@pytest.fixture(scope="module")
+def hy3d_result(model, tmp_path_factory):
+    """The whole stage with ``--hair hy3d`` on a synthetic bust (landmarks from a fake detector, a tiny shell)."""
+    from hybridbody import hy3d
+    from hybridbody.hairhy3d import ShellStyle
+    from synth_bust import build_kit, fake_detector, write_bust
+    from test_hairhy3d import SYNTHETIC
+
+    kit = build_kit()
+    root = tmp_path_factory.mktemp("hy3d_repo")
+    write_bust(root / "user-data/twin/hy3d/hy3d.glb", kit, top=0.05)
+    original = hy3d.detect_front_landmarks
+    hy3d.detect_front_landmarks = fake_detector(kit)
+    try:
+        return execute(model, root, hair="hy3d", hair_style=ShellStyle.with_overrides(SYNTHETIC))
+    finally:
+        hy3d.detect_front_landmarks = original
+
+
+def test_hy3d_hair_is_a_shell_node_with_its_own_material_colour_texture_and_normal_map(hy3d_result):
+    import io
+
+    from PIL import Image
+
+    _, out, report, _, _ = hy3d_result
+    hair = report["parts"]["hair"]
+    assert hair["id"] == "hy3d" and "shell" in hair and "procedural" not in hair and hair["node"] == "dtHair"
+    assert "hair" not in report["parts"]["slices"] and hair["colour_method"].startswith("mean colour")
+    scene = read_glb(str(out))
+    assert [p.name for p in scene.prims] == ["twin", "dtHair"] and scene.extras["dtHairNode"] == "dtHair"
+    marker = scene.extras["dtHybrid"]
+    assert marker["hair"] == "hy3d" and marker["hairProcedural"] is False and "hairAtlas" not in marker
+    assert marker["hairShell"]["format"] == "shell/1" and marker["hairShell"]["triangles"] == len(scene.prims[1].indices)
+    js, blob = _split(out.read_bytes())
+    material = js["materials"][1]
+    assert (material["name"], material["alphaMode"], material["alphaCutoff"], material["doubleSided"]) == (
+        "dtHair",
+        "MASK",
+        0.5,
+        True,
+    )
+    assert material["extras"]["dtHair"]["format"] == "shell/1" and material["extras"]["dtHair"]["cardCount"] == 0
+    assert "baseColorFactor" not in material["pbrMetallicRoughness"]  # the colour comes from the texture alone
+    colour = js["textures"][material["pbrMetallicRoughness"]["baseColorTexture"]["index"]]
+    normal = js["textures"][material["normalTexture"]["index"]]
+    assert len({js["textures"][0]["source"], colour["source"], normal["source"]}) == 3  # three different images
+    images = [js["images"][t["source"]] for t in (colour, normal)]
+    assert [i["mimeType"] for i in images] == ["image/png", "image/jpeg"]
+    views = [js["bufferViews"][i["bufferView"]] for i in images]
+    texture = np.asarray(Image.open(io.BytesIO(blob[views[0]["byteOffset"] : views[0]["byteOffset"] + views[0]["byteLength"]])))
+    assert texture.shape == (256, 256, 4) and texture[..., 3].min() < 128 and texture[..., 3].max() == 255
+    relief = np.asarray(Image.open(io.BytesIO(blob[views[1]["byteOffset"] : views[1]["byteOffset"] + views[1]["byteLength"]])))
+    assert relief.shape == (256, 256, 3) and relief[..., 2].mean() > 200  # blue dominant: a tangent-space normal map
+    assert report["glb"]["hair"]["material"] == material and report["glb"]["hair"]["normal_size"] == [256, 256]
+    assert hair["skin_weights"]["fraction_head_chain_ge_0_95"] > 0.8
+
+
+def test_hy3d_hair_report_passes_its_checks_up_to_the_synthetic_size_and_darkens_the_scalp_under_it(hy3d_result):
+    _, _, report, _, _ = hy3d_result
+    shell = report["parts"]["hair"]["shell"]
+    assert shell["penetration"]["vertices_inside_head"] == 0 and shell["penetration"]["vertices_below_clearance"] == 0
+    assert shell["visible_clearance"]["min_mm"] >= 1.5 and 40 <= shell["hairline"]["front_mm_above_eye_shell"] <= 100
+    problems = verify_report(report)
+    # the tiny synthetic shell has fewer triangles than a real one and leaves skin showing from some views
+    assert all("scalp visible" in p or "triangle count" in p for p in problems)
+    tint = report["texture"]["scalp_tint"]
+    assert tint["method"].startswith("hy3d shell coverage") and tint["covered_texel_fraction"] > 0.02
+    assert tint["tint_lab"][0] < 40  # the scalp takes the dark colour of the hair next to it
+    assert report["texture"]["alpha"]["cutout_texels"] > 0  # the eyelash cards still cut out of the body atlas
+
+
+def test_hy3d_face_asset_names_the_shell_and_the_rig_accepts_the_two_meshes(hy3d_result, monkeypatch, tmp_path):
+    _, out, _, solution, _ = hy3d_result
+    document = json.loads((out.parent / "face_asset/face-asset.json").read_text())
+    hair = document["parts"]["hair"]
+    assert hair["id"] == "hy3d" and hair["kind"] == "bust-shell" and hair["format"] == "shell/1" and hair["fallbackId"]
+    assert hair["style"]["fit"]["clearance"] == 1.8 and "colorHex" in hair["colours"]
+    import rig_scan
+
+    folder = tmp_path / "rig"
+    argv = ["rig_scan.py", str(out), str(folder), "--fingers", "keep", "--smooth", "0", "--samples", "20000"]
+    monkeypatch.setattr(sys, "argv", argv)
+    rig_scan.main()
+    js, _ = _split((folder / "rigged.glb").read_bytes())
+    nodes = [n for n in js["nodes"] if "mesh" in n]
+    assert [n["name"] for n in nodes] == ["twin", "dtHair"] and {n["skin"] for n in nodes} == {0}
+    shell_material = js["materials"][1]
+    assert shell_material["extras"]["dtHair"]["format"] == "shell/1" and "normalTexture" in shell_material
+    assert len(js["images"]) == 3 and [i["mimeType"] for i in js["images"]] == ["image/png", "image/png", "image/jpeg"]
+    rig = json.loads((folder / "rig_report.json").read_text())["hair"]
+    assert rig["node"] == "dtHair" and rig["head_chain_weight_mean"] > 0.9
+
+
+def test_hair_defaults_to_the_users_bust_when_it_exists_and_to_cards_otherwise(tmp_path):
+    assert pipeline.resolve_hair("hair-short") == "hair-short" and pipeline.resolve_hair("procedural") == "procedural"
+    assert pipeline.resolve_hair(None, tmp_path) == "procedural"  # no bust in this folder
+    bust = tmp_path / pipeline.BUST_RELATIVE
+    bust.parent.mkdir(parents=True)
+    bust.write_bytes(b"glTF")
+    assert pipeline.resolve_hair(None, tmp_path) == "hy3d"
+
+
+def test_hy3d_without_the_bust_is_an_error_and_the_cli_routes_hair_params(model, tmp_path):
+    import argparse
+
+    import hybrid
+    from hybridbody.hairhy3d import ShellStyle
+
+    with pytest.raises(ValueError, match="needs the Hunyuan3D bust"):
+        execute(model, tmp_path, hair="hy3d")
+    parser = argparse.ArgumentParser()
+    base = {"hair": "hy3d", "hair_hex": None, "hairline_mm": None, "hair_top_mm": None, "hair_side_mm": None, "hair_seed": None}
+    assert hybrid.hair_style_from(argparse.Namespace(**base, hair_param=None), parser) is None
+    style = hybrid.hair_style_from(argparse.Namespace(**base, hair_param=["hair_lightness=40", "clearance=2.2"]), parser)
+    assert isinstance(style, ShellStyle) and style.segment.hair_lightness == 40 and style.fit.clearance == 2.2
+    with pytest.raises(SystemExit):  # the procedural style flags do not apply to hy3d
+        hybrid.hair_style_from(argparse.Namespace(**{**base, "hairline_mm": 70.0}, hair_param=None), parser)
+    with pytest.raises(SystemExit):
+        hybrid.hair_style_from(argparse.Namespace(**base, hair_param=["nope=1"]), parser)
+    with pytest.raises(SystemExit):
+        hybrid.hair_style_from(argparse.Namespace(**base, hair_param=["clearance"]), parser)

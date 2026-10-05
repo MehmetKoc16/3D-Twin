@@ -186,17 +186,38 @@ def material_json() -> dict:
     }
 
 
-def hair_material_json(hair, texture_index: int = 1) -> dict:
-    """The ``dtHair`` material: the strand data atlas as base colour texture, ``MASK`` 0.5 as fallback for plain viewers.
+def hair_material_json(hair, texture_index: int = 1, normal_index: int | None = None) -> dict:
+    """The ``dtHair`` material.
 
-    The atlas is linear data (R coverage, G root to tip, B variation), not a colour image: the hair shader reads it with
-    ``NoColorSpace`` and takes the colours from ``extras.dtHair``. ``baseColorFactor`` only tints what a viewer without
-    the shader draws (dark brown cut-out cards).
+    Strand cards (``rcov-groot-bvar/1``): the strand data atlas as base colour texture, ``MASK`` 0.5 as fallback for plain
+    viewers. The atlas is linear data (R coverage, G root to tip, B variation), not a colour image: the hair shader reads
+    it with ``NoColorSpace`` and takes the colours from ``extras.dtHair``; ``baseColorFactor`` only tints what a viewer
+    without the shader draws (dark brown cut-out cards).
+
+    Solid shell (``shell/1``, contract addendum v1.1): a normal PBR material. The base colour texture is sRGB colour with
+    the soft hairline fringe in its alpha channel (``MASK`` 0.5), an optional tangent-space normal texture, double sided.
     """
     from twintex.colorspace import srgb_to_linear
 
+    from .hair import FORMAT_SHELL
     from .hairtex import FORMAT
 
+    if getattr(hair, "format", FORMAT) == FORMAT_SHELL:
+        material = {
+            "name": hair.node,
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {"index": texture_index},
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.62,
+            },
+            "alphaMode": "MASK",
+            "alphaCutoff": ALPHA_CUTOFF,
+            "doubleSided": True,
+            "extras": {"dtHair": {"format": FORMAT_SHELL, "colorHex": hair.colours["colorHex"], "cardCount": 0}},
+        }
+        if normal_index is not None:
+            material["normalTexture"] = {"index": normal_index, "scale": 1.0}
+        return material
     colour = np.array([int(hair.colours["colorHex"][i : i + 2], 16) for i in (1, 3, 5)], np.float32) / 255.0
     factor = np.clip(srgb_to_linear(colour) * 2.0, 0.0, 1.0)
     return {
@@ -220,6 +241,17 @@ def hair_material_json(hair, texture_index: int = 1) -> dict:
             }
         },
     }
+
+
+def encode_jpeg(image: np.ndarray, quality: int = 92) -> bytes:
+    """JPEG without chroma subsampling (normal maps keep their tilt in the colour channels)."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.fromarray(image, "RGB").save(buffer, format="JPEG", quality=quality, subsampling=0, optimize=True)
+    return buffer.getvalue()
 
 
 def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: str | None = None, hair=None) -> dict:
@@ -261,9 +293,15 @@ def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: s
                 hair.node,
             )
         )
-        materials.append(hair_material_json(hair, 1))
         textures.append({"sampler": 0, "source": 1})
         images.append({"data": hair_data, "mimeType": "image/png"})
+        normal_index = None
+        if getattr(hair, "normal_atlas", None) is not None:
+            normal_data = encode_jpeg(hair.normal_atlas)
+            textures.append({"sampler": 0, "source": 2})
+            images.append({"data": normal_data, "mimeType": "image/jpeg"})
+            normal_index = len(textures) - 1
+        materials.append(hair_material_json(hair, 1, normal_index))
         extras["dtHairNode"] = hair.node
     scene = GlbScene(
         prims,
@@ -299,4 +337,7 @@ def write_glb(path, mesh: Assembled, atlas: np.ndarray, extras: dict, *, mime: s
             "atlas_size": [int(hair.atlas.shape[1]), int(hair.atlas.shape[0])],
             "material": js["materials"][1],
         }
+        if getattr(hair, "normal_atlas", None) is not None:
+            info["hair"]["normal_bytes"] = len(normal_data)
+            info["hair"]["normal_size"] = [int(hair.normal_atlas.shape[1]), int(hair.normal_atlas.shape[0])]
     return info

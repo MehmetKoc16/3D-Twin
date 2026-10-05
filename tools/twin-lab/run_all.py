@@ -15,7 +15,17 @@ from pathlib import Path
 
 LAB = Path(__file__).resolve().parent
 REPO = LAB.parents[1]
-STAGES = ("shape", "texture", "refine", "head", "bodyfix", "hybrid", "rig", "bundle")
+STAGES = (
+    "shape",
+    "texture",
+    "refine",
+    "head",
+    "bodyfix",
+    "hybrid",
+    "rig",
+    "glasses",
+    "bundle",
+)
 
 
 @dataclass
@@ -30,7 +40,11 @@ def interpreter(stage: str, lab: Path) -> Path:
     relative = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
     if stage == "bodyfix":
         return lab / "rig" / ".venv" / relative
-    if stage in {"head", "hybrid"}:  # shared geometry, textures and previews live in refine
+    if stage in {
+        "head",
+        "hybrid",
+        "glasses",
+    }:  # shared geometry, textures and previews live in refine
         return lab / "refine" / ".venv" / relative
     candidate = lab / stage / ".venv" / relative
     # Bundle can share the existing CPU rig environment, as documented.
@@ -46,9 +60,14 @@ def source_inputs(folder: Path) -> list[Path]:
         directories[:] = [
             name
             for name in directories
-            if not name.startswith(".") and name not in {"weights", "outputs", "tests", "__pycache__"}
+            if not name.startswith(".")
+            and name not in {"weights", "outputs", "tests", "__pycache__"}
         ]
-        result.extend(Path(root) / name for name in files if name.endswith(".py") or name == "requirements.txt")
+        result.extend(
+            Path(root) / name
+            for name in files
+            if name.endswith(".py") or name == "requirements.txt"
+        )
     return sorted(result)
 
 
@@ -62,6 +81,8 @@ def build_stages(
     with_head: bool = False,
     body: str = "scan",
     bundle_out: Path | None = None,
+    glasses_bust: Path | None = None,
+    no_glasses: bool = False,
 ) -> list[Stage]:
     views = [
         (name, input_dir / f"{name}.png")
@@ -75,10 +96,18 @@ def build_stages(
     stages = []
     if body not in {"scan", "hybrid"}:
         raise ValueError(f"Unknown body mode: {body}")
+    if glasses_bust is not None and (body != "hybrid" or no_glasses):
+        raise ValueError(
+            "--glasses-hy3d requires --body hybrid and conflicts with --no-glasses"
+        )
 
-    def add(name: str, script: str, args: list[str], inputs: list[Path], outputs: list[Path]) -> None:
+    def add(
+        name: str, script: str, args: list[str], inputs: list[Path], outputs: list[Path]
+    ) -> None:
         command = [str(interpreter(name, lab)), str(lab / name / script), *args]
-        stages.append(Stage(name, command, [*inputs, *source_inputs(lab / name)], outputs))
+        stages.append(
+            Stage(name, command, [*inputs, *source_inputs(lab / name)], outputs)
+        )
 
     view_args = [part for name, path in views for part in (f"--{name}", str(path))]
     add(
@@ -135,14 +164,17 @@ def build_stages(
     if head == "auto":
         head = "flame" if (fit / "head_neutral.obj").is_file() else "none"
     if body == "hybrid" and head != "flame":
-        raise ValueError("--body hybrid requires --head flame (or auto with a FLAME fit)")
+        raise ValueError(
+            "--body hybrid requires --head flame (or auto with a FLAME fit)"
+        )
     if head == "flame":
         head_out = out_dir / "head/head.glb"
         photos = head_photos / "colab_upload"
         assets = REPO / "user-data/flame"
         neutral_name = (
             "head_neutral.obj"
-            if (fit / "head_neutral.obj").is_file() or not (fit / "head_neutral.ply").is_file()
+            if (fit / "head_neutral.obj").is_file()
+            or not (fit / "head_neutral.ply").is_file()
             else "head_neutral.ply"
         )
         fit_inputs = [
@@ -157,13 +189,17 @@ def build_stages(
             )
         ]
         # Also track optional fit files so later replacements invalidate the cache.
-        fit_inputs += sorted(p for p in fit.rglob("*") if p.is_file() and p not in fit_inputs)
+        fit_inputs += sorted(
+            p for p in fit.rglob("*") if p.is_file() and p not in fit_inputs
+        )
         asset_inputs = []
         for archive, filename in (
             ("FLAME_masks.zip", "FLAME_masks.pkl"),
             ("mediapipe_landmark_embedding.zip", "mediapipe_landmark_embedding.npz"),
         ):
-            asset_inputs.append(assets / (filename if (assets / filename).is_file() else archive))
+            asset_inputs.append(
+                assets / (filename if (assets / filename).is_file() else archive)
+            )
         add(
             "head",
             "flame/flame_head.py",
@@ -197,7 +233,14 @@ def build_stages(
             "head",
             "recon/head.py",
             ["--in", str(scan), "--photos", str(head_photos), "--out", str(head_out)],
-            [scan, *sorted(p for p in head_photos.rglob("*") if p.suffix.lower() in {".jpg", ".png"})],
+            [
+                scan,
+                *sorted(
+                    p
+                    for p in head_photos.rglob("*")
+                    if p.suffix.lower() in {".jpg", ".png"}
+                ),
+            ],
             [head_out],
         )
         scan = head_out
@@ -210,14 +253,27 @@ def build_stages(
         add(
             "bodyfix",
             "bodyfix.py",
-            ["--in", str(scan), "--measurements", str(measurements_file), "--out", str(corrected)],
+            [
+                "--in",
+                str(scan),
+                "--measurements",
+                str(measurements_file),
+                "--out",
+                str(corrected),
+            ],
             [
                 scan,
                 *measurement_inputs,
                 *source_inputs(lab / "rig"),
                 *[
                     body_assets / name
-                    for name in ("base.glb", "manifest.json", "morphs.bin", "rig.json", "measures.json")
+                    for name in (
+                        "base.glb",
+                        "manifest.json",
+                        "morphs.bin",
+                        "rig.json",
+                        "measures.json",
+                    )
                 ],
             ],
             [corrected, corrected.parent / "bodyfix_report.json"],
@@ -254,10 +310,14 @@ def build_stages(
                 *sorted(p for p in fit.rglob("*") if p.is_file()),
                 *[photos / f"{name}.jpg" for name in ("front", "right")],
                 *[
-                    flame_assets / (filename if (flame_assets / filename).is_file() else archive)
+                    flame_assets
+                    / (filename if (flame_assets / filename).is_file() else archive)
                     for archive, filename in (
                         ("FLAME_masks.zip", "FLAME_masks.pkl"),
-                        ("mediapipe_landmark_embedding.zip", "mediapipe_landmark_embedding.npz"),
+                        (
+                            "mediapipe_landmark_embedding.zip",
+                            "mediapipe_landmark_embedding.npz",
+                        ),
                     )
                 ],
                 *source_inputs(lab / "head/flame"),
@@ -278,11 +338,17 @@ def build_stages(
                 ],
                 *sorted((body_assets.parent / "parts").glob("*")),
             ],
-            [hybrid, hybrid.parent / "hybrid_report.json", hybrid.parent / "face_asset/face-asset.json"],
+            [
+                hybrid,
+                hybrid.parent / "hybrid_report.json",
+                hybrid.parent / "face_asset/face-asset.json",
+            ],
         )
         scan = hybrid
         rig = out_dir / "hybrid/rig"
-    bundled = bundle_out or (out_dir / "hybrid/twin.glb" if body == "hybrid" else out_dir / "twin.glb")
+    bundled = bundle_out or (
+        out_dir / "hybrid/twin.glb" if body == "hybrid" else out_dir / "twin.glb"
+    )
     add(
         "rig",
         "rig_scan.py",
@@ -308,12 +374,107 @@ def build_stages(
         ],
         [rig / "rigged.glb", rig / "twin.json", rig / "mh2twin.bin"],
     )
+    rig_outputs = stages[-1].outputs.copy()
+    bundle_rigged = rig / "rigged.glb"
+    glasses_args: list[str] = []
+    bust = glasses_bust or input_dir / "hy3d/hy3d.glb"
+    if (
+        body == "hybrid"
+        and not no_glasses
+        and (glasses_bust is not None or bust.is_file())
+    ):
+        accessory = out_dir / "hybrid/glasses.glb"
+        bundle_rigged = out_dir / "hybrid/glasses_rigged.glb"
+        script = lab / "hybrid/hybridbody/glasses_hy3d.py"
+        stages.append(
+            Stage(
+                "glasses",
+                [
+                    str(interpreter("glasses", lab)),
+                    str(script),
+                    "--twin",
+                    str(rig_outputs[0]),
+                    "--hybrid-dir",
+                    str(out_dir / "hybrid"),
+                    "--bust",
+                    str(bust),
+                    "--fit",
+                    str(fit),
+                    "--flame-assets",
+                    str(REPO / "user-data/flame"),
+                    "--out",
+                    str(accessory),
+                    "--cleaned-twin",
+                    str(bundle_rigged),
+                ],
+                [
+                    *rig_outputs,
+                    bust,
+                    out_dir / "hybrid/hybrid_report.json",
+                    out_dir / "hybrid/face_asset/face-asset.json",
+                    out_dir / "hybrid/face_asset/face-offsets.bin",
+                    *sorted(p for p in fit.rglob("*") if p.is_file()),
+                    *source_inputs(lab / "hybrid"),
+                    *source_inputs(lab / "head/glasses"),
+                    *source_inputs(lab / "head/flame"),
+                    *source_inputs(lab / "texture"),
+                    *source_inputs(lab / "refine"),
+                    *source_inputs(lab / "rig"),
+                    *[
+                        REPO
+                        / "user-data/flame"
+                        / (
+                            filename
+                            if (REPO / "user-data/flame" / filename).is_file()
+                            else archive
+                        )
+                        for archive, filename in (
+                            ("FLAME_masks.zip", "FLAME_masks.pkl"),
+                            (
+                                "mediapipe_landmark_embedding.zip",
+                                "mediapipe_landmark_embedding.npz",
+                            ),
+                        )
+                    ],
+                    *[
+                        body_assets / name
+                        for name in (
+                            "base.glb",
+                            "manifest.json",
+                            "morphs.bin",
+                            "rig.json",
+                            "measures.json",
+                            "face-map.json",
+                        )
+                    ],
+                ],
+                [
+                    accessory,
+                    bundle_rigged,
+                    out_dir / "hybrid/glasses_report.json",
+                    out_dir / "hybrid/face_asset/face-texture-deglassed.png",
+                    *[
+                        out_dir / "hybrid/previews_glasses" / name
+                        for name in (
+                            "accessory_front.png",
+                            "accessory_side.png",
+                            "accessory_top.png",
+                            "head_front.png",
+                            "head_three_quarter.png",
+                            "head_side.png",
+                            "deglass_uv_mask.png",
+                        )
+                    ],
+                ],
+            )
+        )
+        glasses_args = ["--glasses", str(accessory)]
     add(
         "bundle",
         "write_twin_glb.py",
         [
             "--rigged",
-            str(rig / "rigged.glb"),
+            str(bundle_rigged),
             "--twin",
             str(rig / "twin.json"),
             "--mh2twin",
@@ -326,8 +487,14 @@ def build_stages(
             "CC0 MakeHuman + non-commercial FLAME/Pixel3DMM fit"
             if body == "hybrid"
             else "Tencent Hunyuan 3D 2.0 Community License",
+            *glasses_args,
         ],
-        [*stages[-1].outputs, body_assets / "rig.json"],
+        [
+            bundle_rigged,
+            *rig_outputs[1:],
+            *([accessory] if glasses_args else []),
+            body_assets / "rig.json",
+        ],
         [bundled],
     )
     return stages
@@ -354,7 +521,11 @@ def is_fresh(stage: Stage, stamp: Path) -> bool:
             height = float(stage.command[stage.command.index("--height-cm") + 1])
             if meta.get("normalization", {}).get("heightCm") != height:
                 return False
-            views = {flag[2:] for flag in stage.command if flag in {"--front", "--back", "--left", "--right"}}
+            views = {
+                flag[2:]
+                for flag in stage.command
+                if flag in {"--front", "--back", "--left", "--right"}
+            }
             if set(meta.get("inputs", {})) != views:
                 return False
         except (OSError, ValueError, StopIteration):
@@ -374,12 +545,18 @@ def ensure_private_output(input_dir: Path, out_dir: Path) -> None:
         if relative.parts[:1] != ("user-data",) and not (
             relative.parts[:2] == ("tools", "twin-lab") and "outputs" in relative.parts
         ):
-            raise ValueError("Output inside the repo must be under user-data/ or twin-lab/**/outputs/")
-    if input_dir.is_relative_to(REPO / "user-data") and not out_dir.is_relative_to(REPO / "user-data"):
+            raise ValueError(
+                "Output inside the repo must be under user-data/ or twin-lab/**/outputs/"
+            )
+    if input_dir.is_relative_to(REPO / "user-data") and not out_dir.is_relative_to(
+        REPO / "user-data"
+    ):
         raise ValueError("Personal outputs must stay under user-data/")
 
 
-def execute(stages: list[Stage], out_dir: Path, *, force: bool = False, dry_run: bool = False) -> None:
+def execute(
+    stages: list[Stage], out_dir: Path, *, force: bool = False, dry_run: bool = False
+) -> None:
     logs = out_dir / "logs"
     dirty = False
     for stage in stages:
@@ -396,14 +573,20 @@ def execute(stages: list[Stage], out_dir: Path, *, force: bool = False, dry_run:
         log_path = logs / f"{stage.name}.log"
         if fresh:
             log_path.write_text(f"[{stage.name}] {action}\n", encoding="utf-8")
-            stamp.write_text(json.dumps(signature(stage), indent=2) + "\n", encoding="utf-8")
+            stamp.write_text(
+                json.dumps(signature(stage), indent=2) + "\n", encoding="utf-8"
+            )
             continue
         missing = [path for path in stage.inputs if not path.is_file()]
         if missing:
-            raise ValueError(f"[{stage.name}] Missing input: {missing[0]}; run the preceding stage first")
+            raise ValueError(
+                f"[{stage.name}] Missing input: {missing[0]}; run the preceding stage first"
+            )
         python_path, script = map(Path, stage.command[:2])
         if not python_path.is_file():
-            raise ValueError(f"[{stage.name}] Missing interpreter: {python_path}; set up this stage's .venv")
+            raise ValueError(
+                f"[{stage.name}] Missing interpreter: {python_path}; set up this stage's .venv"
+            )
         if not script.is_file():
             raise ValueError(f"[{stage.name}] Missing script: {script}")
         for output in stage.outputs:
@@ -433,10 +616,16 @@ def execute(stages: list[Stage], out_dir: Path, *, force: bool = False, dry_run:
             elapsed = time.perf_counter() - started
             log.write(f"\nExit {code}; elapsed {elapsed:.2f}s\n")
         if code:
-            raise ValueError(f"[{stage.name}] Failed with exit code {code} after {elapsed:.2f}s; log: {log_path}")
+            raise ValueError(
+                f"[{stage.name}] Failed with exit code {code} after {elapsed:.2f}s; log: {log_path}"
+            )
         if not all(path.is_file() for path in stage.outputs):
-            raise ValueError(f"[{stage.name}] Exited successfully but expected output is missing; log: {log_path}")
-        stamp.write_text(json.dumps(signature(stage), indent=2) + "\n", encoding="utf-8")
+            raise ValueError(
+                f"[{stage.name}] Exited successfully but expected output is missing; log: {log_path}"
+            )
+        stamp.write_text(
+            json.dumps(signature(stage), indent=2) + "\n", encoding="utf-8"
+        )
         dirty = True
         print(f"[{stage.name}] DONE in {elapsed:.2f}s; log: {log_path}", flush=True)
 
@@ -451,7 +640,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--body", choices=("scan", "hybrid"), default="scan")
     parser.add_argument(
-        "--bundle-out", type=Path, help="override the final GLB destination; hybrid defaults to out/hybrid/twin.glb"
+        "--glasses-hy3d",
+        type=Path,
+        help="fit glasses from this private bust (hybrid only); defaults to input-dir/hy3d/hy3d.glb when present",
+    )
+    parser.add_argument(
+        "--no-glasses",
+        action="store_true",
+        help="skip automatic hybrid glasses and UV cleanup",
+    )
+    parser.add_argument(
+        "--bundle-out",
+        type=Path,
+        help="override the final GLB destination; hybrid defaults to out/hybrid/twin.glb",
     )
     parser.add_argument(
         "--head",
@@ -492,13 +693,19 @@ def main(argv: list[str] | None = None) -> int:
             with_head=args.with_head,
             body=args.body,
             bundle_out=args.bundle_out.resolve() if args.bundle_out else None,
+            glasses_bust=args.glasses_hy3d.resolve() if args.glasses_hy3d else None,
+            no_glasses=args.no_glasses,
         )
-        if first <= STAGES.index("refine") <= last and not any(stage.name == "refine" for stage in stages):
+        if first <= STAGES.index("refine") <= last and not any(
+            stage.name == "refine" for stage in stages
+        ):
             print(
                 "[refine] SKIP (refine/refine.py does not exist); rig uses textured.glb",
                 flush=True,
             )
-        selected = [stage for stage in stages if first <= STAGES.index(stage.name) <= last]
+        selected = [
+            stage for stage in stages if first <= STAGES.index(stage.name) <= last
+        ]
         execute(selected, out_dir, force=args.force, dry_run=args.dry_run)
     except (OSError, ValueError) as exc:
         print(f"Pipeline failed: {exc}", file=sys.stderr)

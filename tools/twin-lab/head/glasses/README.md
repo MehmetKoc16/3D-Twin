@@ -72,3 +72,78 @@ Lead visual checks: rim centring on both eyes, nose-pad clearance, hinge width, 
 temple clearance and downturned ends behind the ears; pose the head and toggle glasses,
 then reload the browser and switch between standard/twin modes. The estimated temples
 follow the requested length; no ear landmark fitting is claimed.
+
+## Hybrid glasses from the private Hunyuan bust
+
+`run_all.py --body hybrid` adds a `glasses` stage after rigging when
+`<input-dir>/hy3d/hy3d.glb` exists. `--glasses-hy3d PATH` selects a different bust;
+`--no-glasses` disables it. The stage uses the **refine venv**, with no extra
+packages: `accessory_glb.py` provides the numpy-only GLB/accessory helpers without
+importing the bundle CLI's pygltflib dependency. The bundle still checks the final
+accessory with its existing `validate_glasses` before embedding it via `--glasses`.
+
+```powershell
+tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hybridbody/glasses_hy3d.py --twin user-data/twin/out/hybrid/rig/rigged.glb --hybrid-dir user-data/twin/out/hybrid --bust user-data/twin/hy3d/hy3d.glb --out user-data/twin/out/hybrid/glasses.glb
+tools/twin-lab/bundle/.venv/Scripts/python.exe tools/twin-lab/run_all.py --body hybrid --from-stage glasses --bundle-out user-data/twin/out/hybrid/twin-glasses.glb
+```
+
+The fitter reuses `hybridbody/hy3d.py` read-only to normalise/align the bust. It
+segments rim/bridge/arm candidates by front geometry, normals and colour,
+excludes blue headphones and dark hair, and measures two bounded rim outlines.
+Generated skin-filled lens plates and swollen rims are unsuitable for a clean
+accessory. The output therefore uses the existing generator's capped tubes and
+nose pads, rebuilding symmetric ellipse rims rather than decimating noisy face
+fragments. Visible source arm spans are reported as incomplete when headphones
+obscure them. Final arm length and splay come from the twin's ear tops.
+
+The saved hybrid body solution and face-offsets reconstruct the exact template
+head. The FLAME similarity supplies eyeball means and nose-bridge landmark 168;
+the deformed template nearest the FLAME ear masks supplies the ear tops. The
+fit centres lenses on the eyes in front projection, then verifies frame vertices,
+triangle centres and all edge midpoints against the skin (at least 1 mm). Rims
+are measured on the bust; their final horizontal gap follows the twin's eye
+spacing. The bridge plane and pads clear the nose. Arms curve over the ear tops
+and down behind them. All accessory positions are transformed to rest-head-local
+metres and rigidly weighted to an identity `head` bone. The frame uses ordinary
+metallic/roughness PBR; clear lenses are omitted. No transmission shader, texture
+or external decoder is required. Python previews approximate PBR highlights.
+
+Texture cleanup separately fits the **baked head texture's** original outlines,
+since Hunyuan changes their position and shape. `deglass_tex.py` maps those curves
+through the same deformed-template barycentric head UV used for baking. It
+detects dark/bright thin lines within a narrow corridor, dilates by two texels
+and uses OpenCV Navier-Stokes inpainting (five-texel radius). Above the eyes only
+bright neutral metal highlights are removed, preserving brow texture; eye
+interiors, unmapped UVs and back-of-head texels are protected. Alpha and all
+pixels outside the mask are unchanged. This removes frame lines and pads;
+photographed lens lighting/tint and anatomy hidden by a frame cannot be recovered
+from these strips.
+
+Outputs stay under `user-data/`: `glasses.glb`, `glasses_rigged.glb` (a separate
+copy with only the body base-colour PNG reference replaced), `glasses_report.json`,
+`face_asset/face-texture-deglassed.png` and `previews_glasses/` with accessory
+front/side/top, head front/three-quarter/side, fitted-outline diagnostics and the
+UV mask. The launcher bundles the cleaned copy and accessory together. It tracks
+the bust, fit, template assets, head offsets, report and implementation for cache
+invalidation. Raw hybrid and rig GLBs are retained, allowing the hair stage to
+work independently. No source photos are loaded by the glasses stage.
+
+Optional integration hook for the lead in `pipeline.py`, after `seam_blend` and
+before `vertex_photo_check`/scalp tint. Supply the private precomputed
+`glasses_report` from `glasses_report.json`; the normal launcher's post-rig
+cleanup already handles a first build without that report:
+
+```python
+from .deglass_tex import projection_from_report, remove_glasses_frames
+projection = projection_from_report(face, glasses_report)
+texture, deglass_report, _ = remove_glasses_frames(
+    texture, projection, method="ns", radius=5, return_report=True
+)
+```
+
+Record `deglass_report` in the hybrid report and use the cleaned `texture` for
+both the body atlas and face asset. Do not run both cleanup passes on the same
+texture. The implementation is not wired into `pipeline.py` here because that
+file belongs to the concurrent hair job. Tests use analytic/synthetic geometry
+and skin gradients only, including skin-filled lens rejection, symmetry,
+watertight winding, rigid skin validation, UV/back-face protection and inpainting.

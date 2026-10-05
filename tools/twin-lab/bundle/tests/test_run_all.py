@@ -21,7 +21,9 @@ def lab(tmp_path):
     return folder
 
 
-def test_dry_run_prints_commands_without_creating_outputs(lab, tmp_path, monkeypatch, capsys):
+def test_dry_run_prints_commands_without_creating_outputs(
+    lab, tmp_path, monkeypatch, capsys
+):
     inputs, out = tmp_path / "input", tmp_path / "out"
     inputs.mkdir()
     for name in ("front", "back", "left", "right"):
@@ -61,10 +63,16 @@ def test_optional_refine_cli_and_own_interpreters(lab, tmp_path):
         (lab / optional).write_text("# Optional synthetic stage\n")
     (tmp_path / "input/head").mkdir(parents=True, exist_ok=True)
     (tmp_path / "input/head/front.jpg").write_bytes(b"synthetic")
-    stages = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab, with_head=True)
-    assert [stage.name for stage in stages] == [s for s in runner.STAGES if s != "hybrid"]
+    stages = runner.build_stages(
+        tmp_path / "input", tmp_path / "out", 178, lab=lab, with_head=True
+    )
+    assert [stage.name for stage in stages] == [
+        s for s in runner.STAGES if s not in {"hybrid", "glasses"}
+    ]
     default = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab)
-    assert "head" not in [stage.name for stage in default]  # auto skips when no FLAME fit exists
+    assert "head" not in [
+        stage.name for stage in default
+    ]  # auto skips when no FLAME fit exists
     command = stages[2].command
     assert command[2:] == [
         "--in",
@@ -75,12 +83,20 @@ def test_optional_refine_cli_and_own_interpreters(lab, tmp_path):
     assert str(lab / "refine/.venv") in command[0]
     by_name = {stage.name: stage for stage in stages}
     head_cmd = by_name["head"].command
-    assert head_cmd[head_cmd.index("--in") + 1] == str(tmp_path / "out/refine/refined.glb")
+    assert head_cmd[head_cmd.index("--in") + 1] == str(
+        tmp_path / "out/refine/refined.glb"
+    )
     bodyfix_cmd = by_name["bodyfix"].command
-    assert bodyfix_cmd[bodyfix_cmd.index("--in") + 1] == str(tmp_path / "out/head/head.glb")
+    assert bodyfix_cmd[bodyfix_cmd.index("--in") + 1] == str(
+        tmp_path / "out/head/head.glb"
+    )
     assert by_name["rig"].command[2] == str(tmp_path / "out/bodyfix/bodyfixed.glb")
     assert str(lab / "rig/.venv") in stages[-1].command[0]
-    python = lab / "bundle/.venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    python = (
+        lab
+        / "bundle/.venv"
+        / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    )
     python.parent.mkdir(parents=True)
     python.touch()
     assert runner.interpreter("bundle", lab) == python
@@ -98,7 +114,11 @@ def test_optional_refine_cli_and_own_interpreters(lab, tmp_path):
     ],
 )
 def test_head_modes_feed_bodyfix(lab, tmp_path, mode, has_fit, expected):
-    for name in ("head/flame/flame_head.py", "head/recon/head.py", "bodyfix/bodyfix.py"):
+    for name in (
+        "head/flame/flame_head.py",
+        "head/recon/head.py",
+        "bodyfix/bodyfix.py",
+    ):
         path = lab / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("# Synthetic stage\n")
@@ -107,7 +127,9 @@ def test_head_modes_feed_bodyfix(lab, tmp_path, mode, has_fit, expected):
         path = inputs / "head/flame/fit/head_neutral.obj"
         path.parent.mkdir(parents=True)
         path.write_text("synthetic placeholder; never decoded")
-    stages = {s.name: s for s in runner.build_stages(inputs, out, 178, lab=lab, head=mode)}
+    stages = {
+        s.name: s for s in runner.build_stages(inputs, out, 178, lab=lab, head=mode)
+    }
     body = stages["bodyfix"].command
     if expected is None:
         assert "head" not in stages
@@ -119,13 +141,17 @@ def test_head_modes_feed_bodyfix(lab, tmp_path, mode, has_fit, expected):
         assert body[body.index("--in") + 1] == str(out / "head/head.glb")
         if mode == "flame" or (mode == "auto" and has_fit):
             assert command[command.index("--fit") + 1] == str(inputs / "head/flame/fit")
-            assert command[command.index("--photos") + 1] == str(inputs / "head/colab_upload")
+            assert command[command.index("--photos") + 1] == str(
+                inputs / "head/colab_upload"
+            )
             assert inputs / "head/flame/fit/cameras.json" in stages["head"].inputs
             assert inputs / "head/colab_upload/right.jpg" in stages["head"].inputs
             assert out / "head/flame_head_report.json" in stages["head"].outputs
 
 
-def test_head_alias_conflicts_and_explicit_missing_input(lab, tmp_path, monkeypatch, capsys):
+def test_head_alias_conflicts_and_explicit_missing_input(
+    lab, tmp_path, monkeypatch, capsys
+):
     monkeypatch.setattr(runner, "LAB", lab)
     monkeypatch.setattr(runner, "REPO", tmp_path / "repo")
     args = [
@@ -146,7 +172,9 @@ def test_head_alias_conflicts_and_explicit_missing_input(lab, tmp_path, monkeypa
     assert "conflicts" in capsys.readouterr().err
     # Explicit selection remains a stage even without inputs; execute reports missing
     # inputs instead of silently passing the old scan to bodyfix.
-    stages = runner.build_stages(tmp_path / "input", tmp_path / "out", 178, lab=lab, head="flame")
+    stages = runner.build_stages(
+        tmp_path / "input", tmp_path / "out", 178, lab=lab, head="flame"
+    )
     head = next(s for s in stages if s.name == "head")
     with pytest.raises(ValueError, match="Missing input"):
         runner.execute([head], tmp_path / "out")
@@ -189,7 +217,9 @@ def synthetic_stage(tmp_path, name="synthetic", exit_code=0):
         else "import pathlib, sys\nprint('synthetic stage log')\n"
         "pathlib.Path(sys.argv[1]).write_text('synthetic output')\n"
     )
-    return runner.Stage(name, [sys.executable, str(script), str(out)], [source, script], [out])
+    return runner.Stage(
+        name, [sys.executable, str(script), str(out)], [source, script], [out]
+    )
 
 
 def make_fresh(stage):
@@ -280,7 +310,9 @@ def test_private_output_guards_without_reading_personal_data(tmp_path):
 
 
 def test_existing_shape_cache_checks_height_and_view_set(tmp_path):
-    image, mesh, meta = [tmp_path / name for name in ("front.png", "mesh.glb", "meta.json")]
+    image, mesh, meta = [
+        tmp_path / name for name in ("front.png", "mesh.glb", "meta.json")
+    ]
     image.write_bytes(b"synthetic placeholder")
     stage = runner.Stage(
         "shape",
@@ -289,7 +321,9 @@ def test_existing_shape_cache_checks_height_and_view_set(tmp_path):
         [mesh, meta],
     )
     make_fresh(stage)
-    meta.write_text(json.dumps({"normalization": {"heightCm": 178}, "inputs": {"front": {}}}))
+    meta.write_text(
+        json.dumps({"normalization": {"heightCm": 178}, "inputs": {"front": {}}})
+    )
     stamp = tmp_path / "shape.state.json"
     assert runner.is_fresh(stage, stamp)
     stage.command[-1] = "180.0"
@@ -306,7 +340,15 @@ def test_hybrid_chain_keeps_native_hands_and_isolates_outputs(lab, tmp_path):
         path.write_text("# Synthetic stage\n")
     inputs, out = tmp_path / "input", tmp_path / "out"
     stages = runner.build_stages(inputs, out, 178, lab=lab, head="flame", body="hybrid")
-    assert [s.name for s in stages] == ["shape", "texture", "head", "bodyfix", "hybrid", "rig", "bundle"]
+    assert [s.name for s in stages] == [
+        "shape",
+        "texture",
+        "head",
+        "bodyfix",
+        "hybrid",
+        "rig",
+        "bundle",
+    ]
     by_name = {s.name: s for s in stages}
     hybrid = by_name["hybrid"]
     assert str(lab / "refine/.venv") in hybrid.command[0]
@@ -314,16 +356,29 @@ def test_hybrid_chain_keeps_native_hands_and_isolates_outputs(lab, tmp_path):
     assert "--head" not in hybrid.command
     assert out / "head/head.glb" not in hybrid.inputs
     assert hybrid.command[hybrid.command.index("--bodyfix") + 1] == str(out / "bodyfix")
-    assert hybrid.command[hybrid.command.index("--measurements") + 1] == str(inputs / "measurements.json")
-    assert hybrid.command[hybrid.command.index("--photos") + 1] == str(inputs / "head/colab_upload")
+    assert hybrid.command[hybrid.command.index("--measurements") + 1] == str(
+        inputs / "measurements.json"
+    )
+    assert hybrid.command[hybrid.command.index("--photos") + 1] == str(
+        inputs / "head/colab_upload"
+    )
     assert out / "hybrid/face_asset/face-asset.json" in hybrid.outputs
     rig = by_name["rig"]
     assert rig.command[2:4] == [str(out / "hybrid/hybrid.glb"), str(out / "hybrid/rig")]
-    assert "--cut-bridges" not in rig.command and rig.command[rig.command.index("--fingers") + 1] == "keep"
+    assert (
+        "--cut-bridges" not in rig.command
+        and rig.command[rig.command.index("--fingers") + 1] == "keep"
+    )
     assert by_name["bundle"].outputs == [out / "hybrid/twin.glb"]
     assert out / "twin.glb" not in by_name["bundle"].outputs
     overridden = runner.build_stages(
-        inputs, out, 178, lab=lab, head="flame", body="hybrid", bundle_out=out / "other.glb"
+        inputs,
+        out,
+        178,
+        lab=lab,
+        head="flame",
+        body="hybrid",
+        bundle_out=out / "other.glb",
     )
     assert overridden[-1].outputs == [out / "other.glb"]
 
@@ -331,7 +386,66 @@ def test_hybrid_chain_keeps_native_hands_and_isolates_outputs(lab, tmp_path):
 @pytest.mark.parametrize("head", ["none", "recon", "auto"])
 def test_hybrid_requires_flame(lab, tmp_path, head):
     with pytest.raises(ValueError, match="requires --head flame"):
-        runner.build_stages(tmp_path / "in", tmp_path / "out", 178, lab=lab, body="hybrid", head=head)
+        runner.build_stages(
+            tmp_path / "in", tmp_path / "out", 178, lab=lab, body="hybrid", head=head
+        )
+
+
+def test_hybrid_bust_adds_glasses_after_rig_and_bundles_clean_texture(lab, tmp_path):
+    (lab / "bodyfix").mkdir()
+    (lab / "bodyfix/bodyfix.py").write_text("# Synthetic stage\n")
+    inputs, out = tmp_path / "input", tmp_path / "out"
+    bust = inputs / "hy3d/hy3d.glb"
+    bust.parent.mkdir(parents=True)
+    bust.write_bytes(b"Synthetic placeholder; never decoded")
+    stages = runner.build_stages(inputs, out, 178, lab=lab, body="hybrid", head="flame")
+    assert [s.name for s in stages][-3:] == ["rig", "glasses", "bundle"]
+    glasses, bundle = stages[-2:]
+    assert str(lab / "refine/.venv") in glasses.command[0]
+    assert bust in glasses.inputs
+    assert str(lab / "hybrid/hybridbody/glasses_hy3d.py") == glasses.command[1]
+    assert bundle.command[bundle.command.index("--glasses") + 1] == str(
+        out / "hybrid/glasses.glb"
+    )
+    assert bundle.command[bundle.command.index("--rigged") + 1] == str(
+        out / "hybrid/glasses_rigged.glb"
+    )
+    assert out / "hybrid/rig/twin.json" in bundle.inputs
+    assert out / "hybrid/rig/mh2twin.bin" in bundle.inputs
+    disabled = runner.build_stages(
+        inputs, out, 178, lab=lab, body="hybrid", head="flame", no_glasses=True
+    )
+    assert "glasses" not in [s.name for s in disabled]
+    assert "--glasses" not in disabled[-1].command
+    scan = runner.build_stages(inputs, out, 178, lab=lab, head="none")
+    assert "glasses" not in [s.name for s in scan]
+
+
+def test_explicit_glasses_bust_is_tracked_and_invalid_combinations_fail(lab, tmp_path):
+    (lab / "bodyfix").mkdir()
+    (lab / "bodyfix/bodyfix.py").write_text("# Synthetic stage\n")
+    bust = tmp_path / "absent.glb"
+    stages = runner.build_stages(
+        tmp_path / "in",
+        tmp_path / "out",
+        178,
+        lab=lab,
+        head="flame",
+        body="hybrid",
+        glasses_bust=bust,
+    )
+    assert bust in next(s for s in stages if s.name == "glasses").inputs
+    for options in ({"body": "scan"}, {"body": "hybrid", "no_glasses": True}):
+        with pytest.raises(ValueError, match="requires|conflicts"):
+            runner.build_stages(
+                tmp_path / "in",
+                tmp_path / "out",
+                178,
+                lab=lab,
+                head="flame",
+                glasses_bust=bust,
+                **options,
+            )
 
 
 def test_hybrid_cli_selection_and_bundle_override(lab, tmp_path, monkeypatch, capsys):

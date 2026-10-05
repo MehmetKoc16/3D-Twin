@@ -26,6 +26,8 @@ from .hairgen import (
 from .hairtex import FORMAT, GAIN, StripLayout, hair_atlas, prefiltered_alpha, strip_statistics
 
 PROCEDURAL = "procedural"
+HY3D = "hy3d"  # the hair shell cut out of the user's Hunyuan3D bust (``hairhy3d.py``)
+FORMAT_SHELL = "shell/1"  # ``extras.dtHair.format`` of a solid textured shell (contract addendum v1.1)
 DEFAULT_HAIR_HEX = "#2a1e18"  # dark brown, nearly black-brown
 ROOT_FACTOR = 0.74  # the root colour relative to the base colour (sRGB, per channel, rounded down)
 TIP_FACTOR = np.array([1.38, 1.40, 1.34])  # the tip colour: lighter and a little warmer
@@ -40,10 +42,13 @@ class HairMesh:
     normals: np.ndarray  # (n, 3)
     uv: np.ndarray  # (n, 2) atlas UV
     faces: np.ndarray  # (m, 3)
-    atlas: np.ndarray  # (h, w, 4) uint8: R coverage, G root to tip, B variation, A = min(1, 2.5 R)
-    colours: dict  # colorHex, rootHex, tipHex
+    atlas: np.ndarray  # (h, w, 4) uint8: strand data (R coverage, G root to tip, B variation, A = min(1, 2.5 R)), or the
+    # sRGB colour texture with the hairline fringe in its alpha channel (shell/1)
+    colours: dict  # colorHex, rootHex, tipHex (shell/1: colorHex only)
     card_count: int
     node: str = NODE_NAME
+    format: str = FORMAT  # "rcov-groot-bvar/1" (strand cards) or "shell/1" (solid textured shell)
+    normal_atlas: np.ndarray | None = None  # (h, w, 3) uint8 tangent-space normal map (shell/1 only)
 
 
 def hex_of(rgb) -> str:

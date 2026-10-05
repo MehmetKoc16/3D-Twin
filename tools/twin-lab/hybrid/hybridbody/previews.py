@@ -230,6 +230,90 @@ def render_hair_pass(
     return image
 
 
+_SHELL_LINEAR: dict = {}
+
+
+def _shell_linear(atlas: np.ndarray) -> np.ndarray:
+    """Linear colours of the shell's colour atlas (cached; a separate cache from the body atlas tables)."""
+    key = (atlas.__array_interface__["data"][0], atlas.shape)
+    if key not in _SHELL_LINEAR:
+        _SHELL_LINEAR.clear()
+        _SHELL_LINEAR[key] = srgb_to_linear(atlas[..., :3].astype(np.float32) / 255.0)
+    return _SHELL_LINEAR[key]
+
+
+def render_shell_pass(
+    image: np.ndarray,
+    zbuf: np.ndarray,
+    hair,
+    cam,
+    ss: int,
+    *,
+    lights,
+    clay: bool = False,
+    spec: float = 0.14,
+) -> np.ndarray:
+    """The solid ``shell/1`` hair of the twin over a supersampled image: the glTF material as the app draws it.
+
+    ``MASK`` 0.5 on the alpha channel of the colour texture, two-sided, depth tested against ``zbuf``, shaded with the
+    smooth vertex normals bent by the tangent-space normal map (glTF convention: +Y up the image) when there is one.
+    """
+    from twintex.bake import remap_points
+    from twintex.raster import barycentric_at, raster_pairs
+
+    from .hairshell import orthonormal_frame, tangent_frames
+
+    H, W = image.shape[:2]
+    faces, uv, normals = hair.faces, hair.uv, hair.normals
+    atlas = hair.atlas
+    atlas_h, atlas_w = atlas.shape[:2]
+    alpha = atlas[..., 3]
+    p = cam.project(hair.positions)
+    p[:, 0] *= ss
+    p[:, 1] *= ss
+    z = p[:, 2]
+    zb = zbuf.copy()
+    fid = np.full(W * H, -1, np.int32)
+    for f, px, py, lam in raster_pairs(p[:, :2], faces, W, H):
+        t = np.einsum("kj,kjc->kc", lam, uv[faces[f]].astype(np.float64))
+        ix = np.clip((t[:, 0] * atlas_w).astype(int), 0, atlas_w - 1)
+        iy = np.clip((t[:, 1] * atlas_h).astype(int), 0, atlas_h - 1)
+        seen = alpha[iy, ix] >= 128
+        f, px, py, lam = f[seen], px[seen], py[seen], lam[seen]
+        d = np.einsum("kj,kj->k", lam, z[faces[f]]).astype(np.float32)
+        pix = py * W + px
+        order = np.argsort(-d, kind="stable")
+        d, pix, f = d[order], pix[order], f[order]
+        keep = d < zb[pix]
+        zb[pix[keep]] = d[keep]
+        fid[pix[keep]] = f[keep]
+    fid = fid.reshape(H, W)
+    ys, xs = np.nonzero(fid >= 0)
+    if len(ys) == 0:
+        return image
+    f = fid[ys, xs]
+    lam = barycentric_at(p[:, :2], faces, f, xs, ys)
+    tri = faces[f]
+    n = np.einsum("ij,ijk->ik", lam, normals[tri])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    t = np.einsum("ij,ijk->ik", lam, uv[tri].astype(np.float64))
+    x, y = (t[:, 0] * atlas_w - 0.5).astype(np.float32), (t[:, 1] * atlas_h - 0.5).astype(np.float32)
+    if hair.normal_atlas is not None:
+        t_face, b_face = tangent_frames(hair.positions, faces, uv)
+        tangent, bitangent = orthonormal_frame(n, t_face[f], b_face[f])
+        mapped = remap_points(hair.normal_atlas, x, y).astype(np.float32) / 255.0 * 2.0 - 1.0
+        n = mapped[:, 0:1] * tangent + mapped[:, 1:2] * bitangent + mapped[:, 2:3] * n
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    n *= np.where(n @ cam.to_camera < 0, -1.0, 1.0)[:, None]  # two-sided shading
+    ncam = np.stack([n @ cam.right, n @ cam.up, n @ cam.to_camera], axis=1)
+    if clay:
+        albedo = np.full((len(f), 3), srgb_to_linear(np.float32(0.72)), np.float32)
+    else:
+        albedo = np.clip(remap_points(_shell_linear(atlas), x, y), 0, None)
+    image[ys, xs] = shade(ncam, albedo.astype(np.float32), lights, spec=spec)
+    return image
+
+
 def _mip_level(screen: np.ndarray, texels: np.ndarray, faces: np.ndarray, levels: int, anisotropy: float) -> np.ndarray:
     """Per-face mip level like a GPU with ``anisotropy``x filtering: the pixel footprint in texture space is an ellipse
     (a, b texels); the level is ``log2(max(a / anisotropy, b))`` from the singular values of the screen/texel Jacobian."""
@@ -294,7 +378,10 @@ def _render(mesh: Assembled, atlas: np.ndarray, camera, size, *, clay=False, lig
         mesh.positions, mesh.faces, normals, camera, size[0], size[1], mesh.uv, atlas,
         lights=lights, clay=clay, ss=hair_ss, raw=True,
     )  # fmt: skip
-    image = render_hair_pass(image, zbuf, hair, camera, hair_ss, lights=lights, clay=clay)
+    if getattr(hair, "format", None) == "shell/1":
+        image = render_shell_pass(image, zbuf, hair, camera, hair_ss, lights=lights, clay=clay)
+    else:
+        image = render_hair_pass(image, zbuf, hair, camera, hair_ss, lights=lights, clay=clay)
     image = cv2.resize(image, (size[0], size[1]), interpolation=cv2.INTER_AREA)
     return np.clip(np.rint(linear_to_srgb(image) * 255), 0, 255).astype(np.uint8)
 
@@ -317,7 +404,10 @@ def write_previews(
     paths = {}
     _atlas_tables(atlas, 0.5)  # built once before the threads start
     if hair is not None:
-        _pyramid(hair.atlas)
+        if getattr(hair, "format", None) == "shell/1":
+            _shell_linear(hair.atlas)  # the colour table is built once before the threads start
+        else:
+            _pyramid(hair.atlas)
     plan = []  # (kind, variant, name, clay, job)
     for variant, mesh, extra in (("bare", bare, None), ("hair", full, hair)):
         points = mesh.positions if extra is None else np.vstack((mesh.positions, extra.positions))
