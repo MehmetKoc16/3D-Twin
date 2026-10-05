@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { CameraControls, ContactShadows } from '@react-three/drei';
-import { Vector3 } from 'three';
+import { CameraControls } from '@react-three/drei';
+import { AgXToneMapping, PCFShadowMap, SRGBColorSpace, Vector3 } from 'three';
 import { useTranslation } from 'react-i18next';
 import { AvatarSlot } from './AvatarSlot';
 import { boneFocusTargetProvider } from './boneFocusTargets';
@@ -13,6 +13,7 @@ import { usePoseStore } from '../../store/poseStore';
 import { useViewerStore } from '../../store/viewerStore';
 import { PoseBar } from '../poses/PoseBar';
 import { PoseDriver } from '../poses/PoseDriver';
+import { StudioLighting } from './StudioLighting';
 
 const presets: FocusPreset[] = ['full', 'face', 'upper', 'lower', 'feet'];
 
@@ -67,21 +68,15 @@ function Scene({ provider }: { provider: FocusTargetProvider }) {
   const poseId = usePoseStore((state) => state.poseId);
   return <>
     <color attach="background" args={['#1b2529']} />
-    <hemisphereLight args={['#d5e8ef', '#38434a', 2.2]} />
-    <directionalLight position={[2.5, 5, 4]} intensity={2.6} castShadow shadow-mapSize={[2048, 2048]}
-      shadow-bias={-0.0004} shadow-normalBias={0.02}
-      shadow-camera-left={-1.6} shadow-camera-right={1.6} shadow-camera-top={2.4} shadow-camera-bottom={-0.5}
-      shadow-camera-near={1} shadow-camera-far={12} />
-    <directionalLight position={[-3, 3, -2]} intensity={1.8} color="#8bc9cf" />
+    <StudioLighting />
     <mesh position={[0, -0.11, 0]} receiveShadow>
       <cylinderGeometry args={[1.08, 1.13, 0.2, 64]} />
-      <meshStandardMaterial color="#2c383c" metalness={0.35} roughness={0.6} />
+      <meshStandardMaterial color="#2c383c" metalness={0.35} roughness={0.5} envMapIntensity={0.8} />
     </mesh>
     <mesh position={[0, -0.0075, 0]} receiveShadow>
       <cylinderGeometry args={[1.06, 1.06, 0.015, 64]} />
-      <meshStandardMaterial color="#3e5052" metalness={0.2} roughness={0.85} />
+      <meshStandardMaterial color="#3e5052" metalness={0.15} roughness={0.7} envMapIntensity={0.7} />
     </mesh>
-    <ContactShadows position={[0, -0.2, 0]} opacity={0.25} scale={1.4} blur={4} far={2} />
     <AvatarSlot params={params} poseId={poseId} />
     <PoseDriver />
     <CameraRig heightM={params.heightCm / 100} provider={provider} />
@@ -113,7 +108,7 @@ function AvatarStatus() {
 
 export function Viewer({ focusTargetProvider = boneFocusTargetProvider }: { focusTargetProvider?: FocusTargetProvider }) {
   const { t } = useTranslation();
-  const { focusPreset, autoRotate, requestFocus, toggleAutoRotate } = useViewerStore();
+  const { focusPreset, autoRotate, requestFocus, toggleAutoRotate, quality, setQuality } = useViewerStore();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.altKey || event.ctrlKey || event.metaKey || /INPUT|TEXTAREA|SELECT/.test((event.target as HTMLElement).tagName)) return;
@@ -125,13 +120,28 @@ export function Viewer({ focusTargetProvider = boneFocusTargetProvider }: { focu
   }, [requestFocus]);
 
   return <div className="absolute inset-0 overflow-hidden">
-    <Canvas gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} shadows dpr={[1, 2]}
+    <Canvas gl={{ antialias: true, alpha: false, powerPreference: 'high-performance',
+      toneMapping: AgXToneMapping, toneMappingExposure: 1, outputColorSpace: SRGBColorSpace }}
+      shadows={{ type: PCFShadowMap }} dpr={quality === 'high' ? [1, 1.5] : 1}
       camera={{ position: [1.15, 1.35, 3.2], fov: 40 }}>
       <Suspense fallback={null}><Scene provider={focusTargetProvider} /></Suspense>
     </Canvas>
     <div className="pointer-events-none absolute left-4 top-4 rounded-xl border border-white/10 bg-slate-950/55 px-3 py-2 text-xs text-slate-300 backdrop-blur">
       {t('viewer.hint')}
     </div>
+    <details className="absolute left-4 top-16 max-w-56 rounded-xl border border-white/10 bg-slate-950/85 p-3 text-xs text-slate-200 shadow-lg backdrop-blur">
+      <summary className="cursor-pointer focus-visible:outline-teal-400">{t('viewer.settings')}</summary>
+      <label className="mt-3 block">
+        {t('viewer.quality.label')}
+        <select data-testid="viewer-quality" value={quality}
+          onChange={(event) => setQuality(event.target.value === 'performance' ? 'performance' : 'high')}
+          className="mt-1 block w-full rounded-md border border-white/20 bg-slate-800 p-2 text-white">
+          <option value="high">{t('viewer.quality.high')}</option>
+          <option value="performance">{t('viewer.quality.performance')}</option>
+        </select>
+      </label>
+      <p className="mt-2 text-slate-400">{t('viewer.quality.help')}</p>
+    </details>
     <div className="absolute right-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap justify-end gap-1.5" aria-label={t('viewer.focusGroup')}>
       {presets.map((preset, index) => <button key={preset} type="button" onClick={() => requestFocus(preset)}
         aria-pressed={focusPreset === preset} title={`${index + 1}`}

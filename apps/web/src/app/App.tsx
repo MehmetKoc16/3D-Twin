@@ -4,7 +4,6 @@ import { useBodyStore } from '../store/bodyStore';
 import { useFaceStore } from '../store/faceStore';
 import { useTwinStore } from '../store/twinStore';
 import { useWardrobeStore } from '../store/wardrobeStore';
-import faviconUrl from './favicon.svg?url';
 
 const Viewer = lazy(() => import('../features/viewer/Viewer').then((module) => ({ default: module.Viewer })));
 const BodyPanel = lazy(() => import('../features/body-panel/BodyPanel').then((module) => ({ default: module.BodyPanel })));
@@ -16,11 +15,6 @@ export function App() {
     void useFaceStore.getState().ensureBaked(); // restores a saved selfie and bakes it
     void useWardrobeStore.getState().hydrate(); // restores saved store items and what was worn
     void useTwinStore.getState().hydrate(); // restores the user's own twin files (IndexedDB) and the chosen model
-    const icon = document.createElement('link');
-    icon.rel = 'icon';
-    icon.href = faviconUrl;
-    document.head.append(icon);
-    return () => icon.remove();
   }, []);
 
   return (

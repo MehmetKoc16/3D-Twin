@@ -1,5 +1,6 @@
 import { BufferAttribute, BufferGeometry, MeshStandardMaterial, SkinnedMesh } from 'three';
 import type { AvatarAssets } from '../avatar/avatarAssets';
+import { createSkinMaterial } from '../viewer/skinMaterial';
 
 export const SCAN_WRIST_M = 0.008;
 export const BODY_WRIST_M = 0.025;
@@ -58,7 +59,7 @@ export class TwinHands {
     private readonly assets: AvatarAssets,
     skinToneHex: string,
   ) {
-    this.material = new MeshStandardMaterial({ color: skinToneHex, roughness: 0.6, metalness: 0 });
+    this.material = createSkinMaterial({ color: skinToneHex });
     // Empty but valid geometry: pointer raycasts ignore `visible`, and three reads `attributes.position.count`.
     this.geometry.setAttribute('position', new BufferAttribute(new Float32Array(0), 3));
     this.mesh = new SkinnedMesh(this.geometry, this.material);

@@ -102,13 +102,13 @@ describe('TwinRig', () => {
     rig.dispose();
     garment.dispose();
   });
-  it('uses neutral matte skin for legacy twins without readable forearm texels', () => {
+  it('uses physical skin with the legacy tone when forearm texels are unavailable', () => {
     const assets = fakeAssets();
     const rig = new TwinRig(assets, fakeModel(), null);
     const hands = assets.scene.children.find((child) => child.name === 'twin:hands') as SkinnedMesh;
     const material = hands.material as MeshStandardMaterial;
     expect(material.color.getHexString()).toBe('c99a7e');
-    expect(material.roughness).toBe(0.6);
+    expect(material.roughness).toBe(0.55);
     expect(material.metalness).toBe(0);
     rig.dispose();
   });

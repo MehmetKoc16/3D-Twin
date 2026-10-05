@@ -117,6 +117,9 @@ export class GarmentInstance {
     // Higher layers win depth ties against lower ones and against the body (which has no offset).
     const layer = def.layer + (def.category === 'top' ? 0.25 : 0);
     this.material = runtime.material.clone();
+    // Keep fabric matte but allow a broad studio reflection to describe folds.
+    this.material.roughness = Math.max(0.65, Math.min(0.85, this.material.roughness));
+    this.material.envMapIntensity = 0.65;
     this.material.polygonOffset = true;
     this.material.polygonOffsetFactor = -(1 + layer * 0.5);
     this.material.polygonOffsetUnits = -(1 + layer);

@@ -1,6 +1,7 @@
 import {
   DoubleSide,
   MeshStandardMaterial,
+  MeshPhysicalMaterial,
   SkinnedMesh,
   SRGBColorSpace,
   type BufferAttribute,
@@ -11,6 +12,7 @@ import {
   type Group,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createSkinMaterial } from '../viewer/skinMaterial';
 import {
   headsFromBoneInverses,
   matchBones,
@@ -81,7 +83,7 @@ function firstMaterial(material: Material | Material[]): Material | undefined {
 }
 
 /**
- * The twin's baked colour: standard shading with a neutral, matte response (no skin composite, no sheen). The
+ * The twin's baked colour: physical skin shading with a subtle diffuse wrap lobe and sheen. The
  * texture is the pipeline's delit albedo, so the app's lights shade it like everything else.
  *
  * Alpha: GLTFLoader turns `alphaMode: MASK` into `alphaTest = alphaCutoff` (default 0.5) and `BLEND` into
@@ -92,10 +94,10 @@ function firstMaterial(material: Material | Material[]): Material | undefined {
  * applies `alphaTest` with the material's *current* `map` (also after TwinOpeningRepair swaps it), so cut-out hair
  * casts a cut-out shadow instead of a block. Opaque materials are untouched.
  */
-export function twinMaterial(source: Material | undefined): MeshStandardMaterial {
+export function twinMaterial(source: Material | undefined): MeshPhysicalMaterial {
   const map: Texture | null = source instanceof MeshStandardMaterial ? source.map : null;
   if (map) map.colorSpace = SRGBColorSpace;
-  const material = new MeshStandardMaterial({ map, roughness: 0.88, metalness: 0 });
+  const material = createSkinMaterial({ map });
   if (!map && source instanceof MeshStandardMaterial) material.color.copy(source.color);
   material.name = 'twin';
   if (source instanceof MeshStandardMaterial) {
@@ -108,14 +110,21 @@ export function twinMaterial(source: Material | undefined): MeshStandardMaterial
 
 /**
  * The material of a shell-format hair node (`shell/1`): the same alpha / side handling as the body (`twinMaterial`),
- * plus the glTF roughness, metalness and normal map. The base colour stays sRGB.
+ * with a matte dielectric response instead of the skin wrap lobe. The base colour stays sRGB.
  */
 function shellHairMaterial(source: Material | undefined): MeshStandardMaterial {
-  const material = twinMaterial(source);
+  const material = new MeshPhysicalMaterial({
+    roughness: 0.8, metalness: 0, specularIntensity: 0.25, clearcoat: 0,
+    sheen: 0.08, sheenRoughness: 0.85, sheenColor: '#887c70', envMapIntensity: 0.3,
+  });
   material.name = 'dtHair';
   if (source instanceof MeshStandardMaterial) {
-    material.roughness = source.roughness;
-    material.metalness = source.metalness;
+    material.map = source.map;
+    if (material.map) material.map.colorSpace = SRGBColorSpace;
+    material.color.copy(source.color);
+    material.alphaTest = source.alphaTest > 0 ? source.alphaTest : source.transparent ? BLEND_AS_MASK_CUTOFF : 0;
+    material.side = source.side === DoubleSide ? DoubleSide : material.side;
+    material.alphaToCoverage = material.alphaTest > 0;
     material.normalMap = source.normalMap;
     material.normalScale.copy(source.normalScale);
   }

@@ -63,7 +63,9 @@ describe('head accessories', () => {
     const metal = (group.children[0] as Mesh).material as MeshStandardMaterial;
     const lens = (group.children[1] as Mesh).material as MeshStandardMaterial;
     expect(metal.metalness).toBe(1);
-    expect(metal.roughness).toBe(0.3);
+    expect(metal.roughness).toBe(0.4);
+    expect(metal.envMapIntensity).toBe(0.65);
+    expect(lens.envMapIntensity).toBe(0.8);
     expect(lens.transparent).toBe(true);
     expect(lens.depthWrite).toBe(false);
     expect((group.children[1] as Mesh).castShadow).toBe(false);

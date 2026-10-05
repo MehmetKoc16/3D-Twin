@@ -7,6 +7,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  MeshPhysicalMaterial,
   SRGBColorSpace,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -55,7 +56,7 @@ function triangleGlb(material: Record<string, unknown>): ArrayBuffer {
 }
 
 describe('twinMaterial', () => {
-  it('keeps opaque materials exactly as before', () => {
+  it('uses physical skin shading while preserving opaque texture and side semantics', () => {
     const map = texture();
     const material = twinMaterial(new MeshStandardMaterial({ map }));
     expect(material.map).toBe(map);
@@ -63,7 +64,9 @@ describe('twinMaterial', () => {
     expect(material.alphaTest).toBe(0);
     expect(material.transparent).toBe(false);
     expect(material.side).toBe(FrontSide);
-    expect(material.roughness).toBe(0.88);
+    expect(material).toBeInstanceOf(MeshPhysicalMaterial);
+    expect(material.roughness).toBe(0.55);
+    expect(material.sheen).toBe(0.12);
     expect(material.metalness).toBe(0);
     expect(twinMaterial(undefined).alphaTest).toBe(0);
     expect(twinMaterial(new MeshBasicMaterial()).side).toBe(FrontSide);

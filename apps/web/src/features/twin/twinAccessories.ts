@@ -1,4 +1,4 @@
-import { Group, Mesh, SkinnedMesh, type Object3D, type Skeleton } from 'three';
+import { Group, Mesh, MeshStandardMaterial, SkinnedMesh, type Object3D, type Skeleton } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -175,7 +175,13 @@ export async function loadAccessory(buffer: ArrayBuffer): Promise<Group> {
       }
       const mesh = new Mesh(geometry, source.material);
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const material of materials) if (material.transparent) material.depthWrite = false;
+      for (const material of materials) {
+        if (material.transparent) material.depthWrite = false;
+        if (material instanceof MeshStandardMaterial) {
+          material.envMapIntensity = material.transparent ? 0.8 : 0.65;
+          if (material.metalness > 0.5) material.roughness = 0.4;
+        }
+      }
       mesh.castShadow = materials.every((material) => !material.transparent);
       mesh.frustumCulled = false;
       group.add(mesh);

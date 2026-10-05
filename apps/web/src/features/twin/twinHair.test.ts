@@ -441,12 +441,19 @@ describe('shell hair (format shell/1)', () => {
     });
     afterAll(() => vi.unstubAllGlobals());
 
-    it('keeps the base colour sRGB and honours MASK / doubleSided', async () => {
+    it('uses matte physical shell hair while keeping sRGB, MASK and doubleSided', async () => {
       const model = await loadTwinModel(hairGlb({ extras: shellExtras }), def, ['Root']);
       const hair = model.hair!;
       expect(hair.info.format).toBe('shell/1');
       expect(hair.atlas.colorSpace).toBe(SRGBColorSpace);
-      const material = hair.shellMaterial!;
+      const material = hair.shellMaterial! as MeshPhysicalMaterial;
+      expect(material).toBeInstanceOf(MeshPhysicalMaterial);
+      expect(material.roughness).toBe(0.8);
+      expect(material.specularIntensity).toBe(0.25);
+      expect(material.envMapIntensity).toBe(0.3);
+      expect(material.clearcoat).toBe(0);
+      expect(material.sheen).toBe(0.08);
+      expect(material.userData.skinScatter).toBeUndefined();
       expect(material.map).toBe(hair.atlas);
       expect(material.map!.colorSpace).toBe(SRGBColorSpace);
       expect(material.alphaTest).toBe(0.5);

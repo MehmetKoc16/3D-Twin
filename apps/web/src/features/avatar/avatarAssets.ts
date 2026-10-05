@@ -9,6 +9,7 @@ import {
   type Object3D,
   type Skeleton,
 } from 'three';
+import { createSkinMaterial } from '../viewer/skinMaterial';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { AvatarClient, type SolveEnvelope } from '../../workers/avatarClient';
 import { useAvatarLoadStore } from '../../store/avatarLoadStore';
@@ -76,7 +77,7 @@ export function loadAvatarAssets(): Promise<AvatarAssets> {
       new Float32BufferAttribute(new Float32Array(rest.length), 3).setUsage(DynamicDrawUsage),
     );
 
-    const material = new MeshPhysicalMaterial({ color: '#e0ac8b', roughness: 0.62, metalness: 0 });
+    const material = createSkinMaterial({ color: '#e0ac8b' });
     mesh.material = material;
     mesh.castShadow = true;
     mesh.receiveShadow = true;

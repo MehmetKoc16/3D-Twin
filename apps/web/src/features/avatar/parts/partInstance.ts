@@ -97,6 +97,10 @@ export class PartInstance {
     this.geometry.setIndex(new BufferAttribute(Uint32Array.from(runtime.index), 1));
 
     this.material = runtime.material.clone();
+    if (def.category === 'hair') {
+      this.material.roughness = 0.45;
+      this.material.envMapIntensity = 0.75;
+    }
     if (def.material.alphaMode === 'MASK') {
       // alpha-tested cards stay in the opaque pass (depth write, no sorting); MSAA coverage softens the strand edges
       this.material.transparent = false;

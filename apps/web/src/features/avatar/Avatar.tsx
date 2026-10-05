@@ -15,6 +15,7 @@ import { SkinMap } from './SkinMap';
 import { PartsRig } from './parts/partsRig';
 import { WardrobeRig } from '../wardrobe/wardrobeRig';
 import { TwinMode } from '../twin/twinMode';
+import { setSkinAppearance } from '../viewer/skinMaterial';
 
 function setMap(assets: AvatarAssets, map: CanvasTexture | null): void {
   if (assets.material.map === map) return;
@@ -23,7 +24,7 @@ function setMap(assets: AvatarAssets, map: CanvasTexture | null): void {
 }
 
 /**
- * Mannequin: flat grey. Skin: without a baked face a plain colour, with one the composite skin map (skin tone +
+ * Mannequin: satin grey. Skin: without a baked face a plain colour, with one the composite skin map (skin tone +
  * face overlay) whose base colour is the photo tone or the preset tone.
  */
 function applyAppearance(assets: AvatarAssets, skin: { current: SkinMap | null }): void {
@@ -33,8 +34,7 @@ function applyAppearance(assets: AvatarAssets, skin: { current: SkinMap | null }
   if (mode === 'mannequin') {
     setMap(assets, null);
     material.color.set(MANNEQUIN_COLOR);
-    material.roughness = 0.85;
-    material.sheen = 0;
+    setSkinAppearance(material, true);
     useAvatarRuntimeStore.getState().setFaceTextureRevision(0);
     return;
   }
@@ -51,10 +51,7 @@ function applyAppearance(assets: AvatarAssets, skin: { current: SkinMap | null }
     material.color.set(hex);
     useAvatarRuntimeStore.getState().setFaceTextureRevision(0);
   }
-  material.roughness = 0.6;
-  material.sheen = 0.35;
-  material.sheenRoughness = 0.5;
-  material.sheenColor.set('#ffd9c4');
+  setSkinAppearance(material, false);
 }
 
 /** The MakeHuman body: geometry morphed in a worker, skeleton rebuilt after each solve. Renders inside <Canvas>. */
