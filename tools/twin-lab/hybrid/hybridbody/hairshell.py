@@ -44,7 +44,7 @@ class ShellParams:
     margin: float = 10.0  # the mesh extends this far beyond the hairline (the alpha channel cuts the shell)
     sample_spacing: float = 0.25  # spacing of the dense samples of the high-poly surface that the bake looks up
     fringe: float = 2.5  # width of the alpha ramp at the hairline
-    fringe_noise: float = 0.7  # irregularity of the cut-out edge (mm of ramp offset)
+    fringe_noise: float = 0.12  # a quiet fringe; larger noise makes the temple and nape outline jagged
     colour_bleed: float = 2.5  # colours closer than this to the hairline are taken from this far inside (no skin tint)
     grain: float = 0.2  # fine speckle (relative lightness) on the replaced colour, like short stubble
     fill_fade: float = (
@@ -541,6 +541,30 @@ class Baked:
     visible: np.ndarray  # (S, S) bool: covered and alpha >= 0.5
     mean_colour: np.ndarray  # (3,) mean sRGB colour of the visible texels
     report: dict
+
+
+def grade_colour(colour: np.ndarray, target_hex: str, visible: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Shift mean Lab chroma to the requested sRGB swatch, retaining L and local strand variations."""
+    import re
+
+    from flamehead.colour import from_lab, to_lab
+
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", target_hex):
+        raise ValueError("Shell hair colour must be #rrggbb")
+    target = np.array([int(target_hex[i:i + 2], 16) for i in (1, 3, 5)], np.float32) / 255.0
+    lab = to_lab(colour[..., :3].astype(np.float32) / 255.0)
+    before = lab[visible].mean(0)
+    target_lab = to_lab(target.reshape(1, 3))[0]
+    lab[..., 1:] += target_lab[1:] - before[1:]
+    result = colour.copy()
+    result[..., :3] = np.clip(np.rint(from_lab(lab) * 255), 0, 255).astype(np.uint8)
+    after = to_lab(result[..., :3].astype(np.float32) / 255.0)
+    delta_l = after[visible, 0] - to_lab(colour[..., :3].astype(np.float32) / 255.0)[visible, 0]
+    return result, {"method": "constant Lab a/b shift; original L and strand variation retained",
+                    "target_hex": target_hex.lower(), "before_mean_lab": before.tolist(),
+                    "after_mean_lab": after[visible].mean(0).tolist(), "target_lab": target_lab.tolist(),
+                    "mean_abs_l_change": float(np.abs(delta_l).mean()),
+                    "p99_abs_l_change": float(np.percentile(np.abs(delta_l), 99))}
 
 
 def texel_noise(size: int, ys: np.ndarray, xs: np.ndarray, sigma: float, seed: int) -> np.ndarray:

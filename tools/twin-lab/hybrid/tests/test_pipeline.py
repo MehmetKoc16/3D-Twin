@@ -68,6 +68,40 @@ def test_outputs_exist_and_the_report_passes_its_numeric_checks(run_result):
     neck = report["head"]["neck"]
     assert neck["girth_cm"] == pytest.approx(neck["solved_girth_cm"], abs=1e-6)
     assert report["head"]["displacement_mm"]["fixed_below_anchor_max"] == 0.0
+
+
+def test_deglass_hook_audits_mask_and_respects_opt_out(model, tmp_path, monkeypatch):
+    from hybridbody import deglass_tex, glasses_hy3d
+
+    def guides(*args, **kwargs):
+        return {"synthetic": True}
+
+    def projection(face, report):
+        assert report == {"synthetic": True}
+        mask = np.zeros(face.covered.shape, bool)
+        y, x = np.argwhere(face.covered)[len(face.texel_y) // 2]
+        mask[max(0, y-3):y+4, max(0, x-3):x+4] = True
+        return mask & face.covered
+
+    monkeypatch.setattr(glasses_hy3d, "removal_report_from_bake", guides)
+    monkeypatch.setattr(deglass_tex, "projection_from_report", projection)
+    bust = tmp_path / "synthetic-accessory.glb"
+    bust.write_bytes(b"synthetic presence marker; no source mesh is read")
+    root = tmp_path / "enabled"
+    root.mkdir()
+    _, out, report, _, _ = execute(model, root, hair="hair-short", glasses_bust=bust)
+    assert report["texture"]["deglass"]["enabled"]
+    audit = np.load(out.parent / "deglass_audit.npz")
+    assert audit["mask"].sum() > 0
+    assert np.array_equal(audit["before"][~audit["mask"]], audit["after"][~audit["mask"]])
+    doc, _ = _split(out.read_bytes())
+    assert doc["asset"]["extras"]["dtDeglass"]["enabled"]
+    root = tmp_path / "disabled"
+    root.mkdir()
+    monkeypatch.setattr(glasses_hy3d, "removal_report_from_bake", lambda *a, **k: pytest.fail("opt out measured frames"))
+    _, out, report, _, _ = execute(model, root, hair="hair-short", glasses_bust=bust, deglass=False)
+    assert report["texture"]["deglass"] == {"enabled": False, "reason": "opt out"}
+    assert not (out.parent / "deglass_audit.npz").exists()
     assert report["head"]["residual_to_flame_surface"]["face"]["mean_mm"] < 3.0
     check = report["texture"]["vertex_photo_check"]
     assert check["matched_mean_de"] < check["shuffled_mean_de"]
@@ -317,7 +351,7 @@ def test_hy3d_hair_is_a_shell_node_with_its_own_material_colour_texture_and_norm
     _, out, report, _, _ = hy3d_result
     hair = report["parts"]["hair"]
     assert hair["id"] == "hy3d" and "shell" in hair and "procedural" not in hair and hair["node"] == "dtHair"
-    assert "hair" not in report["parts"]["slices"] and hair["colour_method"].startswith("mean colour")
+    assert "hair" not in report["parts"]["slices"] and hair["colour_method"].startswith("Lab chroma")
     scene = read_glb(str(out))
     assert [p.name for p in scene.prims] == ["twin", "dtHair"] and scene.extras["dtHairNode"] == "dtHair"
     marker = scene.extras["dtHybrid"]

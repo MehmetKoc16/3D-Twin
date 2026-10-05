@@ -81,3 +81,39 @@ def test_measured_mask_keeps_original_vertical_drop():
 def test_invalid_radii_fail_closed(radii):
     with pytest.raises(ValueError, match="radii"):
         fit_accessory(synthetic_head(), np.array(radii))
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_accessory_preserves_hybrid_deglass_decision_and_never_inpaints_twice(tmp_path, monkeypatch, enabled):
+    from types import SimpleNamespace
+    from PIL import Image
+    from hybridbody import glasses_hy3d as module
+
+    monkeypatch.setattr(module, "REPO", tmp_path)
+    folder = tmp_path / "user-data/hybrid"
+    (folder / "face_asset").mkdir(parents=True)
+    face = np.full((8, 8, 3), [165, 135, 120], np.uint8)
+    Image.fromarray(face).save(folder / "face_asset/face-texture.png")
+    # This stale audit must not be displayed as an active mask after opting out.
+    np.savez_compressed(folder / "deglass_audit.npz", mask=np.ones((8, 8), bool))
+    head = synthetic_head()
+    head.report = {"texture": {"deglass": {"enabled": enabled}}}
+    monkeypatch.setattr(module, "load_twin_head", lambda *a: head)
+    bust = SimpleNamespace(faces=np.array([[0, 1, 2]]), colours=np.full((3, 3), 185))
+    alignment = SimpleNamespace(positions=np.zeros((3, 3)), normals=np.zeros((3, 3)), report={})
+    monkeypatch.setattr(module, "aligned_bust", lambda *a: (bust, alignment))
+    rims = np.array([[-.032, .1, .024, .023], [.032, .1, .024, .023]])
+    monkeypatch.setattr(module, "measure_rims", lambda *a: (rims, {}))
+    monkeypatch.setattr(module, "segment_glasses", lambda *a: (np.ones(3, bool), np.zeros(3, bool), {}))
+    monkeypatch.setattr(module, "measure_source_temples", lambda *a: {})
+    monkeypatch.setattr(module, "clean_baked_texture", lambda *a: pytest.fail("hybrid decision was ignored"))
+    twin = folder / "rigged.glb"
+    twin.write_bytes(b"synthetic rigged bytes preserved verbatim")
+    cleaned = folder / "cleaned.glb"
+    report = module.build_glasses(twin, folder, folder / "bust.glb", folder, folder,
+                                 folder / "glasses.glb", cleaned, previews=False)
+    assert cleaned.read_bytes() == twin.read_bytes()
+    assert report["deglass"]["enabled"] == enabled
+    mask = np.array(Image.open(folder / "previews_glasses/deglass_uv_mask.png"))
+    assert bool(mask.any()) == enabled
+    assert (folder / "face_asset/face-texture-deglassed.png").read_bytes() == (folder / "face_asset/face-texture.png").read_bytes()

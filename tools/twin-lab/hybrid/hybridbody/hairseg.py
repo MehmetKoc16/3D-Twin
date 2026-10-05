@@ -47,6 +47,7 @@ class SegmentParams:
     close_rings: int = 3  # closes gaps and notches
     hole_vertices: int = 4000  # holes of at most this many vertices are filled
     smooth_iterations: int = 25  # boundary smoothing: diffusion steps of the indicator
+    boundary_smooth_degrees: float = 6.0  # smooth the lower temple/nape outline in angular space
     pale_lightness: float = 36.0  # hair texels lighter than this, away from the edge, are colour artefacts
     pale_edge_mm: float = 8.0  # ... farther from the shell edge than this
     min_vertices: int = 300  # fewer hair vertices than this is a failed segmentation, not a cropped head
@@ -197,6 +198,7 @@ def segment_hair(
     mask = graph.fill_holes(mask, params.hole_vertices)
     soft = graph.smooth(mask.astype(np.float64), params.smooth_iterations)  # smooth the edge, keep the area
     mask = graph.largest(graph.fill_holes(soft > 0.5, params.hole_vertices))
+    mask, boundary_report = smooth_lower_boundary(points, graph, mask, candidate, frame, params)
     count, edge = int(mask.sum()), graph.boundary(mask)
     report = {
         "candidate_vertices": int(candidate.sum()),
@@ -205,8 +207,41 @@ def segment_hair(
         "hair_lightness": params.hair_lightness,
         "colour_azimuth_deg": params.colour_azimuth,
         "mean_lightness": float(lab[mask, 0].mean()) if count else None,
+        "boundary_smoothing": boundary_report,
     }
     return Segmentation(mask, candidate, report)
+
+
+def smooth_lower_boundary(points, graph, mask, candidate, frame, params):
+    """Regularize the lower silhouette, preserving the front hairline and disconnected exclusions."""
+    from scipy.ndimage import gaussian_filter1d
+
+    from .register import smoothstep
+
+    edge = graph.boundary(mask)
+    if edge.sum() < 12 or params.boundary_smooth_degrees == 0:
+        return mask, {"applied": False}
+    az = azimuth_of(points, frame)
+    step = 3.0
+    bins = np.arange(-180.0, 180.0, step)
+    labels = np.clip(np.floor((az + 180.0) / step).astype(int), 0, len(bins) - 1)
+    height = np.full(len(bins), np.nan)
+    for i in np.unique(labels[edge]):
+        height[i] = np.median(points[edge & (labels == i), 1])
+    known = np.isfinite(height)
+    centres = bins + step / 2
+    raw = np.interp(centres, centres[known], height[known], period=360)
+    smooth = gaussian_filter1d(raw, params.boundary_smooth_degrees / step, mode="wrap")
+    blend = smoothstep((np.abs(centres) - 30) / 15)
+    curve = raw + blend * (smooth - raw)
+    floor = np.interp(az, centres, curve, period=360)
+    near = (np.abs(az) > 35) & (np.abs(points[:, 1] - floor) < 0.006)
+    result = np.where(near, (points[:, 1] >= floor) & (mask | candidate), mask)
+    result = graph.largest(result)
+    return result, {"applied": True, "sigma_degrees": params.boundary_smooth_degrees,
+                    "changed_vertices": int((result != mask).sum()),
+                    "profile_second_difference_mm_before": float(np.abs(np.roll(raw, 1)-2*raw+np.roll(raw, -1)).mean()*1000),
+                    "profile_second_difference_mm_after": float(np.abs(np.roll(curve, 1)-2*curve+np.roll(curve, -1)).mean()*1000)}
 
 
 # --------------------------------------------------------------------------------------- colour artefacts

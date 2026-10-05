@@ -29,7 +29,6 @@ def hair_style_from(args, parser):
             "--hair-top-mm": getattr(args, "hair_top_mm", None),
             "--hair-side-mm": getattr(args, "hair_side_mm", None),
             "--hair-seed": getattr(args, "hair_seed", None),
-            "--hair-hex": getattr(args, "hair_hex", None),
         }
         given = [name for name, value in flags.items() if value is not None]
         if given:
@@ -101,7 +100,8 @@ def main(argv=None):
     )
     parser.add_argument(
         "--hair-hex",
-        help="procedural hair colour #rrggbb (default #2a1e18, dark brown); 'photo' uses the photographed colour made "
+        help="hair colour #rrggbb (default #2a1e18, dark brown); shell preserves luminance while grading chroma; "
+        "procedural 'photo' uses the photographed colour made "
         "a natural dark brown",
     )
     parser.add_argument("--hairline-mm", type=float, help="procedural hair: front hairline height above the eye line")
@@ -129,6 +129,8 @@ def main(argv=None):
     parser.add_argument("--texture-size", type=int, default=4096, help="square UV size; the part strip adds S/4 rows")
     parser.add_argument("--preview-dir", type=Path)
     parser.add_argument("--no-previews", action="store_true")
+    parser.add_argument("--no-deglass", action="store_true", help="preserve painted glasses in the face texture")
+    parser.add_argument("--glasses-bust", type=Path, help="accessory bust; default uses the local hy3d bust if present")
     args = parser.parse_args(argv)
     if not 512 <= args.texture_size <= 4096 or args.texture_size % 256:
         parser.error("--texture-size must be a multiple of 256 between 512 and 4096")
@@ -150,6 +152,8 @@ def main(argv=None):
             texture_size=args.texture_size,
             previews=not args.no_previews,
             preview_dir=args.preview_dir,
+            deglass=not args.no_deglass,
+            glasses_bust=args.glasses_bust,
         )
     except (OSError, ValueError, KeyError, np.linalg.LinAlgError) as error:
         print(json.dumps({"status": "failed", "error": str(error)}), file=sys.stderr)

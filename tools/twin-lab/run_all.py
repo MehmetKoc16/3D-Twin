@@ -83,6 +83,7 @@ def build_stages(
     bundle_out: Path | None = None,
     glasses_bust: Path | None = None,
     no_glasses: bool = False,
+    no_deglass: bool = False,
 ) -> list[Stage]:
     views = [
         (name, input_dir / f"{name}.png")
@@ -287,6 +288,9 @@ def build_stages(
         # bodyfix's shape prior; no scan or scan head geometry enters the hybrid mesh.
         photos = head_photos / "colab_upload"
         flame_assets = REPO / "user-data/flame"
+        bust = glasses_bust or input_dir / "hy3d/hy3d.glb"
+        cleanup_args = (["--no-deglass"] if no_glasses or no_deglass or not bust.is_file()
+                        else ["--glasses-bust", str(bust)])
         add(
             "hybrid",
             "hybrid.py",
@@ -303,9 +307,11 @@ def build_stages(
                 str(flame_assets),
                 "--out",
                 str(hybrid),
+                *cleanup_args,
             ],
             [
                 scan,
+                *([bust] if bust.is_file() else []),
                 input_dir / "measurements.json",
                 *sorted(p for p in fit.rglob("*") if p.is_file()),
                 *[photos / f"{name}.jpg" for name in ("front", "right")],
@@ -321,6 +327,7 @@ def build_stages(
                     )
                 ],
                 *source_inputs(lab / "head/flame"),
+                *source_inputs(lab / "head/glasses"),
                 *source_inputs(lab / "refine"),
                 *source_inputs(lab / "texture"),
                 *source_inputs(lab / "rig"),
@@ -458,10 +465,16 @@ def build_stages(
                         for name in (
                             "accessory_front.png",
                             "accessory_side.png",
+                            "accessory_back.png",
+                            "accessory_three_quarter.png",
+                            "accessory_three_quarter_back.png",
                             "accessory_top.png",
                             "head_front.png",
                             "head_three_quarter.png",
                             "head_side.png",
+                            "head_back.png",
+                            "head_three_quarter_back.png",
+                            "head_top.png",
                             "deglass_uv_mask.png",
                         )
                     ],
@@ -649,6 +662,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip automatic hybrid glasses and UV cleanup",
     )
+    parser.add_argument("--no-deglass", action="store_true", help="keep photographed frames in the hybrid texture")
     parser.add_argument(
         "--bundle-out",
         type=Path,
@@ -695,6 +709,7 @@ def main(argv: list[str] | None = None) -> int:
             bundle_out=args.bundle_out.resolve() if args.bundle_out else None,
             glasses_bust=args.glasses_hy3d.resolve() if args.glasses_hy3d else None,
             no_glasses=args.no_glasses,
+            no_deglass=args.no_deglass,
         )
         if first <= STAGES.index("refine") <= last and not any(
             stage.name == "refine" for stage in stages

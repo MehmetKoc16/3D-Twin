@@ -285,6 +285,40 @@ def measure_baked_rims(twin, head, folder):
     )
 
 
+def removal_report_from_bake(texture, positions, faces, uv, eyes, *, folder=None):
+    """Measure fresh painted-frame guides before the hybrid atlas is written.
+
+    Inputs are the current deformed head and baked face crop, never an earlier run
+    or original photographs. The accessory stage reuses these original guides
+    once the hybrid face has already been cleaned.
+    """
+    from twinrefine.render import DEFAULT_LIGHTS
+    from twinrefine.scan import welded_vertex_normals
+    from twintex.camera import OrthoCamera
+
+    from .previews import render_cutout
+
+    eyes = np.asarray(eyes, float)
+    eyes = eyes[np.argsort(eyes[:, 0])]
+    eye = eyes.mean(0)
+    bounds = np.array([[eye[0]-.090, eye[1]-.060, eye[2]], [eye[0]+.090, eye[1]+.045, eye[2]]])
+    camera = OrthoCamera.azimuth("front", 0).fit_bounds(bounds, 1000, 760, margin=.06)
+    render = render_cutout(positions, faces, welded_vertex_normals(positions, faces), camera,
+                           1000, 760, uv, texture, lights=DEFAULT_LIGHTS, ss=1)
+    rims, measurement = measure_rims(None, None, None, None, eyes, folder,
+                                    image_camera=(render, camera), image_name="baked_rim_fit.png")
+    z = float(max(positions[:, 2].max(), eye[2]+.025))
+    curves = measured_curves(rims, eyes, z)
+    # Projection uses arm Y/Z only and separately gates the lateral skin.
+    arm_z = np.linspace(z, np.percentile(positions[:, 2], 30), 160)
+    arms = np.vstack([np.column_stack((np.full(len(arm_z), eye[0]+sign*.080),
+                     np.full(len(arm_z), eye[1]+.011), arm_z)) for sign in (-1, 1)])
+    return {"placement": {"eyes_m": eyes.tolist(), "rim_radii_mm": (rims[:, 2:].mean(0)*1000).tolist()},
+            "painted_frame_measurement": measurement,
+            "removal_curves_m": {"front": curves.tolist(), "temples": arms.tolist()},
+            "source": "current hybrid bake, measured before deglass"}
+
+
 def segment_glasses(positions, normals, colours, eyes, rims, *, corridor_m=0.0025):
     """Geometry/colour diagnostic segmentation: thin rim ridges and lens plates.
 
@@ -607,7 +641,7 @@ def clean_baked_texture(twin, out, hybrid_dir, head, curves, arms, rims, preview
 
 
 def write_previews(twin, head, geometry, colour, folder):
-    """Front/side/top accessory and front/3-4/side on the actual textured head."""
+    """All head views of the accessory alone and on the actual textured twin."""
     import io
 
     import cv2
@@ -624,12 +658,14 @@ def write_previews(twin, head, geometry, colour, folder):
     p, n = transform(p, world), n @ world[:3, :3].T
     rgb = np.array([int(colour[i : i + 2], 16) for i in (1, 3, 5)])
     colours = np.tile(rgb, (len(p), 1))
-    for name, angle in (("front", 0), ("side", 270), ("top", None)):
+    from .previews import HEAD_VIEWS
+
+    for name, angle in HEAD_VIEWS:
         camera = head_camera(name, angle, p, 800, margin=0.12)
         image, _ = vertex_colour_render(p, f, n, colours, camera, 800, 800, ss=2, spec=0.45)
         Image.fromarray(image).save(folder / f"accessory_{name}.png")
     scene = read_scene(str(twin))
-    for name, angle in (("front", 0), ("three_quarter", 35), ("side", 270)):
+    for name, angle in HEAD_VIEWS:
         camera = head_camera(name, angle, head.positions, 800, margin=0.08)
         frame_image, frame_depth = vertex_colour_render(p, f, n, colours, camera, 800, 800, ss=2, spec=0.45)
         base = None
@@ -707,13 +743,36 @@ def build_glasses(twin, hybrid_dir, bust_path, fit, assets, out, cleaned_twin, *
             placement=placement,
         )
     )
-    painted_rims, painted_measurement = measure_baked_rims(twin, head, folder)
-    curves = measured_curves(painted_rims, head.eyes, float(front[:, 2].max()))
-    # Original photographed temples lie near the outer upper rim, not necessarily
-    # on the new centred rims. Keep their removal guides independent of the fit.
-    old_arms = arms.copy()
-    old_arms[:, 1] = head.eyes[:, 1].mean() + 0.011
-    deglass = clean_baked_texture(twin, cleaned_twin, hybrid_dir, head, curves, old_arms, painted_rims, folder)
+    hybrid_deglass = head.report.get("texture", {}).get("deglass")
+    if hybrid_deglass is not None:
+        # Pipeline already applied the hook (or explicitly opted out). Preserve
+        # the rigged bytes; never inpaint a cleaned face for a second time.
+        cleaned_twin.write_bytes(twin.read_bytes())
+        deglass = {**hybrid_deglass, "accessory_stage": "pass through hybrid deglass decision"}
+        guides = hybrid_deglass.get("glasses_report", {})
+        curves = np.asarray(guides.get("removal_curves_m", {}).get("front", front))
+        old_arms = np.asarray(guides.get("removal_curves_m", {}).get("temples", arms))
+        painted_measurement = guides.get("painted_frame_measurement", {})
+        from PIL import Image
+
+        face_image = hybrid_dir / "face_asset/face-texture.png"
+        (hybrid_dir / "face_asset/face-texture-deglassed.png").write_bytes(face_image.read_bytes())
+        audit = hybrid_dir / "deglass_audit.npz"
+        if hybrid_deglass.get("enabled") and audit.is_file():
+            with np.load(audit) as data:
+                mask = data["mask"].astype(np.uint8) * 255
+            Image.fromarray(mask).save(folder / "deglass_uv_mask.png")
+        else:
+            with Image.open(face_image) as image:
+                Image.fromarray(np.zeros((image.height, image.width), np.uint8)).save(folder / "deglass_uv_mask.png")
+    else:
+        painted_rims, painted_measurement = measure_baked_rims(twin, head, folder)
+        curves = measured_curves(painted_rims, head.eyes, float(front[:, 2].max()))
+        # Original photographed temples lie near the outer upper rim, not necessarily
+        # on the new centred rims. Keep their removal guides independent of the fit.
+        old_arms = arms.copy()
+        old_arms[:, 1] = head.eyes[:, 1].mean() + 0.011
+        deglass = clean_baked_texture(twin, cleaned_twin, hybrid_dir, head, curves, old_arms, painted_rims, folder)
     deglass["painted_frame_measurement"] = painted_measurement
     report = {
         "path": "fitted procedural generator",

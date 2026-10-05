@@ -12,6 +12,23 @@ CENTRE = np.array([0.0, 1.65, 0.05])
 RADIUS = 0.1
 
 
+def test_colour_grade_preserves_strand_luminance_and_alpha():
+    from flamehead.colour import to_lab
+
+    rgb = np.linspace([18, 23, 32], [66, 71, 81], 512).astype(np.uint8)[None]
+    rgba = np.dstack((rgb, np.arange(512, dtype=np.uint8)[None]))
+    visible = np.ones(rgba.shape[:2], bool)
+    graded, report = hairshell.grade_colour(rgba, "#2a1e18", visible)
+    before = to_lab(rgb / 255.0)
+    after = to_lab(graded[..., :3] / 255.0)
+    assert np.array_equal(graded[..., 3], rgba[..., 3])
+    assert np.abs(after[..., 0] - before[..., 0]).mean() < 0.15
+    assert np.corrcoef(before[..., 0].ravel(), after[..., 0].ravel())[0, 1] > .999
+    assert np.max(np.abs(np.mean(after, axis=(0, 1))[1:] - report["target_lab"][1:])) < .3
+    with pytest.raises(ValueError, match="#rrggbb"):
+        hairshell.grade_colour(rgba, "photo", visible)
+
+
 @pytest.fixture(scope="module")
 def cap():
     """The front half of the upper cap of a sphere (radius 10 cm): vertices, normals, faces, per-corner UV, hair mask."""

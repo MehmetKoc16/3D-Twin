@@ -53,6 +53,22 @@ def test_empty_mask_is_identity_copy():
     assert not np.shares_memory(image, clean)
 
 
+def test_shaded_upper_features_are_kept_when_indistinguishable_from_brow_hairs():
+    y, x = np.indices((100, 100))
+    points = np.column_stack(((x.ravel()-50)*.001, (y.ravel()-30)*.001, np.full(10000, .1)))
+    curve = np.column_stack((np.linspace(-.035, .035, 100), np.full(100, .01), np.full(100, .12)))
+    texture = np.full((100, 100, 3), [165, 135, 120], np.uint8)
+    texture[40, 20:80] = 85  # shaded silver rim above the eye line
+    texture[42, 20:80] = 40  # nearby dark brow hairs
+    geometry = FrameProjection(points, y.ravel(), x.ravel(), curve, np.empty((0, 3)),
+                               np.array([[0., 0., .08]]), np.array([.025, .025]))
+    clean, report, mask = remove_glasses_frames(texture, geometry, method="ns", return_report=True)
+    assert not mask[40, 25:75].any()
+    assert not mask[42, 20:80].any()
+    assert np.array_equal(clean[42, 20:80], texture[42, 20:80])
+    assert not report["outside_mask_changed"]
+
+
 def test_report_hook_uses_original_curves_and_preserves_upper_brows():
     points = np.array([[0.02, 0, 0.1], [0.02, 0.030, 0.1]])
     face = SimpleNamespace(

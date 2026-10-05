@@ -210,9 +210,10 @@ def build_parts(
             bust["landmark_points"],
             bust["landmark_index"],
             style=bust.get("style"),
+            colour_hex=hair_hex or "#2a1e18",
         )
         hair_srgb = np.array([int(hair_build.mesh.colours["colorHex"][i : i + 2], 16) for i in (1, 3, 5)], float)
-        hair_choice = {"srgb": hair_srgb, "method": "mean colour of the hy3d shell", "measured_hex": None}
+        hair_choice = {"srgb": hair_srgb, "method": "Lab chroma grade with preserved luminance", "measured_hex": None}
         hair_linear = np.power(hair_srgb / 255.0, 2.2)
     elif procedural:
         hair_choice = choose_hair_colour(hair_photo, hair_hex)
@@ -308,6 +309,8 @@ def run(
     iris_hex=None,
     hair_hex=None,
     hair_style=None,
+    deglass=True,
+    glasses_bust=None,
 ):
     started = time.perf_counter()
     hair = resolve_hair(hair)
@@ -417,6 +420,35 @@ def run(
     moved = template.base + head_fit.displacement
     texture, seam_blur = seam_blend(texture, face.texel_points, face.texel_y, face.texel_x, moved[seam_w], tone)
 
+    accessory_bust = Path(glasses_bust) if glasses_bust else REPO / BUST_RELATIVE
+    deglass_report = {"enabled": False, "reason": "opt out" if not deglass else "no glasses accessory bust"}
+    if deglass and accessory_bust.is_file():
+        from .deglass_tex import projection_from_report, remove_glasses_frames
+        from .glasses_hy3d import removal_report_from_bake
+        from PIL import Image
+
+        log("removing photographed glasses frames from the current face bake")
+        h, w = texture.shape[:2]
+        guides = removal_report_from_bake(
+            texture, head_positions, head_island_triangles(template, head),
+            (model.uv[head.ids] * size - face.origin) / [w, h],
+            np.array([v.mean(0) for v in flame_eyes.values()]),
+            folder=preview_dir if previews else None,
+        )
+        before = texture.copy()
+        texture, deglass_report, mask = remove_glasses_frames(
+            texture, projection_from_report(face, guides), method="ns", radius=5, return_report=True,
+        )
+        deglass_report.update(enabled=True, glasses_report=guides,
+                              fraction_of_head_island=float(mask.sum() / face.covered.sum()))
+        np.savez_compressed(out.parent / "deglass_audit.npz", before=before, after=texture, mask=mask,
+                            origin=np.asarray(face.origin))
+        if previews:
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            Image.fromarray(mask.astype(np.uint8) * 255).save(preview_dir / "deglass_uv_mask.png")
+            Image.fromarray(before).save(preview_dir / "deglass_before.png")
+            Image.fromarray(texture).save(preview_dir / "deglass_after.png")
+
     # Under the jaw the photos only carry the chin shadow (and beard stubble): take the body skin there.
     ty, tx, points = face.texel_y, face.texel_x, face.texel_points
     nw = neck_weights(template, head_fit, flame, head, face)
@@ -477,6 +509,18 @@ def run(
     if not isinstance(field, ShellField):
         scalp_lab = to_lab(np.clip(parts.hair_srgb * SCALP_TINT, 1, 255).astype(np.float32).reshape(1, 3) / 255.0)[0]
     texture_under_hair = tint_scalp(texture, ty, tx, cover, scalp_lab)
+    temple_report = {"texels": 0}
+    if isinstance(field, ShellField):
+        extended, band = field.tint_cover(points, texel_normals, cover)
+        before_lab = to_lab(texture_under_hair[ty[band], tx[band]])
+        texture_under_hair = tint_scalp(texture, ty, tx, extended, scalp_lab)
+        after_lab = to_lab(texture_under_hair[ty[band], tx[band]])
+        temple_report = {
+            "texels": int(band.sum()), "pale_threshold_l": 35.0,
+            "pale_texels_before": int((before_lab[:, 0] > 35).sum()),
+            "pale_texels_after": int((after_lab[:, 0] > 35).sum()),
+            "method": "ear-protected stubble fringe, full to 9 mm and fading to 15 mm from the shell",
+        }
     eye_y = float(np.mean([v[:, 1].mean() for v in flame_eyes.values()]))
     front = (texel_normals[:, 2] > 0.6) & (points[:, 1] > eye_y + 0.03) & (np.abs(points[:, 0]) < 0.02)
     forehead = {}
@@ -496,6 +540,7 @@ def run(
         else scalp_lab.tolist(),
         "covered_texel_fraction": float((cover > 0.5).mean()),
         "head_island_texels": int(len(cover)),
+        "temple_gap": temple_report,
     }
     body_atlas = np.dstack((pad_texture(paste(texture_under_hair), covered), np.full((size, size), 255, np.uint8)))
     atlas = np.vstack((body_atlas, parts.strip))
@@ -571,6 +616,7 @@ def run(
         "license": "MakeHuman CC0 + private non-commercial FLAME/Pixel3DMM fit; never redistribute",
     }
     extras = {"dtHybrid": marker, "dtBodyfix": solution, "dtScanHandsRemoved": False, "dtHasMakeHumanHands": True}
+    extras["dtDeglass"] = {k: v for k, v in deglass_report.items() if k != "glasses_report"}
     log("writing the hybrid GLB")
     glb = write_glb(out, mesh, atlas, extras, hair=hair_mesh)
 
@@ -592,6 +638,7 @@ def run(
             "mean_match": match,
             "body": skin_report,
             "seam_blend": seam_blur,
+            "deglass": deglass_report,
             "neck": neck_report,
             "scalp_tint": scalp_report,
             "alpha": {

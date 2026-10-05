@@ -37,7 +37,7 @@ tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hybrid.py \
   --bodyfix user-data/twin/out/bodyfix --measurements user-data/twin/measurements.json \
   --out user-data/twin/out/hybrid/hybrid.glb [--hair hy3d|procedural|hair-short|hair-tousled|...] [--hair-hex #2a1e18|photo] \
   [--hairline-mm 68] [--hair-top-mm 55] [--hair-side-mm 8] [--hair-param NAME=VALUE ...] [--brows] \
-  [--texture-size 4096] [--no-previews]
+  [--texture-size 4096] [--no-previews] [--no-deglass] [--glasses-bust user-data/twin/hy3d/hy3d.glb]
 # --hair defaults to hy3d when user-data/twin/hy3d/hy3d.glb exists, else procedural; for hy3d --hair-param takes any field of
 # the segmentation / shell / fit groups (hair_lightness=40, target_triangles=30000, clearance=2, thickness_short=4, ...)
 
@@ -266,10 +266,24 @@ with 4096 px base colour / metallic-roughness textures, no skin) and saved it as
 7. **Scalp tint** (`hairhy3d.ShellField`). The baked head texture is darkened under the shell with the coverage of the shell
    itself (a head point is covered when the shell is near it along its normal or along the ray from the skull centre, which
    is how the shell was built), and the tint colour is the colour of the shell next to each texel, so the hairline fade
-   continues into the scalp.
+   continues into the scalp. At the temples a stubble fringe extends the tint 9 mm beyond the shell and fades out by
+   15 mm, excluding the ears and skin below the eye line. The lower boundary is smoothed in angular space at the temples
+   and nape, and the alpha fringe noise is reduced; top volume and clearance checks remain unchanged.
+
+The baked shell colour is graded toward warm dark brown `#2a1e18` by shifting mean Lab a/b while retaining each texel's L
+and local strand variation. `--hair-hex #rrggbb` overrides this target (`photo` applies only to procedural hair).
+`parts.hair.shell.shell.colour_grade` reports the measured before/after Lab means and luminance error from quantization.
+
+When a glasses accessory bust exists, the hybrid stage measures the photographed frame outlines from a render of its
+current baked face. After `seam_blend`, it projects those guides into the face texels and calls `remove_glasses_frames`
+with Navier–Stokes inpainting at radius 5. This precedes photo checks and scalp tint. The accessory stage passes this
+cleaned atlas through without a second inpainting pass. `--no-deglass` opts out in either `hybrid.py` or `run_all.py`;
+`run_all.py --no-glasses` also disables cleanup. `texture.deglass` records mask coverage, changed texels and any change
+outside the mask. Private `deglass_audit.npz` and before/after/mask PNGs support verification against the final bundle.
+`texture.scalp_tint.temple_gap` counts pale texels (L > 35) before and after extending the scalp tint.
 
 Output per contract addendum v1.1: the `dtHair` node (the same skin as the body), `extras.dtHair = {format: "shell/1",
-colorHex, cardCount: 0}` (the mean colour of the visible texels), a normal PBR material (`baseColorTexture` sRGB with the
+colorHex, cardCount: 0}` (the requested chroma target), a normal PBR material (`baseColorTexture` sRGB with the
 fringe in its alpha, `normalTexture`, `MASK` 0.5, `doubleSided`, roughness 0.62) and `asset.extras.dtHairNode`. The rig stage
 needed no change (weights come from the closest body vertices, materials / textures / images pass through verbatim; test in
 `rig/tests/test_hair_prim.py`), the bundle validates both formats (`bundle/write_twin_glb.py`, tests in

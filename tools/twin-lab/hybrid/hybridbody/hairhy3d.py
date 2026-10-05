@@ -26,7 +26,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from . import REPO, log
-from .hair import FORMAT_SHELL, NODE_NAME, HairMesh, hex_of
+from .hair import FORMAT_SHELL, NODE_NAME, HairMesh
 from .haircheck import penetration_report, scalp_coverage
 from .hairgen import HairField, HairStyle, HeadSurface, measure_head
 from .hairseg import SegmentParams, VertexGraph, azimuth_of, pale_artefacts, segment_hair
@@ -36,6 +36,7 @@ from .hairshell import (
     bake,
     decimate_shell,
     extract_shell,
+    grade_colour,
     radial_remesh,
     stubble_colour,
     surface_error,
@@ -97,13 +98,14 @@ class ShellField:
     REACH_NORMAL = (0.002, 0.006, 0.012, 0.02, 0.03, 0.04)
     REACH_RADIAL = (0.004, 0.012, 0.022, 0.032, 0.042, 0.054)
 
-    def __init__(self, head: HeadSurface, points: np.ndarray, colours_srgb: np.ndarray, centre: np.ndarray):
+    def __init__(self, head: HeadSurface, points: np.ndarray, colours_srgb: np.ndarray, centre: np.ndarray, frame=None):
         from flamehead.colour import to_lab
 
         self.head = head
         self.tree = cKDTree(points)
         self.points = points
         self.centre = np.asarray(centre, np.float64)
+        self.frame = frame
         lab = to_lab(colours_srgb.astype(np.float32) / 255.0).astype(np.float32)
         lab[:, 0] *= TINT_DARKEN
         self.lab = lab
@@ -122,6 +124,25 @@ class ShellField:
 
     def weight(self, points: np.ndarray) -> np.ndarray:
         return self.cover(points)
+
+    def temple_band(self, points: np.ndarray) -> np.ndarray:
+        """Skin just beside the lower temple edge; never eyebrows, ear surfaces or the cheeks."""
+        if self.frame is None:
+            return np.zeros(len(points), bool)
+        az = np.abs(azimuth_of(points, self.frame))
+        ear = (cKDTree(self.frame.ear_points).query(points, workers=-1)[0]
+               if len(self.frame.ear_points) else np.full(len(points), np.inf))
+        return ((az > 45) & (az < 115) & (points[:, 1] > self.frame.eye_y - 0.006)
+                & (points[:, 1] < self.frame.eye_y + 0.065) & (ear > 0.005))
+
+    def tint_cover(self, points: np.ndarray, normals: np.ndarray, base: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Continue short dark stubble up to 9 mm outside the shell, fading out by 15 mm at the temples."""
+        from .register import smoothstep
+
+        distance = self.tree.query(points, workers=-1)[0]
+        band = self.temple_band(points)
+        fringe = (1.0 - smoothstep((distance - 0.009) / 0.006)) * band
+        return np.maximum(base, fringe), band & (fringe > 0.85) & (base < 0.7)
 
     def tint_lab(self, points: np.ndarray) -> np.ndarray:
         """CIELAB of the shell next to each head point (the scalp tint continues the hair's colour at its edge)."""
@@ -178,6 +199,7 @@ def build_hy3d_hair(
     style: ShellStyle | None = None,
     coverage: bool = True,
     coverage_pixel_mm: float = 0.5,
+    colour_hex: str = "#2a1e18",
 ) -> ShellBuild:
     """The user's hair from the bust, fitted to a head surface (metres, +Y up, +Z front, the character's left = +X).
 
@@ -269,8 +291,8 @@ def build_hy3d_hair(
     )
 
     # ------------------------------------------------------------------------------------------ outputs
-    atlas = baked.colour
-    colour_hex = hex_of(baked.mean_colour)
+    atlas, colour_grade = grade_colour(baked.colour, colour_hex, baked.visible)
+    colour_hex = colour_hex.lower()
     mesh = HairMesh(
         final[render_to_fit],
         shell_normals[render_to_fit],
@@ -284,7 +306,7 @@ def build_hy3d_hair(
         baked.normal,
     )
     sample_points, sample_colours = visible_samples(mesh.positions, mesh.faces, mesh.uv, atlas, 0.0025)
-    field = ShellField(head, sample_points, sample_colours, centre)
+    field = ShellField(head, sample_points, sample_colours, centre, frame)
     signed, _, _ = head.signed_distance(final, candidates=24)
     penetration = penetration_report(head, final, shell.faces, style.fit.clearance * MM, tolerance=2e-4)
     visible_vertex = depth > 0
@@ -315,6 +337,7 @@ def build_hy3d_hair(
             "surface_error": surface_error(shell.positions, samples),
             "bake": baked.report,
             "colour_hex": colour_hex,
+            "colour_grade": colour_grade,
         },
         "fit": {"params": style.fit.to_dict(), "warp": warp, "clearance": clearance},
         "penetration": penetration,
