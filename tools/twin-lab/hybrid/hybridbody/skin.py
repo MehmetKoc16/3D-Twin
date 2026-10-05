@@ -321,8 +321,13 @@ def tint_scalp(
     cover: np.ndarray,
     tint_lab,
     blur_px: float = 2.0,
+    grain: np.ndarray | None = None,
+    dither: float = 0.0,
 ) -> np.ndarray:
-    """Darken the texels under the hair toward ``tint_lab`` (gaps between cut-out cards then read as hair)."""
+    """Darken the texels under the hair toward ``tint_lab`` (gaps between cut-out cards then read as hair).
+
+    ``grain`` (unit noise per listed texel) with ``dither`` > 0 breaks the soft edge of the tint into fine speckle, only
+    where the weight is partial (like sparse short hairs fading into skin); full and zero weights are untouched."""
     h, w = texture.shape[:2]
     weight = np.zeros((h, w), np.float32)
     weight[texel_y, texel_x] = cover
@@ -330,4 +335,6 @@ def tint_scalp(
     support[texel_y, texel_x] = 1.0
     soft = ndimage.gaussian_filter(weight, blur_px) / np.maximum(ndimage.gaussian_filter(support, blur_px), 1e-3)
     alpha = np.clip(soft[texel_y, texel_x], 0, 1)
+    if grain is not None and dither > 0:
+        alpha = np.clip(alpha + dither * grain * 4.0 * alpha * (1.0 - alpha), 0, 1)
     return fade_to_tone(texture, texel_y, texel_x, alpha, tint_lab)

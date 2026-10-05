@@ -48,6 +48,8 @@ class SegmentParams:
     hole_vertices: int = 4000  # holes of at most this many vertices are filled
     smooth_iterations: int = 25  # boundary smoothing: diffusion steps of the indicator
     boundary_smooth_degrees: float = 6.0  # smooth the lower temple/nape outline in angular space
+    hairline_smooth: float = 5.0  # mm: Gaussian-equivalent smoothing of the front hairline / temple outline (0 = off)
+    hairline_zone: float = 80.0  # |azimuth| up to here the outline is smoothed spatially (rounds the temple corner)
     pale_lightness: float = 36.0  # hair texels lighter than this, away from the edge, are colour artefacts
     pale_edge_mm: float = 8.0  # ... farther from the shell edge than this
     min_vertices: int = 300  # fewer hair vertices than this is a failed segmentation, not a cropped head
@@ -198,6 +200,7 @@ def segment_hair(
     mask = graph.fill_holes(mask, params.hole_vertices)
     soft = graph.smooth(mask.astype(np.float64), params.smooth_iterations)  # smooth the edge, keep the area
     mask = graph.largest(graph.fill_holes(soft > 0.5, params.hole_vertices))
+    mask, hairline_report = smooth_hairline(points, graph, mask, frame, params)
     mask, boundary_report = smooth_lower_boundary(points, graph, mask, candidate, frame, params)
     count, edge = int(mask.sum()), graph.boundary(mask)
     report = {
@@ -208,8 +211,33 @@ def segment_hair(
         "colour_azimuth_deg": params.colour_azimuth,
         "mean_lightness": float(lab[mask, 0].mean()) if count else None,
         "boundary_smoothing": boundary_report,
+        "hairline_smoothing": hairline_report,
     }
     return Segmentation(mask, candidate, report)
+
+
+def smooth_hairline(points, graph, mask, frame, params):
+    """Round the front hairline and the temple corner: diffuse the indicator over the mesh graph, re-threshold at 0.5.
+
+    A straight edge does not move; convex corners (the temple corner of the hair region) recede and round off, and the
+    vertex-scale staircase of the colour threshold disappears. The reach is ``hairline_smooth`` millimetres (Gaussian
+    equivalent) and only the vertices inside ``hairline_zone`` degrees of azimuth may change.
+    """
+    if params.hairline_smooth <= 0 or graph.adjacency.nnz == 0:
+        return mask, {"applied": False}
+    rows, cols = graph.adjacency.nonzero()
+    h = float(np.median(np.linalg.norm(points[rows] - points[cols], axis=1)))
+    iterations = int(np.clip(np.ceil(2.0 * (params.hairline_smooth * MM / max(h, 1e-6)) ** 2), 1, 400))
+    soft = graph.smooth(mask.astype(np.float64), iterations)
+    zone = np.abs(azimuth_of(points, frame)) < params.hairline_zone
+    result = graph.largest(graph.fill_holes(np.where(zone, soft > 0.5, mask), params.hole_vertices))
+    return result, {
+        "applied": True,
+        "sigma_mm": params.hairline_smooth,
+        "edge_length_mm": h * 1000,
+        "iterations": iterations,
+        "changed_vertices": int((result != mask).sum()),
+    }
 
 
 def smooth_lower_boundary(points, graph, mask, candidate, frame, params):

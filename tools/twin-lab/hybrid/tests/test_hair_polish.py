@@ -39,3 +39,53 @@ def test_boundary_smoothing_reduces_side_and_nape_jaggedness_and_preserves_front
     assert report["changed_vertices"] > 0
     assert report["profile_second_difference_mm_after"] < report["profile_second_difference_mm_before"]
     assert result[points[:, 1] > 1.06].all()
+
+
+def test_hairline_smoothing_rounds_a_corner_and_leaves_straight_edges():
+    from hybridbody.hairseg import smooth_hairline
+
+    n = 41
+    x, y = np.meshgrid(np.arange(n), np.arange(n))
+    points = np.column_stack((0.001 * (x.ravel() - 20), 1.0 + 0.001 * y.ravel(), np.full(n * n, 0.09)))
+    faces = []
+    for j in range(n - 1):
+        for i in range(n - 1):
+            a, b, c, d = j * n + i, j * n + i + 1, (j + 1) * n + i, (j + 1) * n + i + 1
+            faces += [[a, b, d], [a, d, c]]
+    graph = VertexGraph.from_faces(np.asarray(faces), len(points))
+    frame = SimpleNamespace(x0=0.0, zc=0.0)
+    mask = (x.ravel() >= 20) & (y.ravel() >= 20)  # a convex corner at (20, 20)
+    result, report = smooth_hairline(points, graph, mask, frame, SegmentParams.with_overrides({"hairline_smooth": 4}))
+    assert report["applied"] and not result[20 * n + 20]  # the corner vertex recedes
+    assert result[35 * n + 35] and not result[5 * n + 35]
+    assert result[30 * n + 30] and result[(30 * n) + 20 + 5]
+    off, none = smooth_hairline(points, graph, mask, frame, SegmentParams.with_overrides({"hairline_smooth": 0}))
+    assert not none["applied"] and np.array_equal(off, mask)
+
+
+def test_graded_tint_fades_over_a_few_millimetres_and_never_touches_the_brows():
+    frame = SimpleNamespace(x0=0.0, zc=0.0, eye_y=1.0, ear_points=np.empty((0, 3)))
+    shell = np.array([[0.0, 1.07, 0.09]])
+    field = ShellField(None, shell, np.full((1, 3), 30, np.uint8), [0.0, 1.0, 0.0], frame)
+    d = np.array([0.0, 0.002, 0.005, 0.010, 0.020])
+    profile = field.front_profile(d)
+    assert profile[0] == 1.0 and (np.diff(profile) <= 1e-9).all() and profile[-1] == 0.0
+    assert (field.front_profile(d, legacy=True) <= profile + 1e-9).all()
+    brow = np.array([[0.0, 1.0, 0.09]])
+    assert field.tint_weight(brow, np.array([0.009]))[0] == 0.0 < field.tint_weight(brow, np.array([0.003]))[0]
+    forehead = np.array([[0.0, 1.07, 0.09]])
+    assert 0.0 < field.tint_weight(forehead, np.array([0.006]))[0] < 1.0
+
+
+def test_hairline_profile_is_straight_for_a_straight_edge_and_tight_for_a_notch():
+    from hybridbody.hairhy3d import hairline_profile
+
+    frame = SimpleNamespace(x0=0.0, zc=0.0)
+    rng = np.random.default_rng(1)
+    a = np.radians(rng.uniform(0, 100, 60000))
+    y = 1.0 + rng.uniform(0.02, 0.12, 60000)
+    points = np.column_stack((0.09 * np.sin(a), y, 0.09 * np.cos(a)))
+    straight = hairline_profile(points, (y > 1.07).astype(float), frame, 1.0)
+    notched = hairline_profile(points, (y > 1.07 + 0.02 * (np.degrees(a) > 50)).astype(float), frame, 1.0)
+    assert straight["left"]["p50_radius_mm"] > notched["left"]["p50_radius_mm"]
+    assert notched["left"]["min_radius_mm"] < straight["left"]["min_radius_mm"]

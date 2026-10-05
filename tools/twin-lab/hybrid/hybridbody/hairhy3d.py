@@ -47,7 +47,6 @@ from .hairshell import (
 from .hy3d import align_bust, load_bust
 from .register import Surface
 from .shellfit import FitParams, enforce_clearance, warp_to_scalp
-from .skin import hair_cover
 
 DEFAULT_BUST = REPO / "user-data/twin/hy3d/hy3d.glb"
 MM = 1e-3
@@ -93,10 +92,22 @@ class ShellField:
     A head point is covered when the shell is near it along its normal (hair lying on the scalp) or along the ray from the
     skull centre through it (the shell was built radially from there, so this finds the shell standing off the scalp:
     the quiff above the forehead, the volume on top).
+
+    Beyond the visible edge the skin gets a graduated stubble tint (``tint_weight``): full under the shell, fading to the
+    bare skin over a few millimetres at the hairline (with a fine dither, so it reads as sparse short hair, never as a
+    line) and carrying on further down the temple / sideburn band, where a faded cut shows dark short stubble.
     """
 
     REACH_NORMAL = (0.002, 0.006, 0.012, 0.02, 0.03, 0.04)
     REACH_RADIAL = (0.004, 0.012, 0.022, 0.032, 0.042, 0.054)
+    NEAR = 0.004  # legacy cover: full within this distance of the shell, none beyond twice this
+    SMOOTH_NEIGHBOURS = 96  # shell samples (about 12 mm around) the tint colour is averaged over: no Voronoi wedges
+    HAIRLINE_FULL = 0.002  # m beyond the visible edge the stubble tint starts to fade (front hairline)
+    HAIRLINE_FADE = 0.007  # m: width of that fade
+    HAIRLINE_STRENGTH = 0.92  # the tint never quite reaches the full replacement colour outside the edge
+    TEMPLE_FULL = 0.009  # sideburn band: full stubble to here, none beyond TEMPLE_FULL + TEMPLE_FADE
+    TEMPLE_FADE = 0.006
+    DITHER = 0.45  # relative amplitude of the grain in the fade zone
 
     def __init__(self, head: HeadSurface, points: np.ndarray, colours_srgb: np.ndarray, centre: np.ndarray, frame=None):
         from flamehead.colour import to_lab
@@ -109,34 +120,57 @@ class ShellField:
         lab = to_lab(colours_srgb.astype(np.float32) / 255.0).astype(np.float32)
         lab[:, 0] *= TINT_DARKEN
         self.lab = lab
+        k = int(min(self.SMOOTH_NEIGHBOURS, len(points)))
+        neighbours = self.tree.query(points, k=k, workers=-1)[1].reshape(len(points), k)
+        self.lab_smooth = lab[neighbours].mean(1)
 
     def normals_at(self, points: np.ndarray) -> np.ndarray:
         return self.head.closest(points)[3]
 
-    def cover(self, points: np.ndarray, normals: np.ndarray | None = None) -> np.ndarray:
-        """0..1: how much hair stands above each head point, along its normal or along the radial ray from the centre."""
+    def distance(self, points: np.ndarray, normals: np.ndarray | None = None) -> np.ndarray:
+        """Distance (m) from each head point to the nearest visible shell sample, looking along its normal and radially."""
         normals = self.normals_at(points) if normals is None else normals
         radial = points - self.centre
         radial /= np.maximum(np.linalg.norm(radial, axis=1, keepdims=True), 1e-9)
-        along_normal = hair_cover(points, normals, self.points, reach=self.REACH_NORMAL)
-        along_radius = hair_cover(points, radial, self.points, reach=self.REACH_RADIAL)
-        return np.maximum(along_normal, along_radius)
+        nearest = np.full(len(points), np.inf)
+        for direction, reach in ((normals, self.REACH_NORMAL), (radial, self.REACH_RADIAL)):
+            for t in reach:
+                nearest = np.minimum(nearest, self.tree.query(points + direction * t, workers=-1)[0])
+        return nearest
+
+    def cover_from(self, distance: np.ndarray) -> np.ndarray:
+        from .register import smoothstep
+
+        return 1.0 - smoothstep((distance - self.NEAR) / self.NEAR)
+
+    def cover(self, points: np.ndarray, normals: np.ndarray | None = None) -> np.ndarray:
+        """0..1: how much hair stands above each head point, along its normal or along the radial ray from the centre."""
+        return self.cover_from(self.distance(points, normals))
 
     def weight(self, points: np.ndarray) -> np.ndarray:
         return self.cover(points)
 
     def temple_band(self, points: np.ndarray) -> np.ndarray:
         """Skin just beside the lower temple edge; never eyebrows, ear surfaces or the cheeks."""
+        return self.band_weight(points) > 0.5
+
+    def band_weight(self, points: np.ndarray) -> np.ndarray:
+        """0..1 (smooth edges): the temple / sideburn band, away from the ears, eyebrows and cheeks."""
+        from .register import smoothstep
+
         if self.frame is None:
-            return np.zeros(len(points), bool)
+            return np.zeros(len(points))
         az = np.abs(azimuth_of(points, self.frame))
         ear = (cKDTree(self.frame.ear_points).query(points, workers=-1)[0]
                if len(self.frame.ear_points) else np.full(len(points), np.inf))
-        return ((az > 45) & (az < 115) & (points[:, 1] > self.frame.eye_y - 0.006)
-                & (points[:, 1] < self.frame.eye_y + 0.065) & (ear > 0.005))
+        eye = self.frame.eye_y
+        return (smoothstep((az - 42.0) / 6.0) * (1.0 - smoothstep((az - 112.0) / 6.0))
+                * smoothstep((points[:, 1] - (eye - 0.009)) / 0.006)
+                * (1.0 - smoothstep((points[:, 1] - (eye + 0.062)) / 0.006))
+                * smoothstep((ear - 0.004) / 0.003))
 
     def tint_cover(self, points: np.ndarray, normals: np.ndarray, base: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Continue short dark stubble up to 9 mm outside the shell, fading out by 15 mm at the temples."""
+        """Legacy (round 2) extension: stubble up to 9 mm outside the shell, fading out by 15 mm at the temples."""
         from .register import smoothstep
 
         distance = self.tree.query(points, workers=-1)[0]
@@ -144,8 +178,40 @@ class ShellField:
         fringe = (1.0 - smoothstep((distance - 0.009) / 0.006)) * band
         return np.maximum(base, fringe), band & (fringe > 0.85) & (base < 0.7)
 
+    def hairline_term(self, distance: np.ndarray) -> np.ndarray:
+        """The graded stubble fade just beyond the visible edge (forehead hairline; no band, no brow / ear guards)."""
+        from .register import smoothstep
+
+        beyond = np.maximum(distance - self.HAIRLINE_FULL, 0.0)
+        return self.HAIRLINE_STRENGTH * (1.0 - smoothstep(beyond / self.HAIRLINE_FADE))
+
+    def front_profile(self, distance: np.ndarray, legacy: bool = False) -> np.ndarray:
+        """Tint weight at the front hairline as a function of the distance to the shell (``legacy``: round 2)."""
+        under = self.cover_from(distance)
+        return under if legacy else np.maximum(under, self.hairline_term(distance))
+
+    def tint_weight(self, points: np.ndarray, distance: np.ndarray) -> np.ndarray:
+        """0..1 stubble tint per head point: full under the shell, a few mm of graded fade at the hairline, a longer one
+        in the sideburn band. ``distance`` comes from ``distance()``; ``skin.tint_scalp`` dithers the fade with ``DITHER``."""
+        from .register import smoothstep
+
+        under = self.cover_from(distance)
+        hairline = self.hairline_term(distance)
+        eye = self.frame.eye_y if self.frame is not None else -1e9
+        # the fade is for the forehead hairline and the temple: nothing over the eyebrows / cheeks / ears
+        above_brow = smoothstep((points[:, 1] - (eye + 0.012)) / 0.010) if self.frame is not None else np.ones(len(points))
+        if self.frame is not None and len(self.frame.ear_points):
+            above_brow = above_brow * smoothstep((cKDTree(self.frame.ear_points).query(points, workers=-1)[0] - 0.004) / 0.004)
+        band = self.band_weight(points)
+        temple = band * (1.0 - smoothstep((distance - self.TEMPLE_FULL) / self.TEMPLE_FADE))
+        return np.clip(np.maximum(np.maximum(under, hairline * above_brow), temple), 0.0, 1.0)
+
     def tint_lab(self, points: np.ndarray) -> np.ndarray:
-        """CIELAB of the shell next to each head point (the scalp tint continues the hair's colour at its edge)."""
+        """CIELAB of the shell around each head point (averaged over ~12 mm: the scalp tint continues the hair's colour)."""
+        return self.lab_smooth[self.tree.query(points, workers=-1)[1]]
+
+    def tint_lab_nearest(self, points: np.ndarray) -> np.ndarray:
+        """Legacy: CIELAB of the single nearest shell sample (streaks the tint in wedges)."""
         return self.lab[self.tree.query(points, workers=-1)[1]]
 
 
@@ -173,6 +239,18 @@ def visible_samples(positions: np.ndarray, faces: np.ndarray, uv: np.ndarray, co
     return points[seen], texel[seen, :3]
 
 
+def alpha_samples(positions: np.ndarray, faces: np.ndarray, uv: np.ndarray, colour: np.ndarray, spacing: float):
+    """Sample points over the whole shell with the texture alpha (0..1) at each: the density the cut-out leaves."""
+    face_ids, bary = surface_samples(positions, faces, spacing)
+    tri = faces[face_ids]
+    points = np.einsum("ij,ijk->ik", bary, positions[tri])
+    t = np.einsum("ij,ijk->ik", bary, uv[tri])
+    h, w = colour.shape[:2]
+    ix = np.clip((t[:, 0] * w).astype(int), 0, w - 1)
+    iy = np.clip((t[:, 1] * h).astype(int), 0, h - 1)
+    return points, colour[iy, ix, 3].astype(np.float64) / 255.0
+
+
 def edge_report(depth: np.ndarray, distance: np.ndarray) -> dict:
     """Distance of the shell's visible edge ring (0 to 1.5 mm inside the hairline) to the head surface, in mm."""
     ring = (depth >= 0.0) & (depth <= 1.5 * MM)
@@ -186,6 +264,68 @@ def edge_report(depth: np.ndarray, distance: np.ndarray) -> dict:
         "max_mm": float(d.max()),
         "share_above_4mm": float((d > 4.0).mean()),
     }
+
+
+def hairline_profile(
+    points: np.ndarray, alpha: np.ndarray, frame, eye_y: float, az_max: float = 100.0, min_height: float = 0.02,
+    pixel: float = 0.5,
+) -> dict:
+    """Shape of the hair edge on the forehead and the temple corner, per side, from shell samples with their alpha.
+
+    The shell is unrolled to (arc length, height above the eye line) in ``pixel``-mm cells (azimuth 0..``az_max``, heights
+    from ``min_height`` m up) and its mean alpha is the density image D. The hair edge is the D = 0.5 level line, so
+    stray dithered hairs do not count. Everything is measured on that line without tracing it:
+
+    * ``min_radius_mm``: the tightest curve radius (99th percentile of the level-line curvature of D smoothed by 1.5 mm);
+      an angled step or a notch is a small radius, a natural rounded corner a large one;
+    * ``p50_radius_mm``: the median radius (large = mostly straight);
+    * ``roughness_mm``: RMS distance of the line from the same line of a 4 mm-smoothed D (small = a clean curve).
+    """
+    from scipy.ndimage import gaussian_filter
+
+    az = azimuth_of(points, frame)
+    radius = float(np.median(np.hypot(points[:, 0] - frame.x0, points[:, 2] - frame.zc)))
+    out = {"radius_mm": radius * 1000, "method": f"D=0.5 level line of the unrolled alpha density, {pixel} mm pixels"}
+    for name, sign in (("left", 1.0), ("right", -1.0)):
+        a = sign * az
+        keep = (a >= 0.0) & (a <= az_max) & (points[:, 1] >= eye_y + min_height)
+        if keep.sum() < 200:
+            out[name] = None
+            continue
+        u = np.radians(a[keep]) * radius * 1000.0 / pixel
+        v = (points[keep, 1] - eye_y - min_height) * 1000.0 / pixel
+        shape = (int(v.max()) + 8, int(u.max()) + 8)
+        iy, ix = np.clip(v.astype(int), 0, shape[0] - 1), np.clip(u.astype(int), 0, shape[1] - 1)
+        total, count = np.zeros(shape), np.zeros(shape)
+        np.add.at(total, (iy, ix), alpha[keep])
+        np.add.at(count, (iy, ix), 1.0)
+
+        def density(sigma_mm, total=total, count=count):
+            sigma = sigma_mm / pixel
+            return gaussian_filter(total, sigma) / np.maximum(gaussian_filter(count, sigma), 1e-6)
+
+        fine, wide = density(1.5), density(4.0)
+        # rows / columns the samples really cover (the unrolled image has empty corners): near the 0.5 line only
+        line = (np.abs(fine - 0.5) < 0.06) & (gaussian_filter(count, 2.0) > 0.3)
+        gy, gx = np.gradient(fine)
+        gyy, gyx = np.gradient(gy)
+        gxy, gxx = np.gradient(gx)
+        norm2 = gx**2 + gy**2
+        kappa = np.abs(gxx * gy**2 - (gxy + gyx) * gx * gy + gyy * gx**2) / np.maximum(norm2, 1e-9) ** 1.5
+        grad_wide = np.hypot(*np.gradient(wide))
+        offset = np.abs(fine - wide) / np.maximum(grad_wide, 1e-6)
+        line &= norm2 > 1e-6
+        if line.sum() < 20:
+            out[name] = None
+            continue
+        radii = pixel / np.maximum(kappa[line], 1e-9)
+        out[name] = {
+            "line_pixels": int(line.sum()),
+            "min_radius_mm": float(np.percentile(radii, 1)),
+            "p50_radius_mm": float(np.median(radii)),
+            "roughness_mm": float(np.sqrt(np.mean(np.minimum(offset[line] * pixel, 6.0) ** 2))),
+        }
+    return out
 
 
 def build_hy3d_hair(
@@ -249,6 +389,12 @@ def build_hy3d_hair(
     region |= mask
     high = extract_shell(positions, normals, bust.colours, bust.faces, bust.face_uv, mask, region)
     high_graph = VertexGraph.from_faces(high.faces, len(high.positions))
+    if params.edge_smooth > 0 and high_graph.adjacency.nnz:
+        rows, cols = high_graph.adjacency.nonzero()
+        h = float(np.median(np.linalg.norm(high.positions[rows] - high.positions[cols], axis=1)))
+        steps = int(np.clip(np.ceil(2.0 * (params.edge_smooth * MM / max(h, 1e-6)) ** 2), 1, 300))
+        # a smoothed distance field: its zero line is the hair edge with the teeth / steps below ~edge_smooth removed
+        high.signed_edge = high_graph.smooth(high.signed_edge, steps)
     source_lab = bust.lab[high.source]
     short_hair = stubble_colour(source_lab, high.positions, frame)
     fill = attach_fill(high, high_graph, flagged[high.source], source_lab, short_hair, params.fill_rings)
@@ -323,6 +469,8 @@ def build_hy3d_hair(
         if coverage
         else None
     )
+    edge_points, edge_alpha = alpha_samples(mesh.positions, mesh.faces, mesh.uv, atlas, 0.0007)
+    edge_profile = hairline_profile(edge_points, edge_alpha, frame, eye_y)
     edge_az = azimuth_of(final, frame)
     edge_front = (np.abs(edge_az) < 6.0) & (depth >= -0.5 * MM) & (depth <= 1.5 * MM)
     report = {
@@ -350,6 +498,12 @@ def build_hy3d_hair(
             if edge_front.any()
             else None,
             "procedural_target_mm": float(HairStyle().hairline_front),
+            "profile": edge_profile,
+            "alpha_ramp_mm": {
+                "fringe": params.fringe,
+                "width_10_90": 0.608 * params.fringe,
+                "stipple_mm": params.stipple,
+            },
         },
         "frame": {"eye_y_m": float(eye_y), "skull_centre_xz_m": [frame.x0, frame.zc], "notes": frame.notes},
         "vertices": int(len(mesh.positions)),

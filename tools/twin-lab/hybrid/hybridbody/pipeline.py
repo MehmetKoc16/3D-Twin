@@ -167,6 +167,50 @@ def choose_hair_colour(hair_photo: dict, override: str | None) -> dict:
     }
 
 
+def shell_scalp_tint(field, texture, covered, ty, tx, points, normals, distance, cover, scalp_lab):
+    """The skin texture under and around the hy3d shell, plus the numbers of the temple / sideburn band.
+
+    Round 3: a graded stubble tint (full under the shell, a few mm of dithered fade at the forehead hairline, a longer
+    dark band down the temple and sideburn) in a smooth colour. ``legacy`` (round 2: ear-protected stubble fringe in the
+    nearest shell sample's colour) is rebuilt only to put numbers on the improvement.
+    """
+    legacy_cover, _ = field.tint_cover(points, normals, cover)
+    legacy = finish_texture(tint_scalp(texture, ty, tx, legacy_cover, field.tint_lab_nearest(points)), covered)
+    weight = field.tint_weight(points, distance)
+    grain = np.random.default_rng(23).normal(size=len(weight)).astype(np.float32)
+    grain = np.clip(grain, -2.0, 2.0) / 1.2
+    new = finish_texture(
+        tint_scalp(texture, ty, tx, weight, scalp_lab, blur_px=1.2, grain=grain, dither=field.DITHER), covered
+    )
+    band = field.band_weight(points) > 0.5
+    ring = band & (distance > 0.004) & (distance <= 0.010)  # the full-stubble skin just outside the shell edge, in the band
+    after_lab, before_lab = to_lab(new[ty[ring], tx[ring]]), to_lab(legacy[ty[ring], tx[ring]])
+    skin_lab = to_lab(texture[ty[ring], tx[ring]])
+    d = np.linspace(0.0, 0.03, 3001)
+    widths = {}
+    for name, curve in (("legacy", field.front_profile(d, legacy=True)), ("graded", field.front_profile(d))):
+        hi, lo = d[np.argmax(curve < 0.9)], d[np.argmax(curve < 0.1)]
+        widths[name] = {"d90_mm": float(hi * 1000), "d10_mm": float(lo * 1000), "width_mm": float((lo - hi) * 1000)}
+    report = {
+        "texels": int(ring.sum()),
+        "pale_threshold_l": 35.0,
+        "region": "temple/sideburn band (az 42..112 deg, eye-9..eye+62 mm, away from the ears), skin 4..10 mm outside the shell",
+        "pale_texels_before": int((before_lab[:, 0] > 35).sum()) if ring.any() else 0,
+        "pale_texels_after": int((after_lab[:, 0] > 35).sum()) if ring.any() else 0,
+        "mean_l_before": float(before_lab[:, 0].mean()) if ring.any() else None,
+        "mean_l_after": float(after_lab[:, 0].mean()) if ring.any() else None,
+        "l_std_before": float(before_lab[:, 0].std()) if ring.any() else None,
+        "l_std_after": float(after_lab[:, 0].std()) if ring.any() else None,
+        "chroma_std_before": float(np.hypot(before_lab[:, 1], before_lab[:, 2]).std()) if ring.any() else None,
+        "chroma_std_after": float(np.hypot(after_lab[:, 1], after_lab[:, 2]).std()) if ring.any() else None,
+        "mean_l_untinted_skin": float(skin_lab[:, 0].mean()) if ring.any() else None,
+        "fade_width_mm": widths,
+        "method": "graded stubble tint with grain: full under the shell, 2 mm + 7 mm fade at the hairline, "
+        "full to 9 mm and fading to 15 mm in the sideburn band; smoothed shell colour",
+    }
+    return new, report
+
+
 def build_parts(
     final,
     tone,
@@ -520,11 +564,17 @@ def run(
     texel_normals = np.einsum("ij,ijk->ik", face.texel_bary, head_normals[tri])
     texel_normals /= np.maximum(np.linalg.norm(texel_normals, axis=1, keepdims=True), 1e-9)
     field = parts.hair_build.field if parts.hair_build is not None else None
+    shell_distance = None
     if isinstance(field, ShellField):
-        # the solid shell: coverage along the head normals, and the scalp takes the colour of the shell next to it
-        cover = field.cover(points, texel_normals)
+        # the solid shell: distance along the head normals / radial rays, and the scalp takes the colour of the shell
+        # around it (averaged over ~12 mm, so the tint carries no per-sample streaks)
+        shell_distance = field.distance(points, texel_normals)
+        cover = field.cover_from(shell_distance)
         scalp_lab = field.tint_lab(points)
-        scalp_method = "hy3d shell coverage along the head normals, tinted with the colour of the shell next to it"
+        scalp_method = (
+            "hy3d shell coverage (distance along the head normals), graded stubble tint beyond the edge, "
+            "tinted with the smoothed colour of the shell around it"
+        )
     elif field is not None:
         cover = field.cover(points)  # the hair density field itself: exact hairline, stubble shadow
         scalp_method = "procedural hair density field"
@@ -538,17 +588,9 @@ def run(
     texture_under_hair = finish_texture(texture_under_hair, face.covered)
     temple_report = {"texels": 0}
     if isinstance(field, ShellField):
-        extended, band = field.tint_cover(points, texel_normals, cover)
-        before_lab = to_lab(texture_under_hair[ty[band], tx[band]])
-        texture_under_hair = tint_scalp(texture, ty, tx, extended, scalp_lab)
-        texture_under_hair = finish_texture(texture_under_hair, face.covered)
-        after_lab = to_lab(texture_under_hair[ty[band], tx[band]])
-        temple_report = {
-            "texels": int(band.sum()), "pale_threshold_l": 35.0,
-            "pale_texels_before": int((before_lab[:, 0] > 35).sum()),
-            "pale_texels_after": int((after_lab[:, 0] > 35).sum()),
-            "method": "ear-protected stubble fringe, full to 9 mm and fading to 15 mm from the shell",
-        }
+        texture_under_hair, temple_report = shell_scalp_tint(
+            field, texture, face.covered, ty, tx, points, texel_normals, shell_distance, cover, scalp_lab
+        )
     eye_y = float(np.mean([v[:, 1].mean() for v in flame_eyes.values()]))
     front = (texel_normals[:, 2] > 0.6) & (points[:, 1] > eye_y + 0.03) & (np.abs(points[:, 0]) < 0.02)
     forehead = {}

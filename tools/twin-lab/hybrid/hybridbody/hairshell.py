@@ -43,9 +43,11 @@ class ShellParams:
     padding: int = 6  # texels the charts are bled outwards
     margin: float = 10.0  # the mesh extends this far beyond the hairline (the alpha channel cuts the shell)
     sample_spacing: float = 0.25  # spacing of the dense samples of the high-poly surface that the bake looks up
-    fringe: float = 2.5  # width of the alpha ramp at the hairline
+    fringe: float = 4.0  # width of the alpha ramp at the hairline (sparse fine hair fading out over a few mm)
+    stipple: float = 0.6  # mm amplitude of the fine (about 0.5 mm) dither of the ramp: stray hairs, never a straight cut
+    edge_smooth: float = 3.0  # mm: Gaussian-equivalent smoothing of the hair-edge distance field (cleans teeth and steps)
     fringe_noise: float = 0.12  # a quiet fringe; larger noise makes the temple and nape outline jagged
-    colour_bleed: float = 2.5  # colours closer than this to the hairline are taken from this far inside (no skin tint)
+    colour_bleed: float = 5.0  # colours closer than this to the hairline are taken from this far inside (no skin tint)
     grain: float = 0.2  # fine speckle (relative lightness) on the replaced colour, like short stubble
     fill_fade: float = (
         0.45  # the replaced colour is this much lighter at the hairline (a fade), fading out 30 mm inside
@@ -689,7 +691,7 @@ def bake(
     # alpha: 0.5 at the hairline, a noisy ramp of ``fringe`` mm (irregular, like a real hairline)
     jitter = params.fringe_noise * (
         0.7 * texel_noise(size, ys, xs, 6.0, params.seed + 1) + 0.3 * texel_noise(size, ys, xs, 1.5, params.seed + 2)
-    )
+    ) + params.stipple * texel_noise(size, ys, xs, 3.0, params.seed + 3)
     alpha = smoothstep((edge_mm + 0.5 * params.fringe + jitter) / max(params.fringe, 1e-3))
 
     covered = np.zeros((size, size), bool)

@@ -16,6 +16,14 @@ from .assemble import Assembled
 
 VIEWS = (("front", 0.0), ("side", 270.0), ("back", 180.0), ("three_quarter", 35.0))
 HEAD_VIEWS = (*VIEWS, ("three_quarter_back", 215.0), ("top", None))
+# hairline / temple QA close-ups from both sides (hair variant only, 960 px, not part of the contact sheets)
+HAIR_QA_VIEWS = (
+    ("qa_three_quarter_left", 35.0),
+    ("qa_three_quarter_right", 325.0),
+    ("qa_side_left", 90.0),
+    ("qa_side_right", 270.0),
+    ("qa_front", 0.0),
+)
 
 
 def head_camera(name: str, angle: float | None, points: np.ndarray, size: int, margin: float = 0.08) -> OrthoCamera:
@@ -446,6 +454,17 @@ def write_previews(
         Image.fromarray(image).save(path)
         paths[path.stem] = str(path)
         sheets.setdefault((kind, variant, clay), []).append(_label(image, f"{variant} {name}{' clay' if clay else ''}"))
+    if hair is not None:
+        qa_head = np.vstack((full.positions, hair.positions))
+        qa_head = qa_head[qa_head[:, 1] > head_y]
+        qa_cameras = [(n, head_camera("qa", a, qa_head, 960, margin=0.04)) for n, a in HAIR_QA_VIEWS]
+        qa_images = render_all(
+            [lambda c=c: _render(full, atlas, c, (960, 960), hair=hair) for _, c in qa_cameras], workers
+        )
+        for (name, _), image in zip(qa_cameras, qa_images, strict=True):
+            path = folder / f"head_hair_{name}.png"
+            Image.fromarray(image).save(path)
+            paths[path.stem] = str(path)
     for variant in ("bare", "hair"):
         Image.fromarray(np.concatenate(sheets[("full_body", variant, False)], axis=1)).save(
             folder / f"full_body_{variant}_contact.png"
