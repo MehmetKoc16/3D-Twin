@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BufferAttribute,
   BufferGeometry,
+  DataTexture,
   MeshBasicMaterial,
   MeshStandardMaterial,
   SkinnedMesh,
@@ -12,6 +13,7 @@ import { bodyIndex, envelope, fakeAssets, fakeModel, mapping } from './twinTestk
 import { MAX_HEAD_RESIDUAL_M, TwinRig } from './twinRig';
 import { TwinOpeningRepair } from './twinOpeningRepair';
 import { TwinHands } from './twinHands';
+import { twinMaterial } from './twinModel';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -55,6 +57,10 @@ describe('TwinRig', () => {
     const repairs = vi.spyOn(TwinOpeningRepair.prototype, 'update');
     const assets = fakeAssets();
     const model = fakeModel();
+    const normalMap = new DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+    const source = new MeshStandardMaterial({ normalMap });
+    source.normalScale.set(0.35, -0.6);
+    model.material = twinMaterial(source);
     for (let v = 0; v < model.vertexCount; v++) {
       model.position[v * 3] = model.position[v * 3]! * 0.1;
       model.position[v * 3 + 1] = 1 + Math.floor(v / 5) * 0.01;
@@ -82,6 +88,9 @@ describe('TwinRig', () => {
       (_, v) => original[v * 3 + 2]! - position.getZ(v),
     );
     expect(Math.max(...deltas)).toBeCloseTo(0.008);
+    expect(rig.mesh.material).toBe(model.material);
+    expect(model.material.normalMap).toBe(normalMap);
+    expect(model.material.normalScale.toArray()).toEqual([0.35, -0.6]);
     expect(deltas.some((d) => d > 0 && d < 0.0079)).toBe(true);
     expect(Array.from(rig.mesh.geometry.getAttribute('normal').array).every(Number.isFinite)).toBe(
       true,
@@ -99,8 +108,12 @@ describe('TwinRig', () => {
     assets.mesh.geometry.setIndex(new BufferAttribute(bodyIndex, 1));
     expect(position.array).toEqual(original);
     expect(repairs).toHaveBeenCalledTimes(repairCount + 1); // take-off restores the texture too
+    expect(model.material.normalMap).toBe(normalMap);
+    expect(model.material.normalScale.toArray()).toEqual([0.35, -0.6]);
     rig.dispose();
     garment.dispose();
+    normalMap.dispose();
+    source.dispose();
   });
   it('uses physical skin with the legacy tone when forearm texels are unavailable', () => {
     const assets = fakeAssets();

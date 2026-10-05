@@ -101,6 +101,10 @@ export function twinMaterial(source: Material | undefined): MeshPhysicalMaterial
   if (!map && source instanceof MeshStandardMaterial) material.color.copy(source.color);
   material.name = 'twin';
   if (source instanceof MeshStandardMaterial) {
+    // Retain glTF normal texture metadata; only the albedo map is sRGB / opening-repaired.
+    material.normalMap = source.normalMap;
+    material.normalScale.copy(source.normalScale);
+    material.normalMapType = source.normalMapType;
     if (source.alphaTest > 0) material.alphaTest = source.alphaTest;
     else if (source.transparent) material.alphaTest = BLEND_AS_MASK_CUTOFF;
     if (source.side === DoubleSide) material.side = DoubleSide;
@@ -215,6 +219,7 @@ export async function loadTwinModel(
     dispose: () => {
       hair?.dispose();
       material.map?.dispose();
+      material.normalMap?.dispose();
       material.dispose();
       geometry.dispose();
       accessories.forEach(disposeAccessory);

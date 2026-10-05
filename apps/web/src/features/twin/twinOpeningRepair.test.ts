@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CanvasTexture, DataTexture, MeshStandardMaterial, SRGBColorSpace } from 'three';
+import {
+  CanvasTexture,
+  DataTexture,
+  MeshStandardMaterial,
+  NoColorSpace,
+  SRGBColorSpace,
+  Vector2,
+} from 'three';
+import { twinMaterial } from './twinModel';
 import {
   openingBand,
   openingEdges,
@@ -123,7 +131,22 @@ describe('opening texture repair', () => {
     const pixels = albedo();
     const original = new DataTexture(new Uint8Array(pixels.data), pixels.width, pixels.height);
     original.flipY = false;
-    const material = new MeshStandardMaterial({ map: original });
+    const normalMap = new DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+    const material = twinMaterial(
+      new MeshStandardMaterial({
+        map: original,
+        normalMap,
+        normalScale: new Vector2(0.35, -0.6),
+      }),
+    );
+    const normalDisposed = vi.fn();
+    normalMap.addEventListener('dispose', normalDisposed);
+    const expectNormals = (): void => {
+      expect(material.normalMap).toBe(normalMap);
+      expect(material.normalScale.toArray()).toEqual([0.35, -0.6]);
+      expect(normalMap.colorSpace).toBe(NoColorSpace);
+      expect(normalDisposed).not.toHaveBeenCalled();
+    };
     const repair = new TwinOpeningRepair(material, uv, '#c99a7e');
     const scan = Float32Array.from([0.2, -0.005, 0, 0.4, -0.005, 0, 0.2, -0.01, 0]);
     repair.update(scan, index, new Uint8Array(3), [surface]);
@@ -132,6 +155,7 @@ describe('opening texture repair', () => {
     expect(material.map).toBeInstanceOf(CanvasTexture);
     expect(material.map!.flipY).toBe(false);
     expect(material.map!.colorSpace).toBe(SRGBColorSpace);
+    expectNormals();
     const disposed = vi.fn();
     material.map!.addEventListener('dispose', disposed);
     const sourceDisposed = vi.fn();
@@ -139,11 +163,13 @@ describe('opening texture repair', () => {
     repair.update(scan, index, new Uint8Array(3), [surface]);
     expect(disposed).toHaveBeenCalledOnce();
     expect(written[1]).toEqual(written[0]);
+    expectNormals();
     repair.update(scan, index, new Uint8Array(3), []);
     expect(material.map).toBe(original);
     expect(repair.originalTexture).toBe(true);
     expect(repair.painted).toBe(0);
     expect(original.image.data).toEqual(new Uint8Array(pixels.data));
     expect(sourceDisposed).not.toHaveBeenCalled();
+    expectNormals();
   });
 });

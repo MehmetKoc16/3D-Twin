@@ -8,7 +8,9 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   MeshPhysicalMaterial,
+  NoColorSpace,
   SRGBColorSpace,
+  Vector2,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BLEND_AS_MASK_CUTOFF, twinMaterial } from './twinModel';
@@ -56,6 +58,36 @@ function triangleGlb(material: Record<string, unknown>): ArrayBuffer {
 }
 
 describe('twinMaterial', () => {
+  it('preserves the loaded linear normal map and independently copies its scale', () => {
+    const map = texture();
+    const normalMap = texture();
+    normalMap.channel = 1;
+    normalMap.flipY = false;
+    normalMap.repeat.set(3, 4);
+    const source = new MeshStandardMaterial({
+      map,
+      normalMap,
+      normalScale: new Vector2(0.35, -0.6),
+    });
+    const material = twinMaterial(source);
+    expect(material.normalMap).toBe(normalMap);
+    expect(normalMap.colorSpace).toBe(NoColorSpace);
+    expect(normalMap.channel).toBe(1);
+    expect(normalMap.flipY).toBe(false);
+    expect(normalMap.repeat.toArray()).toEqual([3, 4]);
+    expect(material.normalScale.toArray()).toEqual([0.35, -0.6]);
+    expect(material.normalScale).not.toBe(source.normalScale);
+    expect(material.normalMapType).toBe(source.normalMapType);
+    source.normalScale.set(1, 1);
+    expect(material.normalScale.toArray()).toEqual([0.35, -0.6]);
+    expect(material.map).toBe(map);
+    expect(map.colorSpace).toBe(SRGBColorSpace);
+    material.dispose();
+    source.dispose();
+    normalMap.dispose();
+    map.dispose();
+  });
+
   it('uses physical skin shading while preserving opaque texture and side semantics', () => {
     const map = texture();
     const material = twinMaterial(new MeshStandardMaterial({ map }));
