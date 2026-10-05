@@ -113,7 +113,15 @@ crotch - 11 cm to pelvis + 9 cm, gated by the pelvis/thigh/spine_01 skin weights
 with a darker waistband and hem. Each colour write repairs light border contamination / black fill gaps, then pads
 charts by 12 px. The final coverage excludes deleted eye-socket faces, matching the actual rendered body. Reports
 under `texture.border_padding` count light outliers against a reference at least three texels inside each chart
-(dE76 > 6 and dL > 4) and gutter mismatches (dE76 > 2). Normal maps are padded without colour repair. Dedicated
+(dE76 > 6 and dL > 4) and gutter mismatches (dE76 > 2). Normal maps are padded without colour repair. **Neck hair** (`neckhair.py`). The photos also see the user's real hair behind the ear and stubble at the nape, which is the
+hair shell's business. Head-island texels that are not in a FLAME face region (face, forehead, eye regions, lips, nose) or an
+ear, and lie behind the middle of the ear, take the clean body skin of the same texels (grain included); the weight blends
+over 13 mm geodesic distance into the photographed region (4 mm ramp at the ears). The sideburn / temple in front of the
+ear, the beard, the ears and the front neck are unchanged. `texture.neck_hair` reports dark hair-like texel counts, L*
+offset and Lab mean / std before and after for the visible behind-ear / neck region, the untouched beard and the blend
+zone. `--keep-neck-hair` (QA) disables it; `write_ear_neck_closeups` renders ear + neck close-ups of both sides.
+
+Dedicated
 `shoulder_neck_{front,back,three_quarter}.png` previews support seam QA. Atlas width is capped at 4096.
 
 Licence evidence: <https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html>.

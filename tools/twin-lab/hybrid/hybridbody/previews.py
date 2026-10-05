@@ -481,3 +481,31 @@ def write_previews(
         Image.fromarray(image).save(path)
         paths[name] = str(path)
     return paths
+
+
+EAR_NECK_VIEWS = {"left": (("side", 90.0), ("three_quarter_front", 55.0), ("three_quarter_back", 125.0)),
+                  "right": (("side", 270.0), ("three_quarter_front", 305.0), ("three_quarter_back", 235.0))}
+
+
+def write_ear_neck_closeups(folder: Path, full: Assembled, atlas: np.ndarray, ear_points: dict, hair=None, size: int = 900) -> dict:
+    """Close-ups of each ear with the neck below and behind it (side, 3/4 front and 3/4 back) for texture QA."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    points = full.positions if hair is None else np.vstack((full.positions, hair.positions))
+    paths = {}
+    for side, views in EAR_NECK_VIEWS.items():
+        ear = ear_points[side]
+        if len(ear) == 0:
+            continue
+        centre = ear.mean(0)
+        near = points[
+            (np.abs(points[:, 0] - centre[0]) < 0.12) & (points[:, 1] > centre[1] - 0.11) & (points[:, 1] < centre[1] + 0.05)
+            & (np.abs(points[:, 2] - centre[2]) < 0.10)
+        ]
+        for name, angle in views:
+            camera = OrthoCamera.azimuth(name, angle).fit_bounds(near, size, size, margin=0.03)
+            image = _render(full, atlas, camera, (size, size), hair=hair)
+            path = folder / f"closeup_ear_neck_{side}_{name}.png"
+            Image.fromarray(image).save(path)
+            paths[path.stem] = str(path)
+    return paths

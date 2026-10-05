@@ -33,6 +33,7 @@ from .hair import FORMAT_SHELL, HY3D, PROCEDURAL, build_procedural_hair
 from .haircheck import skin_weight_report
 from .hairhy3d import DEFAULT_BUST, ShellField, ShellStyle, build_hy3d_hair
 from .headfit import build_template, fit_head, load_flame_fit, read_face_map, seam_vertices
+from .neckhair import BLEND_M, flame_vertex_groups, region_stats, restrict_photo, restriction_weights, texel_weights
 from .partstex import (
     DEFAULT_HAIR_LINEAR,
     DEFAULT_HAIR_SRGB,
@@ -360,6 +361,7 @@ def run(
     deglass=True,
     glasses_bust=None,
     fetch_skin=False,
+    restrict_neck_hair=True,
 ):
     started = time.perf_counter()
     hair = resolve_hair(hair)
@@ -530,6 +532,22 @@ def run(
     )
     texture = fade_to_tone(texture, ty, tx, hand_over, tone)
     texture = finish_texture(texture, face.covered)
+
+    # Behind the ear and on the side / back of the neck the photos only show the user's real hair and stubble (which
+    # belongs to the hair shell): take the clean body skin of the same texels there, blended into the beard.
+    log("removing photographed hair behind the ear and from the neck sides")
+    ear_x0, ear_y0 = face.origin
+    vertex_groups = flame_vertex_groups(head_fit, flame, head)
+    restriction = restriction_weights(head_positions, head.faces, head.welded, vertex_groups)
+    island_tri = head_island_triangles(template, head)[face.texel_face]
+    restrict_w = texel_weights(restriction["weight"], island_tri, face.texel_bary)
+    if not restrict_neck_hair:
+        restrict_w = np.zeros_like(restrict_w)
+    clean_skin = canvas[ear_y0 + ty, ear_x0 + tx]
+    texture_before_restrict = texture
+    texture = restrict_photo(texture, ty, tx, restrict_w, clean_skin)
+    texture = finish_texture(texture, face.covered)
+    face_texel = vertex_groups["face"][island_tri[np.arange(len(island_tri)), face.texel_bary.argmax(1)]]
     neck_after = {k: neck_luminance(texture, ty, tx, points, v, tone) for k, v in neck_sets.items()}
     neck_report = {
         "chin_y_m": nw["chin_y"],
@@ -612,6 +630,30 @@ def run(
         "head_island_texels": int(len(cover)),
         "temple_gap": temple_report,
     }
+    ear_top_y = float(head_positions[vertex_groups["ear"], 1].max()) if vertex_groups["ear"].any() else np.inf
+    behind = (restrict_w > 0.5) & (points[:, 1] < ear_top_y) & (cover < 0.5)
+    beard = face_texel & (restrict_w < 1e-3) & (points[:, 1] < float(np.mean([v[:, 1].mean() for v in flame_eyes.values()])) - 0.03)
+    blend_zone = (restrict_w > 1e-3) & (restrict_w < 0.999)
+    neckhair_report = {
+        "method": "photo hair behind the ear and on the neck sides replaced by the clean body skin, 13 mm geodesic blend",
+        "blend_mm": BLEND_M * 1000,
+        "ear_z_mid_m": {"left": restriction["z_ear_mid"][1], "right": restriction["z_ear_mid"][-1]},
+        "core_vertices": int(restriction["core"].sum()),
+        "region_texels_weight_gt_0_5": int((restrict_w > 0.5).sum()),
+        "behind_ear_neck_visible": {
+            "before": region_stats(texture_before_restrict, ty, tx, behind, tone),
+            "after": region_stats(texture, ty, tx, behind, tone),
+        },
+        "beard_untouched": {
+            "before": region_stats(texture_before_restrict, ty, tx, beard, tone),
+            "after": region_stats(texture, ty, tx, beard, tone),
+        },
+        "blend_zone": {
+            "before": region_stats(texture_before_restrict, ty, tx, blend_zone, tone),
+            "after": region_stats(texture, ty, tx, blend_zone, tone),
+        },
+    }
+    log(f"neck hair: {neckhair_report['behind_ear_neck_visible']}")
     unpadded = paste(texture_under_hair)
     padding_steps["final_before"] = border_audit(unpadded, covered)
     repaired, padding_steps["final_repair"] = repair_border_colours(unpadded, covered)
@@ -717,6 +759,7 @@ def run(
             "deglass": deglass_report,
             "neck": neck_report,
             "scalp_tint": scalp_report,
+            "neck_hair": neckhair_report,
             "alpha": {
                 "channel": "RGBA PNG; skin texels alpha 255, eyelash (and brow) cards carry their strip texture alpha; "
                 "the hair is a separate node with its own strand data atlas",
@@ -804,6 +847,13 @@ def run(
 
         head_y = float(final[: model.nr][head.ids][:, 1].min())
         report["previews"] = write_previews(preview_dir, mesh, bare, atlas, head_y, hair=hair_mesh)
+        from .previews import write_ear_neck_closeups
+
+        ear_points = {
+            "left": head_positions[vertex_groups["ear"] & (head_positions[:, 0] > 0)],
+            "right": head_positions[vertex_groups["ear"] & (head_positions[:, 0] < 0)],
+        }
+        report["previews"].update(write_ear_neck_closeups(preview_dir, mesh, atlas, ear_points, hair=hair_mesh))
     report["seconds"] = round(time.perf_counter() - started, 2)
     (out.parent / "hybrid_report.json").write_text(
         json.dumps(report, indent=2, allow_nan=False, default=float) + "\n", encoding="utf8"

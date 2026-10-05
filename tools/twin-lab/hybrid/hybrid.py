@@ -130,6 +130,7 @@ def main(argv=None):
     parser.add_argument("--preview-dir", type=Path)
     parser.add_argument("--no-previews", action="store_true")
     parser.add_argument("--no-deglass", action="store_true", help="preserve painted glasses in the face texture")
+    parser.add_argument("--keep-neck-hair", action="store_true", help="QA only: keep the photographed hair behind the ear and on the neck")
     parser.add_argument("--glasses-bust", type=Path, help="accessory bust; default uses the local hy3d bust if present")
     args = parser.parse_args(argv)
     if not 512 <= args.texture_size <= 4096 or args.texture_size % 256:
@@ -153,6 +154,7 @@ def main(argv=None):
             previews=not args.no_previews,
             preview_dir=args.preview_dir,
             deglass=not args.no_deglass,
+            restrict_neck_hair=not args.keep_neck_hair,
             glasses_bust=args.glasses_bust,
             fetch_skin=True,
         )
