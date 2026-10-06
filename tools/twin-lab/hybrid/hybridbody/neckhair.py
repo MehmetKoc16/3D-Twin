@@ -25,12 +25,13 @@ from .register import smoothstep
 # FLAME mask keys whose photo colour is kept (the face with its beard, the brows and eyes, the lips).
 FACE_KEYS = ("face", "forehead", "eye_region", "left_eye_region", "right_eye_region", "lips", "nose")
 EAR_KEYS = ("left_ear", "right_ear")
+EYE_KEYS = ("eye_region", "left_eye_region", "right_eye_region", "left_eyeball", "right_eyeball")
 BLEND_M = 0.013
 EAR_RAMP_M = 0.004
 
 
 def flame_vertex_groups(fit, flame, head) -> dict:
-    """Per compact head vertex: ``face`` and ``ear`` membership of the corresponding FLAME vertex."""
+    """Per compact head vertex: ``face``, ``ear`` and ``eye`` (eyelid / eyeball regions) membership of the corresponding FLAME vertex."""
     dominant = flame.faces[np.maximum(fit.face_ids, 0)][np.arange(len(fit.face_ids)), fit.face_bary.argmax(1)]
     flame_vertex = dominant[head.welded]
     valid = fit.face_ids[head.welded] >= 0
@@ -42,7 +43,7 @@ def flame_vertex_groups(fit, flame, head) -> dict:
                 flag[flame.masks[key]] = True
         return flag[flame_vertex] & valid
 
-    return {"face": member(FACE_KEYS), "ear": member(EAR_KEYS)}
+    return {"face": member(FACE_KEYS), "ear": member(EAR_KEYS), "eye": member(EYE_KEYS)}
 
 
 def _welded_distance(positions, faces, welded, sources, limit):

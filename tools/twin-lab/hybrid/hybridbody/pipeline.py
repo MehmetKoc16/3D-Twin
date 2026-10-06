@@ -493,7 +493,16 @@ def run(
     if deglass and accessory_bust.is_file():
         from PIL import Image
 
-        from .deglass_tex import projection_from_report, remove_glasses_frames
+        from .deglass_tex import _lab as _lab_of
+        from .deglass_tex import (
+            correct_lens_stage,
+            projection_from_report,
+            protected_report,
+            regrain,
+            remove_glasses_frames,
+            remove_rim_traces,
+            temple_streak,
+        )
         from .glasses_hy3d import removal_report_from_bake
 
         log("removing photographed glasses frames from the current face bake")
@@ -505,18 +514,82 @@ def run(
             folder=preview_dir if previews else None,
         )
         before = texture.copy()
+        projection = projection_from_report(face, guides)
+        from .deglass_tex import FrameProjection
+
+        has_geometry = isinstance(projection, FrameProjection)  # tests may inject an explicit UV mask instead
+        lens_ctx, lens_masks = None, {}
+        if has_geometry:
+            # 1. The photographed lens AREA (tint / reflections inside the rims): a smooth Lab gain/offset field measured
+            #    across each snapped rim outline, applied before the wire is inpainted. Eyes, eyelids, lashes and brows
+            #    are protected (FLAME eye regions + brow detection).
+            lens_groups = flame_vertex_groups(head_fit, flame, head)
+            lens_tri = head_island_triangles(template, head)[face.texel_face]
+            for key in ("eye", "ear"):
+                flag = np.zeros(face.covered.shape, bool)
+                flag[face.texel_y, face.texel_x] = (
+                    texel_weights(lens_groups[key].astype(float), lens_tri, face.texel_bary) > 0.5
+                )
+                lens_masks[key] = flag
+            texture, lens_report, lens_ctx = correct_lens_stage(
+                texture, projection, reference=before, eye_region=lens_masks["eye"],
+            )
+            # eyes, eyelids and lashes stay exactly as photographed for the thin-line pass too
+            projection.protected = lens_ctx["prot"]["eyes"] | (
+                projection.protected if projection.protected is not None else False
+            )
+        lens_corrected = texture
+        # 2. The painted frame lines (thin-line NS inpaint).
         texture, deglass_report, mask = remove_glasses_frames(
-            texture, projection_from_report(face, guides), method="ns", radius=5, return_report=True,
+            texture, projection, method="ns", radius=5, return_report=True,
         )
         deglass_report.update(enabled=True, glasses_report=guides,
                               fraction_of_head_island=float(mask.sum() / face.covered.sum()))
-        np.savez_compressed(out.parent / "deglass_audit.npz", before=before, after=texture, mask=mask,
-                            origin=np.asarray(face.origin))
+        if has_geometry:
+            # NS fills are smooth: give the filled texels the fine grain of the skin around them
+            texture = regrain(texture, mask, _lab_of(lens_corrected))
+            # 2b. Rim wire left over along the snapped outline (e.g. between the eye and the brow).
+            texture, trace_report, _ = remove_rim_traces(texture, projection, lens_ctx)
+            deglass_report["rim_traces"] = trace_report
+            # 3. The temple-arm streak: tracked along the photographed arm, NS inpainted along a thin band.
+            texture, arm_report, arm_band = temple_streak(
+                texture, projection, lens_ctx["prot"], ear=lens_masks["ear"], reference=before,
+            )
+            deglass_report["lens_residue"] = {
+                "texel_mm": lens_report["texel_mm"],
+                "lens": lens_report,
+                "temple": arm_report,
+                "protected_regions": protected_report(before, texture, lens_ctx["prot"]),
+            }
+            lens_report = deglass_report["lens_residue"]
+            lens_qa = {"lens_weight": lens_ctx["weight"], "temple_band": arm_band,
+                       "protected": lens_ctx["prot"]["protected"]}
+            log("lens residue: " + json.dumps({
+                "eyes": [e.get("interior_vs_ring_before") and
+                         {"before": e["interior_vs_ring_before"], "after": e["interior_vs_ring_after"]}
+                         for e in lens_report["lens"]["eyes"]],
+                "protected_max_abs_rgb_diff": {k: v["max_abs_rgb_diff"]
+                                               for k, v in lens_report["protected_regions"].items()},
+            }))
+        audit = {"before": before, "lens_corrected": lens_corrected, "after": texture, "mask": mask,
+                 "origin": np.asarray(face.origin)}
+        if has_geometry:
+            audit.update(lens_weight=lens_qa["lens_weight"], temple_band=lens_qa["temple_band"],
+                         protected=lens_qa["protected"])
+            np.savez_compressed(out.parent / "deglass_geometry.npz", texel_points=face.texel_points,
+                                texel_y=face.texel_y, texel_x=face.texel_x, covered=face.covered,
+                                skin_mask=face.skin_mask, eye_region=lens_masks["eye"], ear=lens_masks["ear"],
+                                front=projection.front_curves, temples=projection.temple_curves,
+                                eyes=projection.eyes, radii=projection.radii, protected=projection.protected)
+        np.savez_compressed(out.parent / "deglass_audit.npz", **audit)
         if previews:
             preview_dir.mkdir(parents=True, exist_ok=True)
             Image.fromarray(mask.astype(np.uint8) * 255).save(preview_dir / "deglass_uv_mask.png")
             Image.fromarray(before).save(preview_dir / "deglass_before.png")
             Image.fromarray(texture).save(preview_dir / "deglass_after.png")
+            if has_geometry:
+                Image.fromarray(np.maximum(lens_qa["lens_weight"] * 255, lens_qa["temple_band"] * 255).astype(np.uint8)).save(
+                    preview_dir / "deglass_lens_field.png")
         texture = finish_texture(texture, face.covered)
 
     # Under the jaw the photos only carry the chin shadow (and beard stubble): take the body skin there.
@@ -733,7 +806,7 @@ def run(
         "license": "MakeHuman CC0 + private non-commercial FLAME/Pixel3DMM fit; never redistribute",
     }
     extras = {"dtHybrid": marker, "dtBodyfix": solution, "dtScanHandsRemoved": False, "dtHasMakeHumanHands": True}
-    extras["dtDeglass"] = {k: v for k, v in deglass_report.items() if k != "glasses_report"}
+    extras["dtDeglass"] = {k: v for k, v in deglass_report.items() if k not in ("glasses_report", "lens_residue")}
     log("writing the hybrid GLB")
     glb = write_glb(out, mesh, atlas, extras, hair=hair_mesh, normal_atlas=normal_atlas)
 
