@@ -26,6 +26,7 @@ Pure CPU, no GPU, no Blender, no bpy. Node scripts use the repo's `three` and `p
     .venv/Scripts/python rig_scan.py ../../../user-data/twin/out/shape/mesh.glb ../../../user-data/twin/out/rig
     node check_pose.mjs  <out>/rigged.glb --json=<out>/check.json      # headless three.js sanity + edge stretch
     node render_preview.mjs <out>/rigged.glb <out>/previews name       # t-pose / walk / hips PNG sheets
+    node wrist_qa.mjs <out>/rigged.glb --json=<out>/wrist.json --png=<out>/wrist   # wrist / forearm cross-sections + hand crops per pose
 
     # the web app on a twin package (dev server running: npm run dev -w @dt/web)
     node app_qa.mjs ../../../user-data/twin/out/rig ../../../user-data/twin/out/app --tag=twin   # poses, zoom, tee + jeans + sneakers
@@ -82,6 +83,17 @@ forearm; the fitted hand has no fist to fit and can sit on a thigh, so nothing m
 surface patches (< 2000 triangles) whose dominant bone is skeleton-distant from everything around them (the forearm end
 lying against a thigh is weighted to the thigh by the transfer), instead of letting `--cut-bridges` leave them floating.
 Tests: `tests/test_hand_weights.py`.
+
+## Wrist QA (candy-wrapper check)
+
+The 53-bone rig has no twist bones, so linear blend skinning shrinks a ring of skin to `cos(roll / 2)` where a hand roll about
+the forearm axis is handed from `lowerarm` to `hand`. `wrist_qa.mjs` poses a rigged GLB (the twin, or the mannequin
+`apps/web/public/assets/body/base.glb`) with the app's pose JSONs and reports, per pose and arm, the swing-twist roll of the hand
+and lowerarm, the palm normal, the wrist bend, and the cross-section AREA of the skin on planes across the forearm and hand
+(posed / rest; `areaAtWrist`, `minForearm`, `volumeRatio`). `--png=<dir>` also writes shaded hand crops (front, side, top; nothing above the
+neck is drawn). The mannequin and a twin must agree: the twin takes the template's own weights, so a collapse that shows on both
+is a pose problem, not a weight problem (the first poses had a 165 deg hand roll: wrist area x0.11 on the twin, x0.13 on the mannequin;
+see `apps/web/scripts/generate-poses.mjs`). A healthy pose set keeps `areaAtWrist` above 0.85 in every pose.
 
 ## Hybrid (template-character) twins
 
