@@ -8,7 +8,8 @@ web app**. Nothing is scanned and no foreign head is grafted.
 2. **Head shape**: the template's _own_ head vertices are deformed to the fitted neutral FLAME surface (non-rigid
    registration, `register.py` / `headfit.py`). Same vertices, same topology, no seam. The neck loop and everything below
    it keep their exact positions (neck girth is verified to 1e-6 cm).
-3. **Face texture**: the two photos are projected with the exact FLAME cameras into the template head's **fixed UV
+3. **Face texture**: glasses-free selfies use locally fitted perspective cameras on the existing FLAME identity;
+   the legacy two photos are projected with the exact FLAME cameras into the template head's **fixed UV
    island** (`facetex.py`, reusing the proven `head/flame` baker: z-buffer visibility, view-angle weights, luminance
    matching, multiband blend, mirrored right view for the unseen side). The skin tone is propagated to the whole body
    texture and boxer shorts are painted (`skin.py`).
@@ -62,6 +63,59 @@ fails (`verify_report`: neck girth, seam colour step, flipped triangles, non-man
 Inputs: the FLAME fit folder (`head_neutral.obj`, `cameras.json` `dt-flame-head-cameras/1`, `fitted_views/{front,right}.ply`),
 `front.jpg` / `right.jpg` with exactly the camera's original size, `FLAME_masks` + `mediapipe_landmark_embedding` from
 `user-data/flame/`, the bodyfix GLB (its `dtBodyfix` extras) and the tape `measurements.json`.
+
+## Glasses-free photo set
+
+`hybrid.py --photos-set {auto,glasses,noglasses}` defaults to `auto`: when `nog_front.jpeg` exists in
+`user-data/twin/head/`, all three `nog_front.jpeg`, `nog_left.jpeg`, `nog_right.jpeg` are required and used. The
+launcher still passes `--photos head/colab_upload`; the hybrid stage finds the glasses-free set in its parent. An
+explicit `--photos` directory may contain the three `nog_*.jpeg` files itself. `--photos-set glasses` retains the
+old exact Colab cameras and mirrored right-side fill. Selection flags belong to `hybrid.py`; the launcher currently
+uses its automatic default (its CLI and input cache inventory are outside this stage's scope).
+
+`hybridbody/photofit.py` processes photos only in memory, honours EXIF orientation, runs the existing local MediaPipe
+Face Landmarker (478 points), and evaluates the official 105-landmark FLAME barycentric embedding on the existing
+neutral identity. Difficult profiles retry in-memory crops and detector rotations; their landmarks are mapped back
+to the decoded original pixels. Focal-grid RANSAC PnP seeds robust joint rotation, translation and log-focal fitting,
+with back-facing points and gross residuals excluded during refinement. OpenCV camera axes (+Y down, +Z forward)
+are converted to the baker's FLAME axes (+Y up, -Z forward). Principal point is fixed at image centre; square pixels,
+zero lens distortion and neutral expression are assumed. No FLAME model weights or expression data are needed.
+
+The private `photo_fits/` directory contains the 478 landmarks, 105 embedding projections, inlier flags and camera
+matrices. `hybrid_report.json` records selection, camera fits, all/visible/inlier residuals, XYZ Euler pose angles,
+camera azimuth/elevation and focal-bound warnings. Millimetre RMS means image-plane reprojection displacement at
+the fitted depth, not an independent measured 3D shape error. The detection model is Apache-2.0; the embedding and
+identity remain licensed local FLAME inputs (obtain from the official FLAME site); never redistribute them.
+
+Higher-confidence (0.5 then 0.2) crop/rotation attempts precede acceptance of a profile detection. Very low-confidence
+0.05 detections are not accepted: they can put a convincing landmark face on a photographed ear. When a side camera
+sign contradicts the specified subject side, that source is horizontally corrected. Bilateral embedding
+correspondences are swapped and its camera is refit from a reflected seed (two reflections preserve a proper
+rotation); the front source is corrected only when both side cameras imply a shared mirror. This is recorded per view;
+no side borrows pixels from the other. The numeric audit retains decoded source landmarks and corrected embedding
+pixels. Sparse profile fits (fewer than 60 inliers) additionally align the observed cheek/jaw oval to FLAME's face
+boundary with bounded robust ICP; its before/after RMS is reported. A soft source face-oval mask excludes photo
+ears, hair and background from face texels; rejected counts are recorded. No photo, crop or landmark overlay is saved.
+An additional dark-source guard above the eyes rejects photographed hair on the upper forehead, relative to the
+front skin luminance. It protects brows and beard and leaves the existing shell scalp tint unchanged.
+
+The three-view bake has no mirrored input. Z-buffer visibility and angle confidence still gate every sample.
+Smooth priors give the face centre a 12x front multiplier and 0.15x profile multipliers; sides/ears retain equal
+priors. Over a 30 mm chin transition, front gains up to another 19x, left drops to 25%, and the tilted right drops
+to 2%. These multiply visibility, so an occluded front never supplies a fake observation. Robust overlap Lab
+offsets match lighting and white balance to front; multiband luminance blending and measured chroma are retained.
+Low-confidence fallback is feathered over about 4 mm in atlas space to avoid face-oval mask seams. Body tone
+matching, the neck seam hand-over (Delta Lab < 2), neckhair and the hair shell scalp tint are unchanged.
+Deglass is automatically disabled, with reason `glasses-free photo set`; the later accessory stage preserves this
+decision and still adds the 3D glasses. Head renders in `previews/head_{bare,hair}_{front,three_quarter_left,
+three_quarter_right,side_left,side_right}.png` have no glasses accessory. Source photos and crops are never exported
+or displayed by this path.
+
+When replacing photos, run `run_all.py --body hybrid --head flame --from-stage hybrid --force`: the launcher's
+freshness inventory currently tracks the old photo set only. A missing or undetected new view fails clearly;
+it never silently mixes photo sets or mirrors an observed side. Profile fits can be focal-depth ambiguous; inspect
+the reported bounds/residuals and twin renders before accepting a bake. Expression/jaw fitting is not applied;
+face-outline refinement is limited to sparse profile fits.
 
 ## Method
 
@@ -369,7 +423,7 @@ For the app's standard MakeHuman model (nothing here is wired into `apps/web` ye
   and the face-map, which bounds feature alignment (lips, lids) rather than the surface residual (~1 mm on the face).
 - The seam of FLAME's face at the jaw is tied to the neck loop: the chin underside fades in over 12 mm, so the lower jaw
   contour is only partly transferred.
-- Texture: only front and right photos exist; the left side is mirrored, the back of the head and under the chin are flat
+- Legacy texture (`--photos-set glasses`): only front and right photos are used; the left side is mirrored, the back of the head and under the chin are flat
   skin tone (hidden by hair). Illumination is normalised, not delit. Photographed glasses frames and beard stay in the
   texture (the separate glasses accessory is not wired here). The hair is soft strand-atlas cards for the hair shader
   (mip-mapped coverage with a gain of 2.5, so cards stay solid at a distance); the real look is decided by the web

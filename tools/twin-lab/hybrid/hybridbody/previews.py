@@ -1,4 +1,4 @@
-"""Private renders for the lead (bare and with hair, full body and head close-ups). Never open or display them."""
+"""Private twin renders (bare and with hair, full body and head close-ups), never source photos."""
 
 from __future__ import annotations
 
@@ -15,7 +15,9 @@ from twintex.colorspace import srgb_to_linear
 from .assemble import Assembled
 
 VIEWS = (("front", 0.0), ("side", 270.0), ("back", 180.0), ("three_quarter", 35.0))
-HEAD_VIEWS = (*VIEWS, ("three_quarter_back", 215.0), ("top", None))
+FACE_VIEWS = (("front", 0.0), ("three_quarter_left", 35.0), ("three_quarter_right", 325.0),
+              ("side_left", 90.0), ("side_right", 270.0))
+HEAD_VIEWS = (*VIEWS, *FACE_VIEWS[1:], ("three_quarter_back", 215.0), ("top", None))
 # hairline / temple QA close-ups from both sides (hair variant only, 960 px, not part of the contact sheets)
 HAIR_QA_VIEWS = (
     ("qa_three_quarter_left", 35.0),
@@ -432,7 +434,7 @@ def write_previews(
             )
         head = points[points[:, 1] > head_y]
         for clay in (False, True):
-            for name, angle in HEAD_VIEWS if variant == "hair" else VIEWS:  # top / 3-4 back only with hair
+            for name, angle in HEAD_VIEWS if variant == "hair" else (*VIEWS, *FACE_VIEWS[1:]):
                 camera = head_camera(name, angle, head, 640)
                 lights = RAKING_LIGHTS if clay else DEFAULT_LIGHTS
                 plan.append(

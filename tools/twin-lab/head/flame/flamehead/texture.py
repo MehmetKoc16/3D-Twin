@@ -138,7 +138,10 @@ def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symm
 
 
 def bake_texels(
-    neutral, faces, fid, y, x, tri, lam, fitted, cameras, photos, symmetry, masks, diagnostics=None, gate=None
+    neutral, faces, fid, y, x, tri, lam, fitted, cameras, photos, symmetry, masks, diagnostics=None, gate=None,
+    view_names=None, view_preferences=None, harmonize_chroma=False,
+    view_face_masks=None,
+    reject_forehead_hair=False,
 ):
     """Bake the photos into the texels ``(y, x)`` of a (rows, cols) canvas whose triangle ids are ``fid``.
 
@@ -148,8 +151,13 @@ def bake_texels(
     """
     shape = fid.shape
     points = np.einsum("ij,ijk->ik", lam, neutral[tri])
+    mask_rejections = {}
     images, weights = [], []
-    names = ["front", "right", "mirrored_right"]
+    names = list(view_names) if view_names is not None else ["front", "right", "mirrored_right"]
+    face_member = np.zeros(len(neutral), bool)
+    face_member[masks.get("photo_face_region", masks.get("face", []))] = True
+    if not names or names[0] != "front":
+        raise ValueError("Front must be the first colour reference view")
     for name in names:
         print(f"[flame] projecting {name}", flush=True)
         view = "right" if name == "mirrored_right" else name
@@ -158,6 +166,7 @@ def bake_texels(
         normal = welded_vertex_normals(mesh, faces)
         image = np.zeros((*shape, 3), np.float32)
         weight = np.zeros(shape, np.float32)
+        rejected = 0
         for start in range(0, len(y), 24000):
             end = start + 24000
             ti = symmetry[tri[start:end]] if name == "mirrored_right" else tri[start:end]
@@ -165,8 +174,18 @@ def bake_texels(
             n = np.einsum("ij,ijk->ik", lam[start:end], normal[ti])
             n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
             color, w = project_samples(q, n, photos[view], camera, depth, edge_distance, scale)
+            if view_face_masks is not None:
+                photo_xy = camera.to_original(camera.project(q)[:, :2])
+                face_weight = sample(view_face_masks[view], photo_xy).ravel()
+                # A photographed ear/hair/background can never be evidence for
+                # a face texel, even when the camera's local reprojection agrees.
+                is_face = face_member[tri[start:end]].any(1)
+                rejected += int((is_face & (w > 1e-5) & (face_weight < 0.5)).sum())
+                w *= np.where(is_face, face_weight, 1.0)
             if gate is not None:
                 w = w * gate[start:end]
+            if view_preferences is not None:
+                w *= view_preferences[name][start:end]
             if name == "mirrored_right":
                 # Symmetry augments only the side opposite the fitted right camera.
                 side = np.sign(camera.center[0]) or 1
@@ -175,32 +194,75 @@ def bake_texels(
             weight[y[start:end], x[start:end]] = w
         images.append(image)
         weights.append(weight)
+        if view_face_masks is not None:
+            mask_rejections[name] = rejected
     from .colour import from_lab, paired_colour, skin_samples, to_lab
 
-    # The previous independent RGB gains and positive RGB offsets altered white
-    # balance and diluted chroma. Match only CIELAB luminance between the views.
+    forehead_rejections = {}
+    if reject_forehead_hair and len(masks.get("eye_region", [])):
+        # The new photo's hairline need not agree with the existing shell. Keep
+        # photo hair off exposed forehead skin; the unchanged shell tint supplies
+        # the actual scalp. A height guard preserves brows, eyes and beard.
+        eye = neutral[masks["eye_region"]].mean(0)
+        forehead = (points[:, 1] > eye[1] + 0.025) & (points[:, 2] > eye[2] - 0.025)
+        forehead &= np.abs(points[:, 0] - eye[0]) < 0.065
+        front_lab = to_lab(linear_to_srgb(images[0][y, x]))
+        reference = skin_samples(front_lab) & (weights[0][y, x] > 0.1) & face_member[tri].all(1)
+        if reference.sum() >= 32:
+            skin_l = float(np.median(front_lab[reference, 0]))
+            ramp = np.clip((points[:, 1] - eye[1] - 0.025) / 0.012, 0, 1)
+            ramp = ramp * ramp * (3 - 2 * ramp)
+            for name, image, weight in zip(names, images, weights, strict=True):
+                lab = to_lab(linear_to_srgb(image[y, x]))
+                hair = forehead & (lab[:, 0] < skin_l - 12)
+                forehead_rejections[name] = int((hair & (weight[y, x] > 1e-5)).sum())
+                weight[y, x] *= 1 - ramp * hair
+
+    # Legacy photos retain luminance-only matching. New camera/lighting sources
+    # additionally match chroma on overlapping semantic skin, never RGB gains.
     gains = {}
+    semantic_overlap = np.zeros(shape, bool)
+    semantic_overlap[y, x] = face_member[tri].all(1)
     source_front = images[0][y, x].copy()
-    for i in (1, 2):
+    for i in range(1, len(names)):
         overlap = (weights[0] > 0.08) & (weights[i] > 0.08)
         l0, li = images[0].mean(2), images[i].mean(2)
         overlap &= (l0 > 0.05) & (li > 0.05) & (l0 < 0.75) & (li < 0.75)
+        if harmonize_chroma:
+            overlap &= semantic_overlap
+            oy, ox = np.nonzero(overlap)
+            skin = skin_samples(to_lab(linear_to_srgb(images[0][oy, ox])))
+            skin &= skin_samples(to_lab(linear_to_srgb(images[i][oy, ox])))
+            overlap[oy[~skin], ox[~skin]] = False
         if overlap.sum() >= 32:
             a = to_lab(linear_to_srgb(images[0][overlap]))
             b = to_lab(linear_to_srgb(images[i][overlap]))
             offset_l = float(np.clip(np.median(a[:, 0] - b[:, 0]), -15, 15))
+            offset_ab = np.clip(np.median(a[:, 1:] - b[:, 1:], axis=0), -20, 20) if harmonize_chroma else np.zeros(2)
         else:
             offset_l = 0.0
+            offset_ab = np.zeros(2)
         lab = to_lab(linear_to_srgb(images[i]))
         lab[:, :, 0] += offset_l * np.clip(lab[:, :, 0] / 30, 0, 1) ** 2
+        lab[:, :, 1:] += offset_ab
         images[i] = srgb_to_linear(np.clip(from_lab(lab), 0, 1))
+        colour_overlap = None
+        if overlap.sum() >= 32:
+            matched = to_lab(linear_to_srgb(images[i][overlap]))
+            difference = a - matched
+            colour_overlap = {"before_mean_delta_e76": float(np.linalg.norm(a.mean(0) - b.mean(0))),
+                              "after_mean_delta_e76": float(np.linalg.norm(difference.mean(0))),
+                              "after_median_delta_e76": float(np.median(np.linalg.norm(difference, axis=1)))}
         gains[names[i]] = {
             "luminance_offset_lab": offset_l,
-            "chroma_modified": False,
+            "chroma_modified": harmonize_chroma,
+            "chroma_offset_lab": offset_ab.tolist(),
             "overlap_texels": int(overlap.sum()),
+            "overlap_colour": colour_overlap,
         }
     # Front is the measured identity/white-balance reference where it is visible.
-    weights[0] *= 4
+    if view_preferences is None:
+        weights[0] *= 4
     total = sum(weights)
     observed = total[y, x] > 1e-5
     if observed.sum() < 32:
@@ -219,7 +281,7 @@ def bake_texels(
     eye[np.concatenate((masks["left_eyeball"], masks["right_eyeball"]))] = True
     unobserved_eye = eye[tri].all(1) & ~observed
     fallback[unobserved_eye] = srgb_to_linear(np.array([0.80, 0.77, 0.73], np.float32))
-    for i in range(3):
+    for i in range(len(names)):
         print(f"[flame] surface-space fill {names[i]}", flush=True)
         usable = weights[i][y, x] > 1e-5
         if usable.sum() >= 32:
@@ -271,6 +333,8 @@ def bake_texels(
         "photo_colour": colour,
         "underchin_front_visible_texels": int(underchin.sum()),
         "view_weight_share": {n: float(w.sum() / max(total.sum(), 1e-9)) for n, w in zip(names, weights, strict=True)},
+        "face_mask_rejected_texels": mask_rejections,
+        "forehead_photo_hair_rejected_texels": forehead_rejections,
     }
 
 

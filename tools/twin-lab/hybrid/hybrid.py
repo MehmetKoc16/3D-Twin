@@ -87,6 +87,8 @@ def main(argv=None):
     )
     parser.add_argument("--fit", type=Path, help="FLAME fit folder (default user-data/twin/head/flame/fit)")
     parser.add_argument("--photos", type=Path, help="folder with front.jpg and right.jpg (default colab_upload)")
+    parser.add_argument("--photos-set", choices=("auto", "glasses", "noglasses"), default="auto",
+                        help="auto selects nog_front/left/right.jpeg when nog_front exists in the head folder")
     parser.add_argument("--flame-assets", type=Path, help="FLAME masks / MediaPipe embedding (default user-data/flame)")
     parser.add_argument("--out", type=Path, required=True, help="hybrid.glb path (under user-data/)")
     parser.add_argument(
@@ -144,6 +146,7 @@ def main(argv=None):
             measurements=args.measurements,
             fit=args.fit,
             photos=args.photos,
+            photos_set=args.photos_set,
             flame_assets=args.flame_assets,
             hair=args.hair,
             hair_hex=args.hair_hex,

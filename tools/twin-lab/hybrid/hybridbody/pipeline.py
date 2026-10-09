@@ -46,6 +46,7 @@ from .partstex import (
     srgb_hex,
 )
 from .photocolours import hair_colour, iris_colour
+from .photofit import resolve_photos_set
 from .register import Surface, smoothstep
 from .skin import (
     Underwear,
@@ -362,6 +363,7 @@ def run(
     glasses_bust=None,
     fetch_skin=False,
     restrict_neck_hair=True,
+    photos_set="auto",
 ):
     started = time.perf_counter()
     hair = resolve_hair(hair)
@@ -372,6 +374,9 @@ def run(
         private_output(preview_dir)
     fit = Path(fit or REPO / "user-data/twin/head/flame/fit")
     photos = Path(photos or REPO / "user-data/twin/head/colab_upload")
+    photos_set, photos = resolve_photos_set(photos_set, photos)
+    if photos_set == "noglasses":
+        deglass = False
     flame_assets = Path(flame_assets or REPO / "user-data/flame")
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -408,15 +413,20 @@ def run(
         raise ValueError("Body atlas width must not exceed 4096")
     head = build_head_mesh(template)
     log("baking the face from the photos")
-    face = bake_face(template, head_fit, flame, head, model.uv, photos, size, log=log)
+    face = bake_face(template, head_fit, flame, head, model.uv, photos, size, log=log,
+                     photos_set=photos_set, camera_audit_dir=out.parent / "photo_fits")
     photo = face.report["photo_colour"]
     tone = np.asarray(photo["photo_mean_lab"] if photo else FALLBACK_SKIN_LAB, np.float64)
     log(f"skin tone Lab {tone.round(2).tolist()}")
 
-    cameras = load_cameras(fit / "cameras.json")
-    photo_images = load_photos(photos, cameras)
-    front_view, _ = read_mesh(fit / "fitted_views/front.ply")
-    right_view, _ = read_mesh(fit / "fitted_views/right.ply")
+    if photos_set == "noglasses":
+        cameras, photo_images = face.cameras, face.photos
+        front_view = right_view = flame.neutral
+    else:
+        cameras = load_cameras(fit / "cameras.json")
+        photo_images = load_photos(photos, cameras)
+        front_view, _ = read_mesh(fit / "fitted_views/front.ply")
+        right_view, _ = read_mesh(fit / "fitted_views/right.ply")
     iris_measured = iris_colour(flame, front_view, cameras["front"], photo_images["front"])
     choice = plausible_iris(iris_measured["srgb"] if iris_measured["from_photo"] else None, iris_hex)
     iris = {**iris_measured, "srgb": choice["srgb"].tolist(), "method": choice["method"]}
@@ -478,7 +488,8 @@ def run(
     canvas = pad_texture(canvas, covered)
     normal_canvas = pad_texture(normal_canvas, covered)
 
-    texture, observed = blend_unobserved(face.texture, face.covered, face.confidence, tone)
+    texture, observed = blend_unobserved(face.texture, face.covered, face.confidence, tone,
+                                        blur_sigma=size / 128 if photos_set == "noglasses" else 2.0)
     texture = finish_texture(texture, face.covered)
     texture, match = match_mean(texture, face.covered, face.skin_mask, tone)
     texture = finish_texture(texture, face.covered)
@@ -490,6 +501,8 @@ def run(
 
     accessory_bust = Path(glasses_bust) if glasses_bust else REPO / BUST_RELATIVE
     deglass_report = {"enabled": False, "reason": "opt out" if not deglass else "no glasses accessory bust"}
+    if photos_set == "noglasses":
+        deglass_report["reason"] = "glasses-free photo set"
     if deglass and accessory_bust.is_file():
         from PIL import Image
 
@@ -817,6 +830,16 @@ def run(
         "bodyfixSolution": solution,
         "head": head_fit.report,
         "texture": {
+            "photos_set": photos_set,
+            "camera_fits": face.report.get("camera_fits", {}),
+            "face_mask_rejected_texels": face.report.get("face_mask_rejected_texels", {}),
+            "forehead_photo_hair_rejected_texels": face.report.get("forehead_photo_hair_rejected_texels", {}),
+            "view_weighting": (
+                {"centre": "front 12x; profiles 0.15x", "chin_underchin_front_neck":
+                 "front up to 31x; left 0.25x; tilted right 0.02x", "sides_ears": "visible real side photos",
+                 "mirror": False, "colour": "robust overlap Lab offsets to front"}
+                if photos_set == "noglasses" else {"front": "4x", "mirror": True}
+            ),
             "atlas_size": [int(atlas.shape[1]), int(atlas.shape[0])],
             "square_uv_size": size,
             "photo_observed_ratio": face.report["photo_observed_ratio"],

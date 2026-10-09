@@ -1,10 +1,12 @@
-"""Bake the two fitted photos into the template head's fixed UV island with the exact FLAME cameras.
+"""Bake fitted photos into the template head's fixed UV island with explicit FLAME cameras.
 
 Every template head vertex corresponds to one point on the neutral FLAME surface (closest point after the
 registration). Posing that point with each view's fitted FLAME mesh gives the vertex's position in the view's
 camera frame, so the template head is "posed" like FLAME in each photo and the proven FLAME baker (z-buffer
 visibility, view-angle weights, luminance matching, multiband blending, mirror for the unseen side) runs unchanged
-on the template's own triangles and UV texels.
+on the template's own triangles and UV texels. Glasses-free views instead use
+locally fitted cameras on the neutral identity, anatomical priors and observed
+face-oval masks; the real left view replaces mirrored augmentation.
 """
 
 from __future__ import annotations
@@ -104,9 +106,9 @@ def flame_masks_on_head(template: Template, fit: HeadFit, flame: FlameFit, head:
     dominant = flame.faces[np.maximum(fit.face_ids, 0)][np.arange(len(fit.face_ids)), fit.face_bary.argmax(1)]
     result = {}
     welded_flame = dominant[head.welded]
-    for key in ("face", "eye_region", "lips", "neck"):
+    for key in ("face", "eye_region", "lips", "neck", "left_ear", "right_ear"):
         member = np.zeros(len(flame.neutral), bool)
-        member[flame.masks[key]] = True
+        member[flame.masks.get(key, [])] = True
         result[key] = np.flatnonzero(member[welded_flame] & (fit.face_ids[head.welded] >= 0))
     result["left_eyeball"] = np.zeros(0, np.int64)
     result["right_eyeball"] = np.zeros(0, np.int64)
@@ -159,14 +161,26 @@ def bake_face(
     size: int,
     *,
     log=None,
+    photos_set="glasses",
+    camera_audit_dir=None,
 ) -> FaceBake:
-    cameras = load_cameras(flame.fit_dir / "cameras.json")
-    photos = load_photos(photos_dir, cameras)
+    camera_report = {}
+    face_masks = None
+    if photos_set == "noglasses":
+        from .photofit import fit_photo_set
+
+        cameras, photos, camera_report, face_masks = fit_photo_set(flame, photos_dir, camera_audit_dir)
+    else:
+        cameras = load_cameras(flame.fit_dir / "cameras.json")
+        photos = load_photos(photos_dir, cameras)
     views, posed = {}, {}
     from flamehead.assets import read_mesh
 
-    for name in ("front", "right"):
-        views[name], faces = read_mesh(flame.fit_dir / "fitted_views" / f"{name}.ply")
+    for name in cameras:
+        if photos_set == "noglasses":
+            views[name], faces = flame.neutral, flame.faces
+        else:
+            views[name], faces = read_mesh(flame.fit_dir / "fitted_views" / f"{name}.ply")
         if views[name].shape != flame.neutral.shape or not np.array_equal(faces, flame.faces):
             raise ValueError(f"{name} fitted mesh topology differs from the neutral FLAME mesh")
         posed[name] = posed_vertices(template, fit, flame, views[name], head)
@@ -182,11 +196,26 @@ def bake_face(
     lam = bary[y, x]
     tri = island_faces[face]
     masks = flame_masks_on_head(template, fit, flame, head)
+    if photos_set == "noglasses":
+        # Upper template forehead can correspond to FLAME scalp. It still must
+        # not take photographed hair/background outside the detected face oval.
+        # Ears and neck retain their own photo evidence and existing cleanup.
+        photo_face_region = np.ones(len(head.ids), bool)
+        for key in ("left_ear", "right_ear", "neck"):
+            photo_face_region[masks[key]] = False
+        masks["photo_face_region"] = np.flatnonzero(photo_face_region)
     # Texels whose template surface is far from FLAME (ears' backs, neck) carry no photo evidence.
     snapped = fit.snap_distance[head.welded] * 1000
     texel_gap = np.einsum("ij,ij->i", lam, snapped[tri])
     gate = 1.0 - smoothstep((texel_gap - 3.0) / 4.0)
     diagnostics = {}
+    preferences = None
+    if photos_set == "noglasses":
+        from .photofit import view_preferences
+
+        points = np.einsum("ij,ijk->ik", lam, moved[tri])
+        chin_y = float(moved[masks["face"], 1].min())
+        preferences = view_preferences(points, chin_y, float(np.median(moved[:, 0])))
     if log:
         log("baking photos into the head UV island")
     texture, report = bake_texels(
@@ -204,6 +233,11 @@ def bake_face(
         masks,
         diagnostics,
         gate=gate.astype(np.float32),
+        view_names=list(cameras) if photos_set == "noglasses" else None,
+        view_preferences=preferences,
+        harmonize_chroma=photos_set == "noglasses",
+        view_face_masks=face_masks,
+        reject_forehead_hair=photos_set == "noglasses",
     )
     from .skin import finish_texture
 
@@ -212,6 +246,8 @@ def bake_face(
     report["uv_window"] = {"x": x0, "y": y0, "width": w, "height": h}
     report["island_texels"] = int(len(y))
     report["gated_texels"] = int((gate < 0.5).sum())
+    report["photos_set"] = photos_set
+    report["camera_fits"] = camera_report
     skin_mask = np.zeros((h, w), bool)
     skin_mask[y[diagnostics["skin"]], x[diagnostics["skin"]]] = True
     return FaceBake(
@@ -239,11 +275,12 @@ def blend_unobserved(
     skin_lab: np.ndarray,
     *,
     full_at: float = 0.06,
+    blur_sigma: float = 2.0,
 ) -> tuple[np.ndarray, dict]:
     """Where the photos say little (grazing, hidden), fade to the flat skin tone; return the new texture."""
     alpha = smoothstep(confidence / full_at)
     # Smooth the transition in texture space so charts never show seams between confident and fallback texels.
-    alpha = ndimage.gaussian_filter(alpha.astype(np.float32), 2.0) * covered
+    alpha = ndimage.gaussian_filter(alpha.astype(np.float32), blur_sigma) * covered
     lab = to_lab(texture)
     mixed = lab * alpha[..., None] + np.asarray(skin_lab, np.float32) * (1 - alpha[..., None])
     out = np.clip(np.rint(from_lab(mixed) * 255), 1, 255).astype(np.uint8)
