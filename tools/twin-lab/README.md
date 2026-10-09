@@ -1,137 +1,197 @@
-# twin-lab - photorealistic digital-twin spike lab
+# twin-lab - offline digital-twin tools
 
-Goal: turn AI-generated, consistent views of one person (made from that person's own photos) into a **textured, riggable
-3D mesh** that looks like them. This is a spike lab, not shipping code: it is deliberately separate from `apps/web`
-and `packages/avatar-core`, runs only on the developer machine and needs a CUDA GPU.
+This lab prepares private textured, rigged bundles for the web app's twin mode. `--body scan` retains a generated scan;
+`--body hybrid` builds a MakeHuman template character with a fitted head and fixed UVs. The Python tools are separate
+from `apps/web` and `packages/avatar-core`. Local shape inference needs CUDA; the remaining geometry/texture stages
+use their documented environments. Colab notebooks are separate, user-operated alternatives for shape and head fitting.
 
-| Folder     | Purpose                                                                                    |
-| ---------- | ------------------------------------------------------------------------------------------ |
-| `shape/`   | image(s) -> watertight 3D shape (Hunyuan3D-2 shape model), cleanup, normalisation, cameras |
-| `texture/` | project the photos onto the mesh (own README)                                              |
-| `rig/`     | auto-rigging (own README)                                                                  |
-| `head/`    | optional: reshape + re-texture the head from 4 real head photos (`head/recon/`)            |
+## Stages and environments
 
-Local-only artefacts (venvs, cloned third-party repos, model weights, run outputs) are git-ignored:
-`tools/twin-lab/**/.venv/`, `**/.cache/`, `**/weights/`, `**/outputs/`.
+Paths below are relative to `tools/twin-lab/`. Windows interpreters are `<venv>/Scripts/python.exe`; Unix uses
+`<venv>/bin/python`. Output names are relative to `--out-dir` unless otherwise stated. The table includes standalone
+helpers as well as launcher stages; it is not an execution order.
 
-## Privacy rules (strict)
+| Folder                                  | Purpose                                                                           | Venv / runtime                                                                     | Inputs                                                                                                                             | Outputs                                                                                                                                                                                    |
+| --------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `shape/`                                | Hunyuan3D shape generation, cleanup, normalisation and camera fits                | `shape/.venv` (CUDA)                                                               | `front.png`, optional back/left/right views, ignored weights                                                                       | `shape/mesh.glb`, OBJ, `mesh_hires.glb`, `raw.glb`, `meta.json`, cutouts/masks, previews                                                                                                   |
+| [texture/](texture/README.md)           | UV unwrap and photo projection                                                    | `texture/.venv`                                                                    | shape mesh/meta/cutouts and full-body views                                                                                        | `texture/textured.glb`, `baseColor.png`, `report.json`, cache and previews                                                                                                                 |
+| [refine/](refine/README.md)             | Landmark-driven face relief/rebake and armpit separation                          | `refine/.venv`                                                                     | textured GLB, front view (optional higher-resolution face view), app assets/landmarker                                             | `refine/refined.glb`, `refine_report.json`, fit cache and previews                                                                                                                         |
+| [head/flame/](head/flame/README.md)     | Replace scan facial surface/ears with an exported FLAME fit                       | `refine/.venv`                                                                     | current scan, neutral fit/cameras/posed views, front/right photos, FLAME masks/embedding                                           | `head/head.glb`, `flame_head_report.json`, previews                                                                                                                                        |
+| `head/recon/`                           | Experimental four-photo head deformation and retexture (`--head recon`)           | `refine/.venv`; optional masks via `shape/.venv`                                   | current scan; `front.jpg`, `back.jpg`, `profile_nose_right.jpg`, `profile_nose_left.jpg`; optional cleaned photos/masks            | `head/head.glb`, `head_report.json`, previews                                                                                                                                              |
+| [head/glasses/](head/glasses/README.md) | Standalone parametric head-local glasses generator                                | `bundle/.venv` (or `rig/.venv` with bundle dependencies)                           | twin GLB, optional `glasses.json` and refine landmarks                                                                             | requested `glasses.glb`, embedded later by bundle; not the automatic launcher's `glasses` implementation                                                                                   |
+| [head/deglass/](head/deglass/README.md) | Standalone offline photo frame masking/inpainting and dimensional estimates       | `head/deglass/.venv`                                                               | head photos, local MediaPipe + Big-LaMa ONNX models                                                                                | requested clean JPEGs, frame masks, `report.json`, debug images; `measure.py` writes `glasses.json`                                                                                        |
+| [bodyfix/](bodyfix/README.md)           | Correct scan to measurement targets and remove fused scan hands                   | `rig/.venv`                                                                        | latest scan, optional `measurements.json`, app body assets                                                                         | `bodyfix/bodyfixed.glb` with `dtBodyfix`/hand metadata, `bodyfix_report.json`; absent/empty measurements give a byte-exact no-op                                                           |
+| [hybrid/](hybrid/README.md)             | Native MakeHuman template body/head registration, skin/face atlas, parts and hair | `refine/.venv`                                                                     | bodyfix solution, measurements, FLAME fit/masks/embedding, selected head photos, app body/parts; optional bust and cached CC0 skin | `hybrid/hybrid.glb`, `hybrid_report.json`, `face_asset/`, previews; automatic post-rig glasses also writes `hybrid/glasses.glb`, `glasses_rigged.glb`, report and cleaned texture/previews |
+| [rig/](rig/README.md)                   | Fit/unpose scan or verify native hybrid; transfer 53-bone weights                 | `rig/.venv`                                                                        | current GLB, app body assets, optional embedded solution/hair                                                                      | `rig/{rigged.glb,twin.json,mh2twin.bin}`, reports/cache/previews (hybrid: `hybrid/rig/`)                                                                                                   |
+| `bundle/`                               | Validate and embed definition, mapping, texture and optional accessory            | `bundle/.venv`, fallback `rig/.venv`                                               | rigged GLB, `twin.json`, `mh2twin.bin`, optional glasses GLB                                                                       | `twin.glb` (hybrid: `hybrid/twin.glb`, override `--bundle-out`)                                                                                                                            |
+| [colab/](colab/README.md)               | User-operated TRELLIS.2 shape and Pixel3DMM FLAME-fit notebooks                   | TRELLIS isolated VM venv; Pixel3DMM micromamba Python 3.9 env; no local stage venv | explicitly supplied views/model archives, VM-downloaded weights                                                                    | `trellis2_shape.zip` (shape contract) or `head_fit.zip` (neutral head, parameters, cameras, posed views, provenance); extract only under `user-data/`                                      |
 
-1. Personal images live only in `user-data/twin/` (git-ignored). Never copy them, or anything derived from them
-   (cut-outs, previews, meshes with a likeness), into `docs/`, `apps/`, `packages/`, or any tracked path.
-2. `user-data/twin/refs/solo.json` lists which reference photos show the user alone. Only those files (plus
-   `user-data/twin/front.png` and later `back.png` / `left.png` / `right.png`) may be opened, processed or cropped. The other
-   photos contain other people and must never be touched.
-3. **Nothing is uploaded, ever**: no Hugging Face Spaces, no web APIs, no Colab. Everything runs locally. Downloading open
-   model _weights_ is fine (that is a download, not an upload).
-4. Outputs go to `user-data/twin/out/<stage>/` (shape: `user-data/twin/out/shape/`). `shape/generate.py` refuses to write
-   user outputs anywhere in the repo outside `user-data/` or a git-ignored `outputs/` folder.
-5. No face processing outside the local machine (same rule as the web app: `AGENTS.md`, "Privacy rule").
+`run_all.py` orders stages as **shape -> texture -> refine -> head -> bodyfix -> hybrid -> rig -> glasses -> bundle**.
+Refine/bodyfix are included when their scripts exist. Scan omits hybrid and automatic glasses; hybrid requires bodyfix
+and FLAME. The launcher constructs this graph before filtering the inclusive `--from-stage` / `--to-stage` range.
 
-## Usage: one-command pipeline and single-file bundle
+- `--body scan` is the default. Rig receives `--fingers merge --cut-bridges`; output is `<out-dir>/twin.glb`.
+- `--body hybrid` retains the MakeHuman body topology and its native hands/feet. Earlier scans provide a bodyfix shape
+  prior; hybrid re-solves the native body without scan clothing allowance, deforms its own head to FLAME and bakes into
+  fixed UVs. Rig receives `--fingers keep --smooth 0`; output is `<out-dir>/hybrid/twin.glb`.
+- `--head auto` (default) selects FLAME when `<input-dir>/head/flame/fit/head_neutral.obj` exists, otherwise none.
+  Explicit `flame`, `recon`, `none` are supported. Hybrid requires `flame` or a successful auto selection.
+  `--with-head` is a deprecated recon alias. FLAME precedes bodyfix even for a full hybrid run.
+- Hybrid's automatic `glasses` stage runs after rig when the default `<input-dir>/hy3d/hy3d.glb` exists or
+  `--glasses-hy3d` is supplied, unless `--no-glasses`. It invokes `hybrid/hybridbody/glasses_hy3d.py` in the refine venv,
+  not `head/glasses/make_glasses.py`. Standalone photo deglass is not a launcher stage; hybrid has its own atlas cleanup.
 
-Run from the repository root (the launcher itself needs only the Python standard library):
+## Privacy and licensing boundaries
 
-```powershell
-python tools/twin-lab/run_all.py --input-dir user-data/twin --out-dir user-data/twin/out --height-cm 178
-python tools/twin-lab/run_all.py --dry-run
-python tools/twin-lab/run_all.py --from-stage texture --to-stage bundle --force
-# Package existing rig outputs without rerunning reconstruction:
-python tools/twin-lab/run_all.py --from-stage bundle
-```
+[AGENTS.md](../../AGENTS.md) is authoritative. Personal inputs and **all** derived outputs, reports, previews and
+screenshots remain under gitignored `user-data/`; never copy them into docs, app assets, packages or fixtures.
+Use only explicitly authorised input files. The web app's face processing stays in the browser; local lab stages run
+on the local machine and do not upload inputs. Optional Colab notebooks require a separate user-operated session upload
+and the documented cleanup; they are not called by the launcher or app. Downloaded source/model caches and stage venvs
+stay ignored (`**/.cache/`, `**/weights/`, `**/outputs/`, `**/.venv/`).
 
-The order is **shape -> texture -> refine (when installed) -> head (when integrated) -> bodyfix (when installed) -> rig -> bundle**. Each stage uses
-its own `<stage>/.venv/Scripts/python.exe` on Windows or `<stage>/.venv/bin/python` on Unix.
-Set up shape, texture and rig using their instructions above / their READMEs. Bundle uses
-`bundle/.venv` when present, otherwise `rig/.venv`. Bodyfix always reuses `rig/.venv`.
-Install the bundle's pinned dependencies once:
+Only CC0, CC-BY, MIT, Apache-2.0 or BSD assets may be committed; CC-BY assets require [credits](../../CREDITS.md).
+Research/non-commercial models may be used locally or in Colab under their own terms, with ignored downloads and private
+outputs. FLAME/Pixel3DMM-derived hybrids are not permissive web assets despite their CC0 template. Bust-derived hair or
+accessories retain their source restrictions as well. Bundle provenance is a short source label, not licence clearance.
+
+## Common runs (repository root, PowerShell)
+
+The launcher uses only Python's standard library. Set up stage dependencies first, using each stage's README.
+Bundle may share the rig environment:
 
 ```powershell
 tools/twin-lab/rig/.venv/Scripts/python.exe -m pip install -r tools/twin-lab/bundle/requirements.txt
 ```
 
-Alternatively create `tools/twin-lab/bundle/.venv` and install the same requirements there.
-For tests in that environment, also install `pytest==9.1.1`. The rig environment
-already includes pytest; when using it for bundle dependencies, run:
+Alternatively create `bundle/.venv` and install those requirements there. Its standalone tests also need
+`pytest==9.1.1` (already in the rig environment).
+
+Prepare a FLAME fit before running hybrid: follow [Pixel3DMM setup](colab/pixel3dmm_README.md), extract the exported fit
+into `user-data/twin/head/flame/fit/`, keep original matching `front.jpg`/`right.jpg` in `head/colab_upload/`, and obtain
+FLAME masks/MediaPipe embedding into `user-data/flame/`. A full run also needs `front.png`, optional back/left/right PNGs
+and `measurements.json` under the input directory. This command does not create the Pixel3DMM fit itself.
 
 ```powershell
-tools/twin-lab/rig/.venv/Scripts/python.exe -m pytest tools/twin-lab/bundle/tests -p no:cacheprovider
+# Full scan path; --head auto uses a prepared fit when present.
+python tools/twin-lab/run_all.py --body scan --input-dir user-data/twin --out-dir user-data/twin/out --height-cm 178
+# Full hybrid path, including upstream shape/texture/head/bodyfix.
+python tools/twin-lab/run_all.py --body hybrid --head flame --input-dir user-data/twin --out-dir user-data/twin/out --height-cm 178
+# Resume at hybrid: bodyfix and FLAME inputs must already exist.
+python tools/twin-lab/run_all.py --body hybrid --head flame --from-stage hybrid --to-stage bundle --force
+# Re-package existing hybrid rig (and the automatic accessory if configured).
+python tools/twin-lab/run_all.py --body hybrid --head flame --from-stage bundle --force
+# Print the selected commands without running stages or requiring venvs.
+python tools/twin-lab/run_all.py --body hybrid --head flame --from-stage hybrid --dry-run
 ```
 
-`front.png` is required. Existing `back.png`, `left.png`, and `right.png` beside it are
-passed automatically to shape (`--variant auto` selects multi-view) and texture. Outputs
-are placed under `<out-dir>/{shape,texture,refine,head,bodyfix,rig}/`, followed by `<out-dir>/twin.glb`.
-Refine is optional: when `refine/refine.py` exists, its expected CLI is
-`refine/.venv/Scripts/python.exe refine/refine.py --in <textured.glb> --out <refined.glb>`.
-It must preserve embedded texture/UVs and write the specified GLB. When absent, rig
-receives the last available intermediate. See the refine stage's own README when installed.
+`--force` rebuilds the selected range. Without it, all required outputs must be newer than inputs and local stage code;
+`<out-dir>/logs/<stage>.state.json` tracks the command and input list. Existing outputs without state use timestamp
+checks (shape also verifies height/views from `meta.json`). Upstream rebuilds invalidate downstream selected stages;
+failed stages invalidate state and stop. Logs are overwritten in `<out-dir>/logs/<stage>.log`. Earlier inputs must exist
+when resuming; `--dry-run` prints commands without creating files or checking interpreters.
 
-Bodyfix reads `<input-dir>/measurements.json` (any subset of tape measurements),
-writes `bodyfix/bodyfixed.glb` and `bodyfix/bodyfix_report.json`, and passes the
-corrected mesh to rig. Without the measurements file it logs a no-op and copies
-the input byte for byte. It runs after refine today; the separately added head
-launcher block must precede bodyfix, so head's output flows into it.
-See [bodyfix usage, measurement definitions and clothing allowances](bodyfix/README.md).
+### Photo sets, hair and cleanup flags
+
+`--photos-set`, `--hair` and `--keep-neck-hair` are **hybrid.py flags**, not `run_all.py` flags. The launcher uses their
+defaults. `--photos-set auto` requires the complete `nog_front.jpeg`, `nog_left.jpeg`, `nog_right.jpeg` set when its
+front file exists in `head/` (or the supplied photo directory), otherwise uses `colab_upload/{front,right}.jpg` and
+exported cameras. `noglasses` requires the three-view set; `glasses` chooses the legacy two-view bake. The glasses-free
+path runs local `hybridbody/photofit.py` on the existing FLAME identity, fitting robust perspective cameras using
+MediaPipe + FLAME's landmark embedding. It disables deglass automatically, uses both observed sides without mirrored
+fill and writes private numeric fit diagnostics; it does not refit FLAME identity/expression.
+
+Hair defaults to `hy3d` when the default private bust exists, otherwise `procedural`. `hy3d` writes a separate `dtHair`
+shell (`shell/1`); procedural writes separate cards/data atlas (`rcov-groot-bvar/1`); MakeHuman part IDs such as
+`hair-short` use the legacy merged body atlas. `--keep-neck-hair` is a QA override of the default neck/behind-ear texture
+cleanup. `--no-deglass` is accepted by **both** CLIs; `--no-glasses` belongs to the launcher and also disables deglass.
 
 ```powershell
-tools/twin-lab/rig/.venv/Scripts/python.exe tools/twin-lab/run_all.py --from-stage bodyfix --to-stage rig --dry-run
-tools/twin-lab/rig/.venv/Scripts/python.exe tools/twin-lab/bodyfix/bodyfix.py --in user-data/twin/out/refine/refined.glb --measurements user-data/twin/measurements.json --out user-data/twin/out/bodyfix/bodyfixed.glb
+# Explicit automatic photo selection and procedural hair; default neck-hair cleanup stays enabled.
+tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hybrid.py --bodyfix user-data/twin/out/bodyfix --measurements user-data/twin/measurements.json --fit user-data/twin/head/flame/fit --photos user-data/twin/head/colab_upload --flame-assets user-data/flame --out user-data/twin/out/hybrid/hybrid.glb --photos-set auto --hair procedural
+# QA variant: require glasses-free views, shell hair, retain neck hair and skip frame cleanup.
+tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hybrid.py --bodyfix user-data/twin/out/bodyfix --measurements user-data/twin/measurements.json --fit user-data/twin/head/flame/fit --photos user-data/twin/head/colab_upload --flame-assets user-data/flame --out user-data/twin/out/hybrid/hybrid.glb --photos-set noglasses --hair hy3d --keep-neck-hair --no-deglass
+# After either direct hybrid command, resume at RIG so the launcher does not rebuild hybrid with its defaults.
+python tools/twin-lab/run_all.py --body hybrid --head flame --from-stage rig --to-stage bundle --force
+# Disable the accessory and atlas frame cleanup (hair selection is unchanged).
+python tools/twin-lab/run_all.py --body hybrid --head flame --from-stage hybrid --no-glasses --force
+# Preserve photographed frames while still adding the accessory when a bust is available.
+python tools/twin-lab/run_all.py --body hybrid --head flame --from-stage hybrid --no-deglass --force
 ```
 
-`--from-stage` / `--to-stage` select an inclusive range from `shape`, `texture`, `refine`, `head` (when integrated), `bodyfix`,
-`rig`, `bundle`; earlier-stage inputs must already exist. `--dry-run` prints commands
-without running stages, creating files, or requiring their environments. `--force`
-rebuilds the selected stages. Otherwise a stage is skipped when all required outputs
-are newer than all inputs and local stage code; `<out-dir>/logs/<stage>.state.json`
-also detects changed commands/settings (including height and available views) after
-the first managed run. Pre-existing outputs without a state file use timestamp checks;
-shape also checks the height and view set recorded in its `meta.json`.
-An upstream rebuild causes downstream selected stages to rerun. Failed stages invalidate
-their state and stop the pipeline. Per-stage logs are overwritten at
-`<out-dir>/logs/<stage>.log`; the terminal shows stage labels and elapsed times.
-Personal inputs and all their outputs must remain under `user-data/`.
+For legacy cameras use the first direct command with `--photos-set glasses`; select a shipped MakeHuman part with
+`--hair hair-short` instead. See [hybrid options and formats](hybrid/README.md) for tuning. The launcher's hybrid cache
+currently inventories legacy front/right JPEGs, not the `nog_*.jpeg` inputs: after replacing those photos use
+`--from-stage hybrid --force`. The bust is tracked when present; custom direct-CLI settings must be retained by resuming
+at rig. With `--no-glasses`, launcher also passes `--no-deglass`; without a bust it does the same and omits glasses.
 
-The bundler can also run directly:
+### Bundle contract and direct packaging
 
 ```powershell
 tools/twin-lab/rig/.venv/Scripts/python.exe tools/twin-lab/bundle/write_twin_glb.py --rigged user-data/twin/out/rig/rigged.glb --twin user-data/twin/out/rig/twin.json --mh2twin user-data/twin/out/rig/mh2twin.bin --out user-data/twin/out/twin.glb --shape Hunyuan3D-2 --license "Tencent Hunyuan 3D 2.0 Community License"
 ```
 
-Optional `--texture <image>` overrides only skin-colour sampling; the GLB's embedded
-baseColor texture remains unchanged. Without it, sampling uses that embedded texture.
-The colour is the per-channel median of distinct texels at vertices whose
-`lowerarm_l` or `lowerarm_r` weight exceeds 0.5, with glTF's top-left UV origin and
-sampler wrapping. Transparent texels, luminance <=20 / >=235, and the remaining
-5th/95th percentile luminance tails are excluded. No usable samples is an error.
-Direct invocation defaults provenance shape/license to `unspecified`; set them for
-your actual source. The full pipeline records Hunyuan provenance and its community
-license; bundling does not change that license's local-use restrictions described below.
+For hybrid direct packaging, use `hybrid/rig/` inputs and `hybrid/twin.glb` output, and label the actual sources
+(including any restricted bust source). `--glasses <glasses.glb>` embeds a head accessory. Optional `--texture <image>`
+overrides only forearm skin-colour sampling, not the embedded baseColor texture. Without it the bundled albedo is
+sampled at lowerarm-weighted vertices, excluding transparent texels, clipped luminance and tails; no samples is an error.
+Direct provenance defaults to `unspecified`; launcher supplies scan/hybrid source labels.
 
-The single-file contract is `asset.extras.dtTwin` with `version: 1`, the full input
-`twin` object, `skinToneHex`, `provenance {shape, license, createdAt}`, and
-`mh2twin {bufferView, count, componentType: "uint32"}`. The mapping buffer view is
-four-byte aligned inside the GLB BIN chunk, contains exactly `count * 4` bytes of
-little-endian uint32 data, and has no accessor or GPU target. The web loader must
-read it using that buffer view's byte offset **relative to the BIN chunk**, not the
-whole file, and use the embedded twin object instead of following its legacy
-`glb` / `mapping.file` names. Mesh, skeleton, texture, unknown extensions and other
-extras are preserved. A single skinned primitive matching `rig.json` is required.
-The writer re-reads and validates the completed bundle before atomically replacing
-the destination. Its CLI reports only file size and validation status.
+`asset.extras.dtTwin` version 1 embeds full `twin.json`, `skinToneHex`, provenance and
+`mh2twin {bufferView, count, componentType: "uint32"}`. The mapping is aligned little-endian uint32 in the BIN chunk,
+exactly `count * 4` bytes; buffer-view offsets are relative to BIN, not the whole GLB. Mapping/definition describe the
+body primitive only. One body primitive is required; separate named hair is supported and shares the rig skin.
+Optional `dtTwin.accessories` embeds a complete head-local glasses GLB. Mesh/material/image/normal-map metadata and
+extras (`dtBodyfix`, `dtHybrid`, `dtFlameHead`, hand flags, `dtHairNode`) pass through; the writer validates a reread
+before atomically replacing output. See [the architecture contract](../../docs/ARCHITECTURE.md#twin-bundle-contract)
+for app validation, both hair formats and hand behaviour.
 
-## Head stage (`head/recon/`, optional)
+### App and wrist QA
 
-Needs four real photos in `user-data/twin/head/`: `front.jpg`, `back.jpg`, `profile_nose_right.jpg`, `profile_nose_left.jpg`
-(`--use-clean` switches the texture to de-glassed copies `clean/<name>.jpg` + frame masks `clean/<name>_mask.png`). Runs in the **refine** environment:
+Install npm dependencies and run `npm run dev` in another terminal. The browser tools use installed Chrome/Playwright;
+`app_qa.mjs` accepts `--url=...`, while viewer-performance reads `VIEWER_URL` (default `http://localhost:5173`).
+
+```powershell
+# Browser poses, camera presets and wardrobe; personal screenshots stay under user-data.
+node tools/twin-lab/rig/app_qa.mjs user-data/twin/out/hybrid/rig user-data/twin/out/app --tag=hybrid
+# Optional legacy picker path (rigged.glb + twin.json + mapping).
+node tools/twin-lab/rig/app_qa.mjs user-data/twin/out/hybrid/rig user-data/twin/out/app --tag=legacy --legacy
+# Headless skinning/cross-section QA using the same pose JSONs; optional private hand crops.
+New-Item -ItemType Directory -Force user-data/twin/out/wrist | Out-Null
+node tools/twin-lab/rig/wrist_qa.mjs user-data/twin/out/hybrid/rig/rigged.glb --json=user-data/twin/out/wrist/metrics.json --png=user-data/twin/out/wrist/png
+# Permissive mannequin comparison, also safe for contributor QA.
+node tools/twin-lab/rig/wrist_qa.mjs apps/web/public/assets/body/base.glb --json=user-data/twin/out/wrist/mannequin.json
+# Synthetic standard/twin orbit benchmark: run from apps/web because fixture paths are relative.
+Push-Location apps/web
+node scripts/viewer-performance.mjs test-results/viewer-performance
+Pop-Location
+```
+
+`app_qa.mjs` prefers `<twinDir>/../twin.glb`, then `<twinDir>/twin.glb`; `--legacy` forces sidecars and mapping remains
+optional. `--no-wardrobe` skips clothing checks. Wrist QA reports palm direction, swing/twist and posed/rest forearm/wrist
+cross-section area for all six poses by default (`--poses=a-pose,relaxed,t-pose,walk,hands-on-hips,side`). It does not need
+a dev server. Generated pose JSONs use the corrected palm convention and shared forearm roll from fa2e7a6; see
+[pose library](../../apps/web/src/features/poses/README.md).
+
+Viewer-performance always uses the CC0 synthetic twin fixture. It records renderer/drawing buffer, mean/p95 frame
+intervals and FPS after orbit warmup, for standard/twin in High/Performance, plus screenshots, console errors and full
+HTTP failure URLs. Timing is requestAnimationFrame/vsync limited, not a GPU timer or a hardware performance guarantee.
+Never use personal outputs as test fixtures or publish QA results containing personal data.
+
+## Head reconstruction alternatives
+
+FLAME scan insertion details and input schemas are in [head/flame](head/flame/README.md); the Colab fit instructions
+are [here](colab/pixel3dmm_README.md), with [multi-photo naming/settings](colab/pixel3dmm/MULTI_PHOTO.md).
+The recon alternative uses four head photos and refine's venv:
 
 ```powershell
 tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/head/recon/head.py --in user-data/twin/out/refine/refined.glb --photos user-data/twin/head --out user-data/twin/out/head/head.glb
 ```
 
-Method: pinhole camera per photo (yaw / pitch / roll / distance by silhouette IoU + front face landmarks), silhouette-contour
-and landmark driven thin-plate deformation of the head (fading to zero over the neck), then re-texturing of the head texels
-from the four photos (visibility + angle weights, colour matching, 3-D fill, neck colour seam). Outputs `head.glb`,
-`head_report.json` and `previews/` (`compare_<view>.png` = photo | twin | clay, `head_views.png` = before / after). Tests:
-`refine/.venv/Scripts/python.exe -m pytest tools/twin-lab/head/recon/tests`. Person masks use the shape environment (rembg).
+`--use-clean` reads `clean/<name>.jpg` and frame masks. Recon fits perspective cameras/silhouettes and deforms/retextures
+the head, fading into the neck; it is experimental and selected explicitly. Standalone [deglass](head/deglass/README.md)
+cleans photos, while [parametric glasses](head/glasses/README.md) builds a procedural accessory. Neither is implicitly
+run by `--head recon`.
 
 ## Shape stage (`shape/`)
 
@@ -233,7 +293,7 @@ Hunyuan3D-2 / 2mini / 2mv code and weights: `https://github.com/Tencent-Hunyuan/
   clears it, or replace it by a different shape source for a global release.
 - Other terms: more than 1 M monthly active users needs a separate licence from Tencent; the outputs (or the model) must not be used
   to improve/train any other AI model (5(b)); public content generated with it must be conspicuously labelled as machine
-  generated (AUP 12); do not impersonate people without consent (AUP 13) - the twin is of the user themself; when
+  generated (AUP 12); do not impersonate people without consent (AUP 13); when
   distributing the model or products using it, ship the licence text and the "Powered by Tencent Hunyuan" notice / disclose the
   actual provider and no Tencent affiliation (section 3). Tencent claims no rights in the Outputs (6(d)). Governing law: Hong Kong SAR.
 - This lab does not redistribute weights or code: `weights/` and `.cache/` are git-ignored.
@@ -241,75 +301,21 @@ Hunyuan3D-2 / 2mini / 2mv code and weights: `https://github.com/Tencent-Hunyuan/
   transformers / diffusers / accelerate (Apache-2.0), OpenCV (Apache-2.0), numpy / scipy (BSD).
   `pymeshlab` (GPL-3) is intentionally not installed.
 
-### Measured on the dev machine (RTX 4050 Laptop, 6 GB, Windows 11, single front view `front.png`)
+## Shape on Colab
 
-"Device peak" is the whole GPU memory in use during generation (other processes + CUDA context ~1 GB baseline included); "IoU" is
-the silhouette IoU of the fitted front camera (higher = the mesh matches the photo's proportions better). Model load is
-~30 s (disk bound, weights are ~4 GB) and is not included in "generation".
+The user-operated [TRELLIS.2 notebook](colab/trellis2_shape.ipynb) targets L4 (24 GB) or preferably A100; T4 is unsupported.
+TRELLIS.2 code/4B weights are MIT, but its required DINOv3 encoder has separate custom terms. The workflow is therefore
+not permissive-only; it requires a licence acknowledgement, replaces BRIA's remover with rembg/U2Net and avoids the
+NVIDIA PBR exporter. See [setup, licences and limitations](colab/README.md).
 
-| Variant / settings                    | Steps | Octree | Decoder  | Offload | Generation | Device peak | IoU   |
-| ------------------------------------- | ----- | ------ | -------- | ------- | ---------- | ----------- | ----- |
-| mini-turbo                            | 5     | 380    | FlashVDM | none    | 8 s        | 6140 (full) | 0.859 |
-| mini-turbo                            | 5     | 256    | FlashVDM | none    | 9 s        | 5998        | 0.860 |
-| mini                                  | 50    | 256    | standard | none    | 41 s       | 5684        | 0.909 |
-| mini                                  | 50    | 380    | standard | none    | 94 s       | 6140 (full) | 0.910 |
-| mini                                  | 50    | 380    | standard | lite    | 100 s      | 4510        | 0.910 |
-| mini                                  | 50    | 380    | FlashVDM | lite    | 15 s       | 4510        | 0.909 |
-| **mini (default)**                    | 50    | 512    | FlashVDM | lite    | **16 s**   | **4694**    | 0.909 |
-| mini                                  | 50    | 640    | FlashVDM | lite    | 20 s       | 6140 (full) | 0.909 |
-| mv-turbo (smoke test, fake back view) | 5     | 380    | FlashVDM | lite    | 10 s       | 5640        | -     |
+Only front conditions the shape; optional views provide camera fits/cutouts. Extract `trellis2_shape.zip` under
+`user-data/twin/out/shape/`, validate using `colab/check_meta.py`, then resume the local launcher at texture.
+The launcher's scan bundle provenance currently remains Hunyuan-labelled even for an imported TRELLIS shape; use the
+direct bundler with the actual source/licence label rather than treating that default as accurate provenance.
+The notebook involves an explicit session upload; follow its cleanup and disconnect/delete the runtime afterwards.
 
-Take-aways: the 50-step `mini` DiT gives much better proportions than the 5-step turbo DiT (turbo is ~6 % too wide relative to its
-height, IoU 0.86 vs 0.91); the FlashVDM VAE decoder makes the 50-step model as fast as the turbo one with the same quality, and
-the standard hierarchical volume decoder alone took 80 s of the 94 s; `--offload lite` costs ~6 % time and saves ~1.5 GB (device peak 6.1 ->
-4.5 GB); octree 512 adds no visible detail over 380 (face detail is limited by the model, not the grid) and 640 hits the 6 GB
-ceiling. Other seeds (7, 99) give the same body with slightly different hair / face relief (IoU 0.907 / 0.908). Taubin
-smoothing (`--smooth-iters 8`) makes no visible difference. Default end-to-end run: ~60 s including model load, cut-out, cleanup,
-camera fit and previews. The default output is watertight, one component, 80 000 faces (40 002 vertices), 1.78 m, 97 L.
+## Current limits
 
-### Visual assessment (untextured mesh vs the input photo)
-
-- **Good**: overall silhouette (IoU 0.91), height/leg/arm proportions, shoulder width, T-shirt sleeves and jeans folds, sneakers,
-  ears, the quiff-like hair mass, the back of the body. Orientation and scale need no correction (Y up, +Z front).
-- **Weak**: the _clothes are baked into the geometry_ (T-shirt, jeans, shoes), so the mesh is a clothed body, not a nude base
-  body; the wardrobe / try-on feature cannot dress it as is. The **face is generic**: soft, eyes are shallow slits, no lips,
-  no likeness in the relief (likeness has to come from the texture). The hair is flatter and lower than in the photo (the
-  photo's top hair reaches ~2.5 % of the height higher). **Depth is guessed** from one view: belly and buttocks look heavier than
-  the photo suggests (97 L clothed is probably too much for a slim 178 cm person). **Hands** are mittens / fists without separate fingers
-  (thumb only), **feet** are chunky sneakers whose jeans hem merges into the shoe, no laces. Small artefacts: marching-cubes
-  ripple on flat cloth at the 256 grid (gone at 380+), irregular triangle layout after decimation.
-
-### What multi-view (left / back / right) would improve
-
-The `mv` models take front + left + back (+ right) and fix exactly what a single view cannot see: real body depth (belly,
-chest, buttocks), the back of the head and hair, the side profile of face / nose, and arm / leg thickness. The cameras
-of every view are fitted separately, so the texture stage gets one camera per photo. Views must be consistent (same
-person, same pose, same A-pose, same framing height); pass them as `--front/--left/--back/--right`. `mv-turbo` fits in 6 GB
-(device peak ~5.6 GB at octree 380 with `--offload lite`; the tool falls back to a lower resolution on OOM).
-
-### Next steps / ideas
-
-- Nude or minimal-clothing views would give a body that can be dressed; alternatively treat this mesh only as a proportion
-  reference and fit the MakeHuman body to it (measure the mesh: circumferences, lengths), keeping MakeHuman for wardrobe/rig.
-- Head: replace / refine the face with a dedicated head reconstruction (from the face-front photos in `solo.json`) and blend it
-  into the neck; Hunyuan geometry stays a low-frequency proxy.
-- Fix the fit mismatch at the silhouette by warping the photo onto the mesh silhouette (2D flow) before texture baking.
-- UVs are not created here (texture stage: xatlas or similar).
-
-## Shape on Colab (licence-clean)
-
-The user-operated [TRELLIS.2 Colab notebook](colab/trellis2_shape.ipynb) targets Colab Pro
-**L4 (24 GB)** or preferably **A100**, with a top parameter cell and **Runtime → Run all**.
-T4 (16 GB) is unsupported. Microsoft's code/4B weights are MIT; research found that its
-required DINOv3 encoder has separate custom terms, so the complete pipeline cannot be
-called permissive-only. The notebook requires acknowledging that caveat, replaces BRIA's
-noncommercial background remover and avoids NVIDIA's noncommercial PBR exporter.
-See [setup, licences and limitations](colab/README.md) before running.
-
-Only front conditions the shape; optional back/left/right views get camera fits. The
-download contains `mesh.glb`, `meta.json` and cutouts/masks in our existing convention.
-Save them under `user-data/twin/out/shape/` and use [check_meta.py](colab/check_meta.py)
-to validate them. This requested Colab workflow is an explicit exception to the local-only
-privacy rules above: you upload images yourself to Google's session VM; no Drive is mounted,
-and automatic cleanup removes uploaded images and derived outputs after download transfer.
-Disconnect and delete the runtime afterwards. Colab inference has not been tested here.
+Scan clothing and fused geometry can limit garment replacement; shape inference estimates unseen depth. Hybrids avoid
+scan body topology but inherit FLAME fitting/camera limits, photo lighting and rigid hair geometry. Generated normal
+detail is not a measured skin surface. Inspect private outputs locally; synthetic checks establish format/math behaviour.

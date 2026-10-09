@@ -52,7 +52,7 @@ All types live in `packages/avatar-core/src/contracts.ts` (source of truth). The
 - `MeasuresDef` (`measures.json`): per `MeasureId` a `circumference` / `distance` / `polyline` / `height` /
   `vertexHeight` definition (vertex indices) and the `drivers` modifiers that control it.
 - `PoseDef` (`poses/*.json`): bone-local quaternions relative to rest pose, labels tr/en.
-- `BodyParams`: user input (gender 0..1, cm values, shoe size). `GarmentDef` is a DRAFT until Wave 4.
+- `BodyParams`: user input (gender 0..1, cm values, shoe size). `GarmentDef` describes the shipped wardrobe templates (binding, grading, ease and size data).
 
 ### Asset data formats (v1.1)
 
@@ -95,13 +95,13 @@ influences per vertex and renormalised (`JOINTS_0` uint16, `WEIGHTS_0` float32).
 
 **Measures.** Semantics (numpy reference: `tools/asset-pipeline/measures.py`):
 
-| type            | definition                                                                                             |
-| --------------- | ------------------------------------------------------------------------------------------------------ |
-| `circumference` | perimeter of the 2D convex hull of the loop vertices projected on the Newell plane of the ordered loop |
-| `distance`      | Euclidean distance of 2 vertices, or `abs` difference along `axis` (`footLength`: z)                   |
+| type            | definition                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------- |
+| `circumference` | perimeter of the 2D convex hull of the loop vertices projected on the Newell plane of the ordered loop     |
+| `distance`      | Euclidean distance of 2 vertices, or `abs` difference along `axis` (`footLength`: z)                       |
 | `polyline`      | sum of consecutive vertex distances (`armLength`: acromion, elbow, wrist; `shoulder`: back surface via C7) |
-| `height`        | bbox Y extent over render vertices only                                                                |
-| `vertexHeight`  | `y(vert)` minus the lowest render vertex (`inseam`: crotch)                                            |
+| `height`        | bbox Y extent over render vertices only                                                                    |
+| `vertexHeight`  | `y(vert)` minus the lowest render vertex (`inseam`: crotch)                                                |
 
 Circumference loops are ordered: consecutive vertices walk once around the ring, counter-clockwise seen from above (Newell
 normal points +Y), the first vertex is not repeated at the end. They are derived from geometry on the
@@ -319,125 +319,200 @@ Appearance store: hairId / hairColor / eyebrowId / eyebrowColor (null = follow h
 - Persistence. `appearance:<field>` keys in IndexedDB (try / catch); values the user changed before the stored ones
   arrived win.
 
-### Realistic twin (the user's own scan in the app)
+### Realistic twin (scan and template-character paths)
 
-The standard model is the parametric MakeHuman mannequin. The "Model" switch (top of the body panel) can replace it by
-the user's **realistic twin**: a photoreal, rigged scan made locally by `tools/twin-lab` (shape -> texture -> rig), shown
-with the same poses, camera presets and wardrobe. The design decisions are listed here.
+The standard model is the parametric MakeHuman mannequin. The Model switch selects `standard` or `twin` in
+`twinStore.ts`; the twin panel accepts a self-contained `twin.glb` or the legacy `rigged.glb` + `twin.json` + optional
+`mh2twin.bin`. Both reconstruction paths use the same app loader, poses, cameras and wardrobe.
+
+#### Offline pipeline
+
+`tools/twin-lab/run_all.py` is a standard-library launcher. Its selectable stage order is:
 
 ```text
-tools/twin-lab/rig/rig_scan.py            (local, python; outputs stay in user-data/twin/out/rig/, git-ignored)
-  fit our MakeHuman body to the scan (macros + ~130 modifiers + 19 bone rotations), transfer skin weights, unpose
-  -> rigged.glb   the scan (UV + texture kept) skinned to our 53 bones, identity rest rotations, MakeHuman A-pose rest
-  -> twin.json    fittedMacros / fittedModifiers (net values), measurements, rest heads, boneOrder
-  -> mh2twin.bin  uint32 LE per twin vertex: nearest MakeHuman render vertex (optional)
-        |  file picker in the "Realistic twin" tab   (twinStore.loadFiles: parse + validate, nothing is fetched)
-        v
-store/twinStore.ts   pack {def, glb bytes, mapping, skinToneHex?}, mode 'standard' | 'twin'   IndexedDB `twin:*`
-        |  subscribe
-        v
-TwinMode (features/twin/twinMode.ts, created by Avatar next to the WardrobeRig; Avatar forwards every solve)
-  standard: PartsRig mounted, the worker solves the body params                    (the unchanged pre-twin behaviour)
-  twin:     PartsRig disposed, loadTwinModel(glb) -> worker.setFixedShape({macros, modifiers}) -> re-solve
-            body = the fitted MakeHuman body, HIDDEN (mesh.visible = false), still the source of skeleton + garment fit
-            TwinRig: SkinnedMesh of the scan bound to the SAME skeleton (translated onto its rest heads)
-            TwinHands: only the fitted MakeHuman hands/fingers, matte skin material on that same skeleton
+shape -> texture -> refine -> head -> bodyfix -> hybrid -> rig -> glasses -> bundle
 ```
 
-- **Single-file bundle (`twin.glb`).** The rigged scan and embedded baseColor texture carry
-  `asset.extras.dtTwin = {version: 1, twin: <full twin.json>, skinToneHex: '#rrggbb',
-  mh2twin: {bufferView, count, componentType: 'uint32'}, provenance: {shape, license, createdAt}}`.
-  `twinBundle.ts` reads the extras from `gltf.parser.json` and obtains the little-endian uint32 mapping through
-  `gltf.parser.getDependency('bufferView', i)`. Version, definition, skin tone, provenance, buffer-view index,
-  count, byte length and mapping range are validated. Bundles must embed their buffers and images. IndexedDB
-  stores the original GLB and reparses its embedded data on hydration; legacy sidecar packages still work.
-- **Legacy package (`twin.json`, version 1).** `fittedMacros` (gender, muscle, weight, height) and `fittedModifiers` are the
-  shape of the fitted body. The fitter optimises with an incr AND a decr column per modifier, avatar-core applies the NET
-  value, so `rig_scan.py` continues with the canonical body (`canonicalize_fit`: net values rounded to 6 decimals, rest
-  body rebuilt from them); the browser therefore reproduces exactly the skeleton the glb was rigged with (tested: rest
-  heads agree to < 2e-5 m). `boneOrder` is the rig order, `restHeadsM` the rest heads in the glb frame. `mh2twin.bin` maps
-  each twin vertex to the nearest render vertex of that body (12 candidates, opposing normals penalised); `mapping` in
-  twin.json gives its vertex counts.
-- **Measurements.** `measurementsRawCm` are measured on the fitted body with the avatar-core definitions of
-  `measures.json` (numpy port in `twin_export.py`, cross-checked against `measure()` in a unit test). The scan wears
-  clothes, hair and shoes, so `measurementsCm = raw - clothingAllowanceCm` (fitted T-shirt, jeans, sneakers: height 3,
-  neck 0.5, shoulder 1, chest 3, waist 3, hip 2.5, thigh 2, upper arm 2.5, arm length 0, inseam 2.5, foot 2.5 cm -
-  estimates that can be edited in the file). The body panel shows them read-only instead of the sliders (with a note); the
-  fit report and size recommendations use them, while the garments are fitted to the hidden body's own geometry (which has
-  the clothes' bulk), so what is drawn stays consistent.
-- **One skeleton.** rigged.glb has the same bone names and world-aligned identity rest rotations as base.glb, its inverse
-  bind matrices are translations of `-head`. The twin keeps its vertices and skin weights (re-indexed to the avatar's
-  bone order by name, `twinBinding.ts`) and is translated by `mean(appHead - twinHead)` (the two frames differ by the
-  ground rule only, a few mm); the residual after that must stay below 5 mm, otherwise twin.json and the glb are
-  rejected as not belonging together (`mismatch`). The twin is then bound with `bind(avatar skeleton, body bindMatrix)`
-  exactly like a garment, so PoseDriver, the bone-based camera focus presets, the sole lift and every worn garment follow
-  the one skeleton.
-- **Worker.** `setFixedShape(shape | null)` makes `solve()` return the fixed body (`combineWeights(macros, modifiers)` ->
-  `applyMorphs`, measures, mass; `fixedShape: true` in the result) and ignore the body params and the face shape; `null`
-  returns to solving. Unknown modifier ids are rejected before anything switches. Body-parameter changes do not trigger
-  solves in twin mode.
-- **Hands.** `twinHands.ts` selects vertices by their dominant skin influence (`hand_*` or any thumb/index/middle/ring/
-  pinky bone). Lowerarm-weighted vertices extend the selection 8 mm past the scan wrist, using the rest forearm
-  direction and wrist head. Scan triangles touching that selection are removed, including fused fists. A separate
-  compact `SkinnedMesh` copies only the fitted body's hand/finger region, extending 25 mm up the wrist and expanding
-  the surface 1 mm along its normal to overlap the cut. Its own matte material uses `dtTwin.skinToneHex` (legacy:
-  scan material colour). It shares the skeleton/bind matrix and updates from the hidden body after each fixed solve;
-  finger pose JSONs therefore articulate real finger geometry. Disposal restores standard mode and frees the mesh.
-- **Wardrobe.** Garments bind to the hidden body as in standard mode and render over the twin. The scan is CLOTHED (its
-  own T-shirt / jeans / shoes are geometry), so twin triangles under a worn garment are hidden, with two passes that are
-  combined: (a) mapping - the wardrobe already removes the body triangles under a garment (delete lists + footprint
-  pass) through `geometry.setIndex`; `TwinRig` shadows that method on the body geometry (as `PartsRig` does in standard
-  mode; the two never live together) and hides a twin triangle when its three vertices map to body vertices that no
-  remaining body triangle uses; (b) footprint - `coveredBodyVertices` (the wardrobe's own function) on the twin's
-  vertices against each worn garment's fitted surface (the `garment:*` meshes of the scene) within 3 cm, which removes the
-  scan's clothes where they stick out of the new fabric and gives a straight boundary at hems. A triangle is hidden only
-  when all three vertices are. Additionally, `twinPushIn.ts` pushes covered scan vertices inward along normalized
-  original normals by at most 8 mm, with smoothstep falloff across a 25 mm spatial margin around coverage. A spatial
-  grid bounds the neighbourhood search. Unmodified aligned rest positions are retained; every update starts from
-  them, normals are recomputed on the complete surface, and removing garments restores the exact positions.
-  Coverage/displacement are cached by garment surface content, draw ranges, body index and alignment; attribute
-  versions avoid comparisons unless the wardrobe uploaded new data. Identical repeated solves and pose changes
-  reuse them. Wardrobe store changes schedule a refresh after fitting, including size edits that leave
-  the body index unchanged. The integration uses the existing body-index composition hook entirely inside TwinRig.
-- **Parts, face, appearance.** Eyes / brows / hair (`PartsRig`), the face bake and the skin composite are standard-mode
-  features: the parts are disposed in twin mode, the face and appearance tabs show a note; the twin has its own face,
-  hair and baked texture (`MeshStandardMaterial`, roughness 0.88, no skin composite).
-- **Privacy.** The user's scan and photos live only in `user-data/twin/` (git-ignored). The app never bundles or fetches
-  them: the user picks the files, they are held in memory and IndexedDB (`twin:glb`, `twin:json`, `twin:mapping`,
-  `twin:names`, `twin:mode`) and are removed with "Remove twin". Tests and docs use a NON-personal stand-in (below).
-- **Licence.** The shape stage uses Hunyuan3D-2 (Tencent community licence, territory excludes the EU / UK / South Korea,
-  see `tools/twin-lab/README.md`): a twin made with it is for the user's own local use and must not be shipped with the
-  app.
-- **Tests.** Unit: `twinBundle` (contract, malformed extras, dependency lookup), `twinHands` (dominant weights,
-  wrist overlap), `twinPushIn` (bounded displacement, smooth margin, repeatability and restoration), `twinDef`
-  (strict twin.json parser), `twinMapping` (parsing, hiding composed with the wardrobe's own
-  `hiddenVertexMask` / `filterBodyIndex`), `twinBinding` (bone matching, alignment, three.js skinning through the
-  avatar's rebuilt skeleton), `twinStore` (IndexedDB mock), `fixedShape` and `twin.real.test.ts` (real MakeHuman assets +
-  the stand-in fixture: numpy measurements vs avatar-core, rest heads vs the browser's body, glb binding, mapping range).
-  E2E `e2e/twin.spec.ts`: switch, single-file load, poses change bones and hand/finger vertices, tee + jeans hide and
-  push in the scan, take-off restores it, back to standard,
-  reload persistence, removal, a mismatching twin.json, no upload and no foreign request. Python:
-  `tools/twin-lab/rig/tests`. The stand-in fixture (`apps/web/e2e/fixtures/twin-standin`) is the CC0 MakeHuman body with
-  another shape, another pose, its own UV layout and a generated texture, rigged by `rig_scan.py`; its screenshots are
-  `docs/screenshots/twin-standin-*.png`. `bundle_standin.py` in the fixture directory deterministically packages only
-  these non-personal files, sampling the median synthetic forearm colour. `tools/twin-lab/rig/app_qa.mjs` runs the same flow on a real twin (output
-  under `user-data/` only).
-- **Limitations.** The scan's own clothes stay beyond a new garment's coverage and 25 mm margin. The 8 mm push-in
-  cannot conceal arbitrary thick or distant old clothing;
-  the hidden region follows the triangulation of the scan, so its boundary is jagged where the mesh is irregular.
-  Skinning is linear blend: a scan whose arms touch the torso keeps a web at the armpit in the T-pose (`--cut-bridges`
-  removes it only partly). The camera "full" preset frames the body-panel height, not the twin's. Nude or
-  minimal-clothing views would give a scan that can be dressed cleanly.
+- `--body scan` (default): retains the generated mesh and projected texture. Refine repairs face relief and separates
+  fused armpits; an optional head stage precedes bodyfix; bodyfix corrects the scan against supplied measurements.
+  Rig fits/unposes it to the 53-bone MakeHuman A-pose, transfers weights and writes `rig/{rigged.glb,twin.json,mh2twin.bin}`.
+  The launcher uses `--fingers merge --cut-bridges`; hybrid and automatic glasses are omitted. Bundle is `out/twin.glb`.
+- `--body hybrid`: builds a template character from the MakeHuman body, its fixed topology/UVs and native hands/feet.
+  Earlier scan stages supply bodyfix's shape prior. Hybrid re-solves the body against measurement targets without scan
+  clothing allowances and deforms the template's own head toward the neutral FLAME fit, anchoring the neck loop.
+  It bakes the face into the fixed head UVs, adds CC0 eyes/lashes, a CC0 body skin with generated normal detail and painted
+  underwear, and hair. The body mesh contains no transplanted scan head geometry. Rig verifies the native A-pose against
+  `dtHybrid` and uses `--fingers keep --smooth 0`. Outputs are `out/hybrid/hybrid.glb`, `out/hybrid/rig/` and
+  `out/hybrid/twin.glb`; the portable `face_asset/` export is **not yet consumed by the standard-model app**.
+- Refine and bodyfix are included when their scripts exist. Head is selected by `--head {auto,flame,recon,none}`:
+  `auto` selects FLAME only when `<input-dir>/head/flame/fit/head_neutral.obj` exists, otherwise skips head.
+  `--with-head` is a deprecated alias for recon. Hybrid requires FLAME and bodyfix; `auto` without that fit fails.
+- In hybrid mode, an existing `<input-dir>/hy3d/hy3d.glb` (or `--glasses-hy3d <bust>`) enables the post-rig `glasses`
+  stage unless `--no-glasses` is set. It fits the accessory, cleans the face atlas and supplies `glasses_rigged.glb`
+  plus `glasses.glb` to bundle. `--no-deglass` preserves photographed frames while still permitting the accessory;
+  `--no-glasses` also disables hybrid deglass. With no bust, the launcher passes `--no-deglass` and omits this stage.
+
+Each stage runs in its own venv, except head/hybrid/automatic glasses share `refine/.venv`, bodyfix shares `rig/.venv`,
+and bundle falls back to `rig/.venv`. Inclusive `--from-stage` / `--to-stage` ranges require earlier inputs to exist.
+Timestamp and command/input state checks skip fresh stages; `--force` rebuilds the selected range and propagates
+rebuilds downstream. Exact commands and stage inputs/outputs are in [twin-lab's README](../tools/twin-lab/README.md).
+
+#### FLAME fit and photo cameras
+
+The user-operated [Pixel3DMM Colab notebook](../tools/twin-lab/colab/pixel3dmm_README.md) fits one shared identity with
+per-view expression, pose and cameras. It accepts up to twelve views: front/left/right/back and `extra_1` through
+`extra_8`. Its private export supplies the neutral head, `parameters.json`/NPZ, `cameras.json`
+(`dt-flame-head-cameras/1`), `fitted_views/*.ply` and provenance. Extract the fit under
+`user-data/twin/head/flame/fit/`; masks and the MediaPipe landmark embedding are obtained separately from FLAME and
+kept under `user-data/flame/`. The local stages evaluate exported surfaces rather than loading FLAME model weights.
+
+For scans, `head/flame/flame_head.py` replaces the facial surface and ears, smooths/stitches the transition into the
+retained scan and writes `head/head.glb` with `dtFlameHead` version 2. `--head recon` instead selects the experimental
+four-photo silhouette/landmark deformation in `head/recon/head.py`.
+
+For hybrids, the existing neutral FLAME identity is registered onto the template head. `hybrid.py --photos-set auto`
+selects the complete glasses-free `nog_front.jpeg`, `nog_left.jpeg`, `nog_right.jpeg` set when the front file exists
+in the head directory; otherwise it uses the legacy `colab_upload/{front,right}.jpg` with exported cameras and mirrored
+side fill. `--photos-set noglasses` requires all three files; `glasses` explicitly retains the legacy path.
+`hybridbody/photofit.py` fits new perspective cameras locally on the existing neutral identity using MediaPipe and
+FLAME's 105-landmark embedding, robust PnP and focal/pose refinement. It honours EXIF orientation and records camera
+fits in private reports. The three-view bake uses independently observed sides, visibility masks and overlap colour
+matching, and automatically skips deglass. Camera reprojection residuals are not independent 3D shape measurements.
+Photo-set, hair and neck-hair selection flags currently belong to `hybrid.py`, not the launcher.
+
+#### Twin bundle contract
+
+The runtime contract is in `twinBundle.ts`, `twinDef.ts`, `twinHair.ts` and `twinAccessories.ts`. Pipeline metadata is
+preserved alongside it; metadata presence alone does not change app behaviour.
+
+| Location                           | Meaning and consumer                                                                                                                                                                                                         |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `asset.extras.dtTwin`              | Version 1: full `twin.json` as `twin`, `skinToneHex`, `provenance {shape, license, createdAt}`, and `mh2twin {bufferView, count, componentType: "uint32"}`; optional `accessories`. Parsed by the app.                       |
+| `asset.extras.dtHasMakeHumanHands` | Optional boolean, absent means false. True keeps the twin's native MakeHuman hands and suppresses replacement/cutting in the app. Hybrid writes true.                                                                        |
+| `asset.extras.dtScanHandsRemoved`  | Optional boolean recording upstream scan-hand removal. Bodyfix sets it; rig uses it to repair wrist/hand influences. Hybrid writes false. App validates its type but does not use it to select the hand path.                |
+| `asset.extras.dtBodyfix`           | Version 1 full-precision solved macros/net modifiers, targets, achieved/raw measurements, residuals, allowances and measurement basis. Rig reuses the solution; its export retains bodyfix data in `twin.json.bodyfix`.      |
+| `asset.extras.dtHybrid`            | Version 1, `frame: "MakeHuman-grounded-A-pose"`, `bodyManifestSha256`, `cutHeightM`, plus method/parts/provenance diagnostics. Rig validates the manifest and anchored body positions, then reuses the native identity pose. |
+| `asset.extras.dtFlameHead`         | Version 2 scan-head provenance, input hash, alignment, smooth stitch and ears option. Passed through bodyfix/rig/bundle; not an app head-fitting command.                                                                    |
+| `asset.extras.dtHairNode`          | Nonempty name of a separate skinned hair node. Its material must contain `extras.dtHair` and its own base-colour texture. Parsed by the app; mapping describes only the body.                                                |
+
+The mapping is an aligned BIN buffer view, exactly `count * 4` bytes of little-endian uint32 data, with no GPU target
+or accessor. Each entry maps a twin **body** vertex to a MakeHuman render vertex. The loader uses
+`gltf.parser.getDependency('bufferView', index)`; offsets are relative to the BIN chunk. It validates version, definition,
+skin tone, provenance, mapping bounds and length, hand flags, hair and nested accessories before accepting a pack.
+Bundles embed all buffers/images and are rejected if they contain resource URIs. IndexedDB stores the original GLB
+and reparses embedded data on hydration; legacy sidecars remain supported.
+
+Hair uses one separate indexed skinned mesh with `POSITION`, `TEXCOORD_0`, `JOINTS_0`, `WEIGHTS_0`, normally `NORMAL`, and
+one material; the app computes normals if missing. Hair and body share a rest pose. The app accepts
+subset/reordered hair joints only when names and inverse bind matrices match the body. `extras.dtHair` requires
+`format` and sRGB `colorHex`; optional `rootHex`/`tipHex` are hex colours and `cardCount` is a non-negative integer.
+
+| `dtHair.format`     | Texture and render path                                                                                                                                                                                                                                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rcov-groot-bvar/1` | Linear strand data: R coverage, G root-to-tip, B variation, A `min(1, 2.5 R)` for ordinary glTF fallback. App treats the atlas as `NoColorSpace` and runs the vendored MIT `threejs-hair-shader`. MSAA uses alpha-to-coverage plus blended fringe; otherwise alpha-tested core plus blended outer pass. Only the main pass casts shadows, cut out on atlas R. |
+| `shell/1`           | Solid textured hair shell from a fitted bust: sRGB colour/alpha texture and optional linear normal map. App creates a matte physical material retaining glTF maps, MASK cutoff and double-sidedness, with no strand shader. BLEND is converted to MASK at 0.5; cutouts get a matching depth material.                                                         |
+
+Hybrid defaults to `hy3d` shell hair when its default bust exists, otherwise procedural cards; legacy MakeHuman
+`--hair hair-short`, `hair-tousled`, etc. merge the hair part into the body atlas. See
+[hybrid's formats and generation details](../tools/twin-lab/hybrid/README.md).
+
+`dtTwin.accessories` optionally contains `{id: "glasses", bone: "head", mesh: {bufferView}, params}`. That aligned
+buffer view embeds a complete self-contained GLB in head-local metres, rigidly weighted to a standalone identity
+head bone. `twinAccessories.ts` validates resource embedding, geometry, transforms and rigid weights, preserves frame
+and optional lens materials, and mounts ordinary meshes under the shared head bone after alignment. The glasses
+checkbox defaults on when present and persists in localStorage (`dt:twin:accessories`). Legacy bundles without the
+accessory show no checkbox. Procedural glasses can also be built directly with `head/glasses/make_glasses.py` and
+included with the bundler's `--glasses` flag.
+
+#### App flow and measurements
+
+```text
+twinStore: local file pick -> validate -> pack -> IndexedDB (`twin:*`)
+  standard: PartsRig mounted; worker solves editable BodyParams
+  twin:     TwinMode disposes PartsRig, loads TwinModel, sets worker fixed shape and re-solves
+            fitted MakeHuman body stays hidden but supplies skeleton and wardrobe geometry
+            TwinRig body + optional TwinHair share that skeleton and bind matrix
+            native MakeHuman hands retained OR TwinHands supplies replacement hands
+            glasses attach to the shared head bone
+```
+
+- `setFixedShape({macros, modifiers})` makes the worker apply the fixed morph weights and ignore body params/face shape;
+  `null` returns to normal solving. Unknown modifiers fail before switching. Sliders become read-only twin measurements.
+- The rig and app use the same 53 world-aligned bones with translation-only inverse bind matrices. `twinBinding.ts`
+  remaps by bone name and translates twin rest positions by the mean head-position offset; residuals above 5 mm reject
+  mismatched data. PoseDriver, camera focus, sole lift, hair and wardrobe therefore follow one skeleton.
+- For legacy scan fits, canonicalisation rebuilds the body from net modifier values rounded to six decimals. Bodyfix
+  embeds the full-precision solved body so rig does not refit a different shape. Legacy measurements use the fitted
+  proxy minus documented clothing allowances; corrected scans export bodyfix's achieved scan-landmark measurements,
+  which can differ from the hidden proxy. Hybrids export the native re-solved measurement result without scan allowances.
+  Fit reports and size recommendations use exported measurements; garment geometry still fits the hidden body.
+- Without `dtHasMakeHumanHands: true`, `twinHands.ts` removes scan triangles touching the dominant hand/finger-weight
+  region, extends the cut 8 mm past the wrist and supplies fitted MakeHuman hands with 25 mm wrist overlap and 1 mm
+  normal expansion. Native hybrid hands retain their baked texture and weights.
+- Twin wardrobe coverage combines body-to-twin mapping and a 3 cm garment footprint pass, hiding only triangles whose
+  three vertices are covered. `twinPushIn.ts` moves covered body vertices inward by at most 8 mm with a 25 mm margin.
+  `TwinOpeningRepair` reversibly blends clothing-coloured atlas texels near garment opening loops toward the skin tone
+  (full strength within 15 mm, fading to zero at 40 mm). Coverage and repair cache garment/body/alignment changes;
+  repeated solves and poses reuse results, and removal restores original geometry/albedo. Separate hair is excluded.
+- Standard PartsRig, face bake and appearance controls are disabled in twin mode. The twin body uses physical skin
+  shading from `createSkinMaterial`, preserving its albedo, normal map/scale/type, alpha cutoffs and double-sidedness.
+  Normal detail survives quality changes, garment hiding and albedo repair. This is lighting/texture rendering, not a
+  new face fit in the browser.
+
+#### Studio viewer and poses
+
+`StudioLighting.tsx` captures a procedural 128px cube environment from four Lightformer softboxes, prefiltered by
+three.js for image-based lighting. Warm key, cool fill/rim and hemisphere light supplement it. There is no downloaded
+HDRI. The canvas uses AgX at exposure 1, sRGB output and MSAA; colour maps are sRGB, normals and strand data are linear.
+Drei SoftShadows provides PCSS shadows from the key onto the avatar and circular platform. High uses 12 samples,
+2048px shadow maps and DPR 1?1.5; Performance uses six samples, 1024px and DPR 1. Both retain the environment and material
+shading. `viewerStore` saves the setting in `dt:viewer:quality`; desktop defaults High and coarse pointers Performance.
+Skin uses a subtle shadow-aware diffuse wrap and sheen; shell hair has matte sheen without the skin hook, strand hair
+keeps its MIT shader, glasses retain metal/lens semantics, and garments retain maps with bounded roughness.
+
+Run `node apps/web/scripts/generate-poses.mjs` from the repo root to regenerate `public/assets/poses/*.json` from
+`poseSpecs.mjs` and the real rig/joint points. Intent-level world directions become parent-local `[x,y,z,w]`
+quaternions; identities are omitted, values use six decimals and `w >= 0` canonicalisation. A-pose has no rotations.
+`PoseDriver` validates/fetches poses, blends over 350 ms and reapplies them after rest skeleton rebuilds.
+
+The palm convention fixed in **fa2e7a6** is outward normal = `cross(fingers, pinky -> index)` on the left, negated on the
+right. Targets are specified in left-hand coordinates and mirrored once in X for the right. The visible hand axis
+is wrist-to-middle-knuckle, rather than the oblique bone tail. `balanceForearmRoll` shares the hand/elbow roll difference
+with `lowerarm` while retaining the hand's world orientation, reducing wrist collapse under linear blend skinning
+without twist bones. Tests bound hand/lowerarm roll and skin the actual permissive mannequin; `wrist_qa.mjs` checks
+cross-section area on any compatible rigged GLB.
+
+#### Privacy, licensing and verification
+
+AGENTS.md remains authoritative: personal inputs and every derived output stay in gitignored `user-data/`; committed
+assets must be CC0, CC-BY, MIT, Apache-2.0 or BSD and CC-BY assets require credits. Research/non-commercial models and
+weights may be used locally or in an explicitly user-operated Colab workflow in ignored caches; they and restricted
+derived data are never committed. FLAME/Pixel3DMM hybrid bundles remain private restricted outputs even though their
+MakeHuman template is CC0. A bust-derived shell/accessory adds its source restrictions; the bundle's short provenance
+label is not exhaustive licence clearance. Hunyuan sources carry their community licence, including territorial terms.
+
+The web face feature stays in the browser. Twin loading performs no upload or remote reconstruction; picked data stays
+in memory/IndexedDB and Remove twin deletes its stored pack. Optional notebooks involve a separate user-controlled
+upload to a session VM, documented with cleanup in their own READMEs. Docs/tests use synthetic or permissive stand-ins;
+never put personal reports, previews or screenshots in tracked paths.
+
+Unit suites cover fixed shape, definitions, bundle/hair/accessories validation, native/replacement hands, shared binding,
+coverage, push-in, opening repair and persistence. Real-asset tests compare the CC0 stand-in against avatar-core;
+`e2e/twin.spec.ts` exercises load/switch/poses/wardrobe/restoration/storage with that stand-in. Python suites use synthetic
+fixtures and permissive assets. App, wrist and viewer-performance QA commands are in the twin-lab README; only the
+performance script uses the synthetic stand-in by design. Pose/lighting changes do not establish reconstruction quality.
+Scan clothing beyond garment coverage, coarse boundaries and fused geometry can still limit try-on; a hybrid avoids
+those scan-body artifacts, while retaining the limits of its fitted head, photo cameras and rigid hair surface/cards.
 
 ## File ownership by wave
 
-| Wave | Work                                                                    | Owner (executor)            | Files                                                                  |
-| ---- | ----------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------- |
-| 0b   | Repo scaffold, contracts, docs                                          | Sonnet (high)               | root, docs                                                             |
-| 1    | Asset pipeline (MakeHuman -> base.glb, morphs, rig, measures)           | Sonnet (xhigh)              | `tools/asset-pipeline/**`, `public/assets/body/**`                     |
-| 1    | UI shell: layout, viewer, platform, CameraControls, body panel, TR/EN   | Codex                       | `src/app`, `features/viewer`, `features/body-panel`, `shared/**`       |
-| 1    | avatar-core: morph, measure, solver, skeleton, size conversions + tests | Sonnet (xhigh)              | `packages/avatar-core/**`                                              |
-| 2    | Integration: `<Avatar/>`, worker, poses + 6 pose JSONs                  | Sonnet (high)               | `features/avatar`, `features/poses`, `workers/`, `public/assets/poses` |
-| 3    | Face: MediaPipe, canonical<->MH map, warp, delighting, blending, skin   | agy (Gemini Flash) + review | `features/face/**`, pipeline `face_map` module                         |
-| 4    | Wardrobe: MHCLO fitting, templates, shoes, size chart form, fit heatmap | Sonnet + Codex              | `features/wardrobe/**`, pipeline `garments` module                     |
+| Wave | Work                                                                      | Owner (executor)            | Files                                                                                                                             |
+| ---- | ------------------------------------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 0b   | Repo scaffold, contracts, docs                                            | Sonnet (high)               | root, docs                                                                                                                        |
+| 1    | Asset pipeline (MakeHuman -> base.glb, morphs, rig, measures)             | Sonnet (xhigh)              | `tools/asset-pipeline/**`, `public/assets/body/**`                                                                                |
+| 1    | UI shell: layout, viewer, platform, CameraControls, body panel, TR/EN     | Codex                       | `src/app`, `features/viewer`, `features/body-panel`, `shared/**`                                                                  |
+| 1    | avatar-core: morph, measure, solver, skeleton, size conversions + tests   | Sonnet (xhigh)              | `packages/avatar-core/**`                                                                                                         |
+| 2    | Integration: `<Avatar/>`, worker, poses + 6 pose JSONs                    | Sonnet (high)               | `features/avatar`, `features/poses`, `workers/`, `public/assets/poses`                                                            |
+| 3    | Face: MediaPipe, canonical<->MH map, warp, delighting, blending, skin     | agy (Gemini Flash) + review | `features/face/**`, pipeline `face_map` module                                                                                    |
+| 4    | Wardrobe: MHCLO fitting, templates, shoes, size chart form, fit heatmap   | Sonnet + Codex              | `features/wardrobe/**`, pipeline `garments` module                                                                                |
 | Twin | Realistic twin: rig export (twin.json, mh2twin.bin), twin mode in the app | Sonnet (xhigh)              | `tools/twin-lab/rig/**`, `features/twin/**`, hooks in `features/avatar`, `store`, `workers`, `features/body-panel`, `app/App.tsx` |
