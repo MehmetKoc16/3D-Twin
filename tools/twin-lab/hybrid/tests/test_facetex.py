@@ -66,6 +66,28 @@ def test_flame_masks_follow_the_correspondence(baked):
     assert z.mean() > (template.base + fit.displacement)[head.welded][:, 2].mean()
 
 
+def test_hair_subregions_are_transferred_from_native_flame_not_template_height(baked):
+    from flamehead.texture import hair_vertex_regions
+
+    template, flame, fit, head, _, _, _ = baked
+    # Synthetic FLAME regions provide explicit reference/beard labels even when
+    # this stand-in has no nose/forehead. The registration must preserve them.
+    masks = dict(flame.masks)
+    face = masks["face"]
+    masks["skin_reference"], masks["beard_allow"] = face[:20], face[-20:]
+    from dataclasses import replace
+
+    annotated = replace(flame, masks=masks)
+    native = hair_vertex_regions(annotated.neutral, masks)
+    transferred = flame_masks_on_head(template, fit, annotated, head)
+    dominant = annotated.faces[np.maximum(fit.face_ids, 0)][np.arange(len(fit.face_ids)), fit.face_bary.argmax(1)]
+    for key in ("skin_reference", "beard_allow", "hair_skin_region"):
+        member = np.zeros(len(annotated.neutral), bool)
+        member[native[key]] = True
+        expected = np.flatnonzero(member[dominant[head.welded]] & (fit.face_ids[head.welded] >= 0))
+        np.testing.assert_array_equal(transferred[key], expected)
+
+
 def test_bake_fills_every_island_texel_and_reports_photo_colour(baked):
     _, _, _, _, face, _, _ = baked
     assert face.covered.sum() == face.report["island_texels"] > 1000

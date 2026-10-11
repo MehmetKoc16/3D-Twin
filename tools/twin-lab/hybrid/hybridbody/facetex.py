@@ -107,9 +107,13 @@ def flame_masks_on_head(template: Template, fit: HeadFit, flame: FlameFit, head:
     dominant = flame.faces[np.maximum(fit.face_ids, 0)][np.arange(len(fit.face_ids)), fit.face_bary.argmax(1)]
     result = {}
     welded_flame = dominant[head.welded]
-    for key in ("face", "eye_region", "lips", "neck", "left_ear", "right_ear"):
+    from flamehead.texture import hair_vertex_regions
+
+    native_masks = {**flame.masks, **hair_vertex_regions(flame.neutral, flame.masks)}
+    for key in ("face", "forehead", "nose", "eye_region", "lips", "neck", "left_ear", "right_ear",
+                "skin_reference", "beard_allow", "hair_skin_region", "temple"):
         member = np.zeros(len(flame.neutral), bool)
-        member[flame.masks.get(key, [])] = True
+        member[native_masks.get(key, [])] = True
         result[key] = np.flatnonzero(member[welded_flame] & (fit.face_ids[head.welded] >= 0))
     result["left_eyeball"] = np.zeros(0, np.int64)
     result["right_eyeball"] = np.zeros(0, np.int64)
@@ -239,6 +243,7 @@ def bake_face(
         harmonize_chroma=photos_set == "noglasses",
         view_face_masks=face_masks,
         reject_forehead_hair=photos_set == "noglasses",
+        reject_photo_hair=photos_set == "noglasses",
     )
     from .skin import finish_texture
 
@@ -275,6 +280,20 @@ def bake_face(
                 "after": projection_skin_check(samples, weights, unmasked, ear_members, semantic_face),
             },
         }
+        if "hair" in diagnostics:
+            from .hairaudit import bake_hair_audit
+
+            consistency["photo_hair_rejection"] = bake_hair_audit(
+                texture, diagnostics, masks, tri, projection=(samples, weights, unmasked),
+            )
+            # Private baked geometry and masks (no photo pixels) so a later run can compare final atlases.
+            np.savez_compressed(Path(camera_audit_dir) / "earhair_geometry.npz", y=y, x=x,
+                                points=diagnostics["points"], beard=diagnostics["beard_allow"],
+                                temple=diagnostics["temple"], left_ear=ear_members["left"],
+                                right_ear=ear_members["right"], origin=np.asarray([x0, y0]),
+                                left_support=unmasked["left"] > 0.08, right_support=unmasked["right"] > 0.08,
+                                left_face_support=weights["left"] > 0.08, right_face_support=weights["right"] > 0.08,
+                                face_region=semantic_face)
         baseline_path = Path(camera_audit_dir) / "camera_baseline.json"
         if baseline_path.is_file():
             baseline = json.loads(baseline_path.read_text(encoding="utf8"))

@@ -129,11 +129,187 @@ def multiband(images, weights, levels=5):
     return result
 
 
-def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, size, diagnostics=None):
+def hair_vertex_regions(neutral, masks):
+    """Derive skin reference and beard sub-regions in native FLAME coordinates.
+
+    Official FLAME masks have no cheek/jaw labels. The nose base separates the
+    upper cheeks from the jaw/chin/upper-lip allow-mask; eye/lip masks are always
+    protected. Derive these before transferring correspondence to another mesh.
+    """
+    def member(*keys):
+        selected = np.zeros(len(neutral), bool)
+        for key in keys:
+            selected[masks.get(key, [])] = True
+        return selected
+
+    face = member("face", "forehead")
+    eyes = member("eye_region", "left_eye_region", "right_eye_region", "left_eyeball", "right_eyeball")
+    lips, nose, forehead = member("lips"), member("nose"), member("forehead")
+    beard = member("jaw", "chin", "upper_lip", "beard_allow")
+    reference = member("cheeks", "skin_reference")
+    temple = np.zeros(len(neutral), bool)
+    if face.any() and eyes.any() and nose.any():
+        centre = float(np.median(neutral[face, 0]))
+        width = float(np.max(np.abs(neutral[face, 0] - centre)))
+        eye_y = float(np.median(neutral[eyes, 1]))
+        nose_y = float(np.min(neutral[nose, 1]))
+        dx = np.abs(neutral[:, 0] - centre)
+        # Include marginal triangles through any-member interpolation below.
+        beard |= face & (neutral[:, 1] <= nose_y)
+        reference |= face & (dx > width * 0.32) & (dx < width * 0.92)
+        reference &= (neutral[:, 1] > nose_y) & (neutral[:, 1] < eye_y)
+        reference |= forehead & (dx < width * 0.4)
+        temple = face & (dx > width * 0.65) & (neutral[:, 1] > eye_y - width * 0.15)
+    beard |= lips
+    reference &= ~eyes & ~nose & ~lips & ~beard
+    eligible = (face | member("left_ear", "right_ear")) & ~eyes & ~nose & ~lips & ~beard
+    return {"skin_reference": np.flatnonzero(reference), "beard_allow": np.flatnonzero(beard),
+            "hair_skin_region": np.flatnonzero(eligible), "temple": np.flatnonzero(temple)}
+
+
+FRINGE_RADIUS = 0.0015  # metres: anti-aliased hair edge to drop around rejected ear/temple samples
+EAR_HAIR_SHARE = 0.12  # an ear is repaired only if at least this share of what a view sees of it is hair-like
+EAR_MIN_SEEN = 500  # texels a view must see of an ear (confidence > 0.08) before its share counts
+
+
+def skin_colour_model(lab, reference, weight):
+    """Robust per-photo a*/b* model; L* is deliberately not a rejection axis."""
+    from .colour import skin_samples
+
+    threshold = 0.08
+    selected = reference & skin_samples(lab) & (weight > threshold)
+    if selected.sum() < 32:
+        return None
+    colours = lab[selected]
+    centre = np.median(colours, axis=0)
+    spread = np.maximum(1.4826 * np.median(np.abs(colours[:, 1:] - centre[1:]), axis=0), [2.5, 3.0])
+    return {"median_lab": centre.tolist(), "mad_ab": spread.tolist(), "texels": int(selected.sum()),
+            "confidence_threshold": threshold}
+
+
+def hair_like_samples(lab, model):
+    """Reject chroma outliers, including moderately lit grey/brown hair.
+
+    Shadow with the skin hue is retained: luminance alone cannot imply hair, and
+    bright desaturated skin (a specular highlight) is not hair either. A sample
+    must be far from the robust model AND lose chroma or skin hue; only samples
+    far darker than lit skin are rejected on darkness alone (hue is meaningless
+    there, and black hair carries a faint warm cast).
+    """
+    if model is None:
+        return np.zeros(len(lab), bool)
+    centre = np.asarray(model["median_lab"])[1:]
+    ab = lab[:, 1:]
+    chroma = np.linalg.norm(ab, axis=1)
+    reference_chroma = np.linalg.norm(centre)
+    cosine = (ab @ centre) / np.maximum(chroma * reference_chroma, 1e-9)
+    distance = np.linalg.norm((ab - centre) / np.asarray(model["mad_ab"]), axis=1)
+    # Skin chroma also falls in shadow. Compare with the expected dimmed chroma,
+    # rather than rejecting a warm shadow for being less saturated than a cheek.
+    shadow = np.clip(lab[:, 0] / max(model["median_lab"][0], 1), 0.25, 1)
+    chroma_outlier = (distance > 2.5) & ((chroma < reference_chroma * 0.5 * shadow) | (cosine < 0.8))
+    return chroma_outlier | (lab[:, 0] < 0.3 * model["median_lab"][0])
+
+
+def temple_dark_samples(lab, model, margin=22.0):
+    """Hairline stubble on the exposed temple: far darker than this photo's lit skin, whatever its hue.
+
+    The temple is convex and lit, so (unlike the cheek hollow or the eye socket) skin there is not in deep
+    shadow. Only applied to the FLAME temple band; the forehead has the same rule in ``reject_forehead_hair``.
+    """
+    if model is None:
+        return np.zeros(len(lab), bool)
+    return lab[:, 0] < model["median_lab"][0] - margin
+
+
+def mirrored_ear_colour(points, mirrored_points, raw, own, opposite, missing, sigma=0.0012, neighbours=48):
+    """Colours for the ``missing`` ear texels from the ``opposite`` ear around their mirror positions.
+
+    A topology mirror is only accurate to a millimetre or two, so the opposite ear's texels are averaged under a
+    Gaussian (``sigma`` metres): a mirrored fold line would otherwise show as a doubled dark stroke. The opposite
+    photo's white balance differs from this side's, so the median skin tone of this ear's own surviving texels
+    (``own``, when there are enough) replaces the opposite ear's median. Returns the missing texel ids, a flag for
+    those with a mirror partner within 8 mm, and their linear colours.
+    """
+    from .colour import from_lab, skin_samples, to_lab
+
+    ids = np.flatnonzero(opposite)
+    want = np.flatnonzero(missing)
+    distance, nearest = cKDTree(points[ids]).query(
+        mirrored_points[want], k=min(neighbours, len(ids)), distance_upper_bound=0.008,
+    )
+    distance, nearest = distance.reshape(len(want), -1), nearest.reshape(len(want), -1)
+    found = np.isfinite(distance)
+    source = to_lab(linear_to_srgb(raw[ids]))
+    weight = np.exp(-0.5 * (np.where(found, distance, 1.0) / sigma) ** 2) * found
+    mixed = (weight[:, :, None] * source[np.minimum(nearest, len(ids) - 1)]).sum(1)
+    mixed /= np.maximum(weight.sum(1, keepdims=True), 1e-300)
+    kept = to_lab(linear_to_srgb(raw[own]))
+    kept, theirs = kept[skin_samples(kept)], source[skin_samples(source)]
+    if len(kept) >= 32 and len(theirs) >= 32:
+        mixed += np.clip(np.median(kept, axis=0) - np.median(theirs, axis=0), [-6, -8, -8], [6, 8, 8])
+    return want, found[:, 0], srgb_to_linear(np.clip(from_lab(mixed), 0, 1))
+
+
+def ear_fallback(points, mirrored_points, raw, observed, ears, labs, accepted, models, lost=None, rims=None):
+    """Ear texels whose photo evidence was all rejected: clean opposite ear, then ear skin tone plus L* detail.
+
+    ``raw`` already combines the other accepted views, so they have priority. ``lost`` marks the texels that were
+    photographed but rejected everywhere (default: every unobserved texel); ears never photographed keep the legacy
+    surface fill. ``rims`` (side -> flags) are rim triangles that straddle the ear mask: they may be mirrored
+    from the opposite ear too, but never take the ear tone. Mirroring uses topology correspondence, never UV
+    adjacency or face samples.
+    """
+    from .colour import from_lab, skin_samples
+
+    fallback = raw.copy()
+    mirrored = np.zeros(len(points), bool)
+    toned = np.zeros(len(points), bool)
+    lost = ~observed if lost is None else lost & ~observed
+    for side, ear in ears.items():
+        missing = (ear | (rims or {}).get(side, False)) & lost
+        opposite = ears["right" if side == "left" else "left"] & observed
+        if opposite.any() and missing.any():
+            want, matched, colour = mirrored_ear_colour(points, mirrored_points, raw, ear & observed, opposite, missing)
+            fallback[want[matched]] = colour[matched]
+            mirrored[want[matched]] = True
+        remaining = missing & ~mirrored & ear
+        if not remaining.any():
+            continue
+        skin = []
+        for lab, weight in zip(labs, accepted, strict=True):
+            keep = ear & (weight > 1e-5) & skin_samples(lab)
+            skin.extend(lab[keep])
+        if skin:
+            tone = np.median(np.asarray(skin), axis=0)
+        else:
+            tones = [m["median_lab"] for m in models.values() if m is not None]
+            if not tones:
+                continue  # Insufficient evidence: retain the legacy surface fill.
+            tone = np.median(tones, axis=0)
+        # Keep only fine luminance variation, not the hair's broad dark patch.
+        ids = np.flatnonzero(ear)
+        source_l = np.mean([lab[ear, 0] for lab in labs], axis=0)
+        tree = cKDTree(points[ids])
+        _, neighbours = tree.query(points[ids], k=min(16, len(ids)))
+        if neighbours.ndim == 1:
+            neighbours = neighbours[:, None]
+        detail = np.clip(source_l - np.median(source_l[neighbours], axis=1), -3, 3)
+        colour = np.tile(tone, (len(ids), 1))
+        colour[:, 0] += detail
+        fill = srgb_to_linear(from_lab(colour))
+        fallback[ids[remaining[ids]]] = fill[remaining[ids]]
+        toned[remaining] = True
+    return fallback, mirrored, toned
+
+
+def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, size, diagnostics=None,
+         **options):
     fid, bary = rasterize_uv(uv * size, atlas_faces, size, size)
     y, x = np.nonzero(fid >= 0)
     return bake_texels(
-        neutral, faces, fid, y, x, faces[fid[y, x]], bary[y, x], fitted, cameras, photos, symmetry, masks, diagnostics
+        neutral, faces, fid, y, x, faces[fid[y, x]], bary[y, x], fitted, cameras, photos, symmetry, masks, diagnostics,
+        **options,
     )
 
 
@@ -142,6 +318,7 @@ def bake_texels(
     view_names=None, view_preferences=None, harmonize_chroma=False,
     view_face_masks=None,
     reject_forehead_hair=False,
+    reject_photo_hair=False,
 ):
     """Bake the photos into the texels ``(y, x)`` of a (rows, cols) canvas whose triangle ids are ``fid``.
 
@@ -151,8 +328,26 @@ def bake_texels(
     """
     shape = fid.shape
     points = np.einsum("ij,ijk->ik", lam, neutral[tri])
+    beard_reference = None
+    if reject_photo_hair:
+        # Pyramid lighting has a broad footprint: exempting beard weights alone
+        # cannot protect stubble from nearby ear/temple edits. Retain the legacy
+        # bake on this explicit allow-mask, including its original fine detail.
+        regions = hair_vertex_regions(neutral, masks) if "beard_allow" not in masks else masks
+        member = np.zeros(len(neutral), bool)
+        member[regions["beard_allow"]] = True
+        protected = member[tri].any(1)
+        if protected.any():
+            legacy, _ = bake_texels(
+                neutral, faces, fid, y, x, tri, lam, fitted, cameras, photos, symmetry, masks,
+                gate=gate, view_names=view_names, view_preferences=view_preferences,
+                harmonize_chroma=harmonize_chroma, view_face_masks=view_face_masks,
+                reject_forehead_hair=reject_forehead_hair,
+            )
+            beard_reference = legacy[y[protected], x[protected]].copy()
+            del legacy
     mask_rejections = {}
-    images, weights = [], []
+    images, weights, model_weights = [], [], []
     names = list(view_names) if view_names is not None else ["front", "right", "mirrored_right"]
     face_member = np.zeros(len(neutral), bool)
     face_member[masks.get("photo_face_region", masks.get("face", []))] = True
@@ -166,6 +361,7 @@ def bake_texels(
         normal = welded_vertex_normals(mesh, faces)
         image = np.zeros((*shape, 3), np.float32)
         weight = np.zeros(shape, np.float32)
+        model_weight = np.zeros(shape, np.float32) if reject_photo_hair else None
         rejected = 0
         for start in range(0, len(y), 24000):
             end = start + 24000
@@ -182,6 +378,11 @@ def bake_texels(
                 is_face = face_member[tri[start:end]].any(1)
                 rejected += int((is_face & (w > 1e-5) & (face_weight < 0.5)).sum())
                 w *= np.where(is_face, face_weight, 1.0)
+            if model_weight is not None:
+                # Registration distance and anatomical blending preferences are
+                # not photo visibility. A low gate can suppress a valid cheek
+                # colour even though it should not contribute texture detail.
+                model_weight[y[start:end], x[start:end]] = w
             if gate is not None:
                 w = w * gate[start:end]
             if view_preferences is not None:
@@ -194,10 +395,13 @@ def bake_texels(
             weight[y[start:end], x[start:end]] = w
         images.append(image)
         weights.append(weight)
+        if model_weight is not None:
+            model_weights.append(model_weight)
         if view_face_masks is not None:
             mask_rejections[name] = rejected
     from .colour import from_lab, paired_colour, skin_samples, to_lab
 
+    projection_weights = [w[y, x].copy() for w in weights] if reject_photo_hair else None
     forehead_rejections = {}
     if reject_forehead_hair and len(masks.get("eye_region", [])):
         # The new photo's hairline need not agree with the existing shell. Keep
@@ -217,6 +421,67 @@ def bake_texels(
                 hair = forehead & (lab[:, 0] < skin_l - 12)
                 forehead_rejections[name] = int((hair & (weight[y, x] > 1e-5)).sum())
                 weight[y, x] *= 1 - ramp * hair
+    # Overlap colour matching keeps the pre-photo-hair weights (forehead rejection included, as in the legacy bake).
+    colour_weights = [w.copy() for w in weights] if reject_photo_hair else weights
+
+    # Preserve the existing overlap correction and front colour reference. Hair
+    # rejection must not change white balance on the protected beard.
+    source_labs = [to_lab(linear_to_srgb(im[y, x])) for im in images]
+    hair_rejections, skin_models, rejected_samples = {}, {}, {}
+    ear_members = {}
+    beard_allow = np.zeros(len(y), bool)
+    if reject_photo_hair:
+        regions = hair_vertex_regions(neutral, masks) if "hair_skin_region" not in masks else masks
+
+        def texel_member(key, any_vertex=False):
+            member = np.zeros(len(neutral), bool)
+            member[regions.get(key, masks.get(key, []))] = True
+            return member[tri].any(1) if any_vertex else member[tri].all(1)
+
+        beard_allow = texel_member("beard_allow", True)
+        eligible = texel_member("hair_skin_region", True) & ~beard_allow
+        for key in ("eye_region", "left_eye_region", "right_eye_region", "nose", "lips",
+                    "left_eyeball", "right_eyeball"):
+            eligible &= ~texel_member(key, True)
+        reference_skin = texel_member("skin_reference") & ~beard_allow
+        temple = texel_member("temple", True)
+        ear_members = {side: texel_member(f"{side}_ear") for side in ("left", "right")}
+        ear_rims = {side: texel_member(f"{side}_ear", True) & eligible & ~ear_members[side] for side in ear_members}
+        models, rejects = {}, {}
+        for name, lab, model_weight in zip(names, source_labs, model_weights, strict=True):
+            models[name] = skin_colour_model(lab, reference_skin, model_weight[y, x])
+            rejects[name] = eligible & (
+                hair_like_samples(lab, models[name]) | (temple & temple_dark_samples(lab, models[name]))
+            )
+        # An ear is repaired only when a view that sees it well finds a substantial share of it hair-like. A clean ear
+        # (a few percent) has only fold shadows and warm creases that a cheek-based skin model calls outliers, and
+        # repainting those from the other ear would leave visible patches.
+        ear_hair_share, dirty = {}, np.zeros(len(y), bool)
+        for side in ear_members:
+            ear_all = ear_members[side] | ear_rims[side]
+            shares = []
+            for name, weight in zip(names, weights, strict=True):
+                seen = ear_all & (weight[y, x] > 0.08)
+                if seen.sum() >= EAR_MIN_SEEN:
+                    shares.append(float((rejects[name] & seen).sum() / seen.sum()))
+            ear_hair_share[side] = max(shares, default=None)
+            if ear_hair_share[side] is not None and ear_hair_share[side] < EAR_HAIR_SHARE:
+                for reject in rejects.values():
+                    reject &= ~ear_all
+            else:
+                dirty |= ear_all
+        fringe_region = eligible & (temple | dirty)
+        for name, weight in zip(names, weights, strict=True):
+            skin_models[name], reject = models[name], rejects[name]
+            # A hair edge is anti-aliased with skin: grow the rejection a little on the ears and temple, where it
+            # would otherwise leave a thin dark fringe along the repaired skin. The rest of the face is unchanged.
+            grow = np.flatnonzero(fringe_region & ~reject & (weight[y, x] > 1e-5))
+            if reject.any() and len(grow):
+                near, _ = cKDTree(points[reject]).query(points[grow], distance_upper_bound=FRINGE_RADIUS)
+                reject[grow[np.isfinite(near)]] = True
+            rejected_samples[name] = reject
+            hair_rejections[name] = int((reject & (weight[y, x] > 1e-5)).sum())
+            weight[y, x] *= ~reject
 
     # Legacy photos retain luminance-only matching. New camera/lighting sources
     # additionally match chroma on overlapping semantic skin, never RGB gains.
@@ -225,7 +490,7 @@ def bake_texels(
     semantic_overlap[y, x] = face_member[tri].all(1)
     source_front = images[0][y, x].copy()
     for i in range(1, len(names)):
-        overlap = (weights[0] > 0.08) & (weights[i] > 0.08)
+        overlap = (colour_weights[0] > 0.08) & (colour_weights[i] > 0.08)
         l0, li = images[0].mean(2), images[i].mean(2)
         overlap &= (l0 > 0.05) & (li > 0.05) & (l0 < 0.75) & (li < 0.75)
         if harmonize_chroma:
@@ -281,6 +546,24 @@ def bake_texels(
     eye[np.concatenate((masks["left_eyeball"], masks["right_eyeball"]))] = True
     unobserved_eye = eye[tri].all(1) & ~observed
     fallback[unobserved_eye] = srgb_to_linear(np.array([0.80, 0.77, 0.73], np.float32))
+    mirrored_ear = toned_ear = np.zeros(len(y), bool)
+    repaired_ear = np.zeros(len(y), bool)
+    if reject_photo_hair:
+        photographed = np.any([w[y, x] > 1e-5 for w in colour_weights], axis=0)
+        mirrored_points = np.einsum("ij,ijk->ik", lam, neutral[symmetry[tri]])
+        matched_labs = [to_lab(linear_to_srgb(im[y, x])) for im in images]
+        # Tone evidence is in the same corrected colour space as the baked atlas.
+        matched_models = {name: skin_colour_model(lab, reference_skin, model_weights[i][y, x])
+                          for i, (name, lab) in enumerate(zip(names, matched_labs, strict=True))}
+        ear_fill, mirrored_ear, toned_ear = ear_fallback(
+            points, mirrored_points, raw[y, x], observed, ear_members, matched_labs,
+            [w[y, x] for w in weights], matched_models, lost=photographed & ~observed, rims=ear_rims,
+        )
+        for before, after in zip(colour_weights, weights, strict=True):
+            repaired_ear |= (before[y, x] - after[y, x]) > 1e-5
+        repaired_ear &= ear_members["left"] | ear_members["right"] | ear_rims["left"] | ear_rims["right"]
+        repaired_ear |= mirrored_ear | toned_ear
+        fallback[repaired_ear] = ear_fill[repaired_ear]
     for i in range(len(names)):
         print(f"[flame] surface-space fill {names[i]}", flush=True)
         usable = weights[i][y, x] > 1e-5
@@ -294,6 +577,9 @@ def bake_texels(
         else:
             fill = fallback
         images[i][y[~usable], x[~usable]] = fill[~usable]
+        # Rejected ear samples must not leak back through the luminance pyramid.
+        missing_ear = repaired_ear & ~usable
+        images[i][y[missing_ear], x[missing_ear]] = fallback[missing_ear]
         # Pad charts before downsampling to prevent background colour bleeding.
         nearest = ndimage.distance_transform_edt(fid < 0, return_distances=False, return_indices=True)
         images[i][fid < 0] = images[i][nearest[0][fid < 0], nearest[1][fid < 0]]
@@ -306,25 +592,44 @@ def bake_texels(
     )
     result = srgb_to_linear(np.clip(from_lab(np.dstack((luminance, chroma))), 0, 1))
     result[y[~observed], x[~observed]] = fallback[~observed]
+    result[y[repaired_ear], x[repaired_ear]] = fallback[repaired_ear]
     # Small positive floor is only a numerical fallback; dark photographed glasses
     # are otherwise preserved. Padding fills the entire canvas for valid mipmaps.
     result = np.clip(result, 0.001, 1)
     nearest = ndimage.distance_transform_edt(fid < 0, return_distances=False, return_indices=True)
     result[fid < 0] = result[nearest[0][fid < 0], nearest[1][fid < 0]]
     texture = np.clip(np.rint(linear_to_srgb(result) * 255), 1, 255).astype(np.uint8)
+    if beard_reference is not None:
+        texture[y[protected], x[protected]] = beard_reference
+        texture[fid < 0] = texture[nearest[0][fid < 0], nearest[1][fid < 0]]
     semantic_skin = np.zeros(len(neutral), bool)
     semantic_skin[masks.get("face", [])] = True
     for key in ("eye_region", "lips", "left_eyeball", "right_eyeball"):
         semantic_skin[masks.get(key, [])] = False
     reference = np.clip(linear_to_srgb(source_front), 0, 1)
-    skin = semantic_skin[tri].all(1) & (weights[0][y, x] > 0.1) & skin_samples(to_lab(reference))
+    skin = semantic_skin[tri].all(1) & (colour_weights[0][y, x] > 0.1) & skin_samples(to_lab(reference))
     colour = paired_colour(reference, texture[y, x], skin) if skin.sum() >= 16 else None
     neck = np.zeros(len(neutral), bool)
     neck[masks.get("neck", [])] = True
     chin = neutral[masks["face"], 1].min() if len(masks.get("face", [])) else -np.inf
     underchin = neck[tri].any(1) & (points[:, 1] < chin) & (points[:, 1] > chin - 0.035) & (weights[0][y, x] > 0.1)
     if diagnostics is not None:
-        diagnostics.update(y=y, x=x, points=points, reference=reference, skin=skin, confidence=total)
+        confidence = total.copy()
+        diagnostics.update(y=y, x=x, points=points, reference=reference, skin=skin, confidence=confidence)
+        if reject_photo_hair:
+            # Resolved ear evidence should survive hybrid's unobserved-skin fade.
+            confidence[y[mirrored_ear | toned_ear], x[mirrored_ear | toned_ear]] = 0.12
+            diagnostics.update(hair={"models": skin_models, "rejected_texels": hair_rejections,
+                                    "ear_hair_share": ear_hair_share,
+                                    "ear_fallback": {"other_views": int((repaired_ear & observed).sum()),
+                                                     "mirrored": int(mirrored_ear.sum()),
+                                                     "skin_tone_detail": int(toned_ear.sum())}},
+                               source_labs=dict(zip(names, source_labs, strict=True)),
+                               source_weights=dict(zip(names, projection_weights, strict=True)),
+                               accepted_weights={n: w[y, x] for n, w in zip(names, weights, strict=True)},
+                               ear_members=ear_members, beard_allow=beard_allow,
+                               rejected_samples=rejected_samples,
+                               temple=texel_member("temple"))
     return texture, {
         "texture_fill_ratio": 1.0,
         "photo_observed_ratio": float(observed.mean()),
@@ -335,6 +640,8 @@ def bake_texels(
         "view_weight_share": {n: float(w.sum() / max(total.sum(), 1e-9)) for n, w in zip(names, weights, strict=True)},
         "face_mask_rejected_texels": mask_rejections,
         "forehead_photo_hair_rejected_texels": forehead_rejections,
+        "photo_hair_rejected_texels": hair_rejections,
+        "photo_skin_models": skin_models,
     }
 
 
