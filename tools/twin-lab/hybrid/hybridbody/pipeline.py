@@ -832,6 +832,7 @@ def run(
         "texture": {
             "photos_set": photos_set,
             "camera_fits": face.report.get("camera_fits", {}),
+            "cross_view_consistency": face.report.get("cross_view_consistency", {}),
             "face_mask_rejected_texels": face.report.get("face_mask_rejected_texels", {}),
             "forehead_photo_hair_rejected_texels": face.report.get("forehead_photo_hair_rejected_texels", {}),
             "view_weighting": (

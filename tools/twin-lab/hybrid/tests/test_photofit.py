@@ -1,19 +1,127 @@
 """Synthetic cameras/photos only; never load private data or licensed FLAME files."""
 
 import importlib.util
+import io
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
+
 from hybridbody.photofit import (
+    CameraPrior,
     camera_from_cv,
+    camera_pose,
+    ear_edge_guides,
     fit_camera,
+    focal_prior,
     mirror_correspondences,
     mirrored_camera,
+    photo_metadata,
     resolve_photos_set,
+    same_lens,
     view_preferences,
+    visible_landmarks,
 )
+
+
+def test_exif_focal_prior_uses_diagonal_and_does_not_group_unknown_or_zoomed_lenses():
+    from PIL import Image
+
+    image = Image.new("RGB", (600, 800))
+    image.getexif()[271] = "Synthetic camera maker"
+    image.getexif()[272] = "Synthetic phone"
+    image.getexif()[34665] = {37386: 3.5, 41989: 24, 42036: "Synthetic selfie lens", 41988: 1}
+    encoded = io.BytesIO()
+    image.save(encoded, format="JPEG", exif=image.getexif())
+    encoded.seek(0)
+    with Image.open(encoded) as decoded:
+        metadata = photo_metadata(decoded)
+    assert metadata["focal_mm"] == 3.5
+    assert metadata["focal_35mm"] == 24
+    assert focal_prior(metadata, (600, 800)).focal_px == pytest.approx(24 * 1000 / np.hypot(36, 24))
+    assert same_lens(metadata, metadata)
+    assert not same_lens(metadata, {**metadata, "digital_zoom": 2})
+    assert not same_lens(metadata, {**metadata, "lens_model": "Synthetic rear lens"})
+    unknown = {key: None if isinstance(value, (int, float)) else "" for key, value in metadata.items()}
+    assert not same_lens(unknown, unknown)
+    assert focal_prior(unknown, (800, 600)).focal_px == focal_prior(unknown, (600, 800)).focal_px
+    physical_only = {**metadata, "focal_35mm": None}
+    assert focal_prior(physical_only, (600, 800)).focal_log_sigma == 0.30
+
+
+def test_z_test_removes_occluded_front_facing_landmarks():
+    from flamehead.camera import Camera
+
+    # Both planes face the camera. A normal-only test retains the hidden plane.
+    vertices = np.array([[-.1, -.1, .1], [.1, -.1, .1], [.1, .1, .1], [-.1, .1, .1]])
+    faces = np.array([[0, 1, 2], [0, 2, 3]])
+    points = np.array([[.01, .02, .1], [.01, .02, .05]])
+    normals = np.tile([0., 0., 1.], (2, 1))
+    extrinsic = np.eye(4)
+    extrinsic[2, 3] = -.5
+    camera = Camera(np.array([[200, 0, 128], [0, 200, 128], [0, 0, 1]]), extrinsic,
+                    np.array([0, 256, 0, 256]), (256, 256), (256, 256))
+    assert visible_landmarks(camera, points, normals).tolist() == [True, True]
+    assert visible_landmarks(camera, points, normals, vertices, faces).tolist() == [True, False]
+
+
+def test_ear_contour_uses_only_local_synthetic_edge_evidence():
+    import trimesh
+    from flamehead.camera import Camera
+
+    mesh = trimesh.creation.icosphere(subdivisions=2, radius=.015)
+    mesh.vertices += [.085, 0, .03]
+    extrinsic = np.eye(4)
+    extrinsic[2, 3] = -.5
+    camera = Camera(np.array([[500, 0, 128], [0, 500, 128], [0, 0, 1]]), extrinsic,
+                    np.array([0, 256, 0, 256]), (256, 256), (256, 256))
+    rgb = np.full((256, 256, 3), 180, np.uint8)
+    ids = np.arange(len(mesh.vertices))
+    points, _, report = ear_edge_guides(mesh.vertices, mesh.faces, ids, camera, rgb)
+    assert points is None and report["samples"] == 0
+    hull = cv2.convexHull(np.rint(camera.project(mesh.vertices)[:, :2]).astype(np.int32))
+    cv2.fillConvexPoly(rgb, hull, (70, 70, 70))
+    points, pixels, report = ear_edge_guides(mesh.vertices, mesh.faces, ids, camera, rgb)
+    assert report["samples"] >= 6
+    assert report["semantic_ear_detection"] is False
+    assert np.linalg.norm(camera.project(points)[:, :2] - pixels, axis=1).max() <= 12
+
+
+@pytest.mark.parametrize("yaw", [-78, 78])
+def test_near_profile_with_hallucinated_hidden_features_recovers_known_camera(yaw):
+    import trimesh
+    from scipy.spatial.transform import Rotation
+
+    mesh = trimesh.creation.icosphere(subdivisions=3, radius=.085)
+    mesh.vertices[:, 1] *= 1.15
+    rng = np.random.default_rng(817)
+    ids = rng.choice(np.flatnonzero(mesh.vertices[:, 2] > .005), 105, replace=False)
+    points = mesh.vertices[ids]
+    normals = mesh.vertex_normals[ids]
+    rotation = np.diag([1., -1., -1.]) @ Rotation.from_euler("xyz", [3, -yaw, 8], degrees=True).as_matrix()
+    expected = camera_from_cv(np.r_[cv2.Rodrigues(rotation)[0].ravel(), [0., 0., .55], np.log(1100)], (1200, 1600))
+    visible = visible_landmarks(expected, points, normals, mesh.vertices, mesh.faces)
+    clean = expected.project(points)[:, :2]
+    pixels = clean + rng.normal(0, .3, clean.shape)
+    pixels[~visible] += rng.uniform(30, 65, ((~visible).sum(), 2))
+    weak_perspective_seed = camera_from_cv(
+        np.r_[cv2.Rodrigues(rotation)[0].ravel(), [0., 0., .55 * 8000 / 1100], np.log(8000)], (1200, 1600),
+    )
+    fitted, report, inliers = fit_camera(
+        points, pixels, (1200, 1600), normals=normals, mesh=mesh.vertices, faces=mesh.faces,
+        prior=CameraPrior(1100, .025, .06, azimuth_hint_deg=yaw), initial_camera=weak_perspective_seed,
+    )
+    error = np.linalg.norm(fitted.project(points)[visible, :2] - clean[visible], axis=1)
+    assert np.sqrt(np.mean(error ** 2)) < 1.5
+    assert abs(fitted.intrinsic[0, 0] / 1100 - 1) < .04
+    expected_pose = camera_pose(expected, points.mean(0))
+    fitted_pose = camera_pose(fitted, points.mean(0))
+    assert np.max(np.abs(np.asarray(expected_pose) - fitted_pose)) < 3
+    assert inliers.sum() >= visible.sum() - 5
+    assert not inliers[~visible].any()
+    assert report["all_rms_px"] > report["visible_rms_px"] * 5
+    assert report["visibility_method"] == "normal facing + iterative mesh z-test"
 
 
 @pytest.mark.parametrize("yaw", [0, 65, -55])
@@ -87,10 +195,12 @@ def test_outline_refinement_preserves_a_known_synthetic_camera():
     outline = np.c_[0.07 * np.cos(theta), 0.08 * np.sin(theta), np.full(len(theta), 0.04)]
     contour = camera.project(outline[::15])[:, :2]
     fitted, report, _ = fit_camera(
-        points, camera.project(points)[:, :2], (1200, 1600), outline_points=outline, outline_pixels=contour
+        points, camera.project(points)[:, :2], (1200, 1600), outline_points=outline, outline_pixels=contour,
+        ear_points=outline[10:30:3], ear_pixels=camera.project(outline[10:30:3])[:, :2],
     )
     assert np.max(np.linalg.norm(fitted.project(points)[:, :2] - camera.project(points)[:, :2], axis=1)) < 0.01
     assert report["outline_refinement"]["rms_after_px"] < 0.01
+    assert report["ear_refinement"]["rms_after_px"] < 0.01
 
 
 def test_three_view_bake_never_adds_a_mirror_and_masks_photo_ears_off_face(monkeypatch):
@@ -179,3 +289,122 @@ def test_cli_passes_auto_and_explicit_photo_set(monkeypatch, tmp_path):
     assert calls[-1]["photos_set"] == "auto"
     assert cli.main([*base, "--photos-set", "noglasses"]) == 0
     assert calls[-1]["photos_set"] == "noglasses"
+
+
+def _synthetic_head(seed=5):
+    """Ellipsoid 'head' with 105 embedding points on its front, plus masks shaped like the FLAME ones."""
+    import trimesh
+
+    mesh = trimesh.creation.icosphere(subdivisions=3, radius=.085)
+    mesh.vertices[:, 1] *= 1.15
+    rng = np.random.default_rng(seed)
+    ids = rng.choice(np.flatnonzero(mesh.vertices[:, 2] > .005), 105, replace=False)
+    front = np.flatnonzero(mesh.vertices[:, 2] > .0)
+    masks = {key: np.array([], int) for key in ("forehead", "eye_region", "nose", "lips")}
+    masks["face"] = front
+    masks["left_ear"] = np.flatnonzero((mesh.vertices[:, 0] > .07) & (np.abs(mesh.vertices[:, 2]) < .03))
+    masks["right_ear"] = np.flatnonzero((mesh.vertices[:, 0] < -.07) & (np.abs(mesh.vertices[:, 2]) < .03))
+    return mesh, ids, masks
+
+
+def _synthetic_camera(yaw, pitch, roll, size=(1200, 1600), focal=1100):
+    from scipy.spatial.transform import Rotation
+
+    rotation = np.diag([1., -1., -1.]) @ Rotation.from_euler("xyz", [pitch, -yaw, roll], degrees=True).as_matrix()
+    return camera_from_cv(np.r_[cv2.Rodrigues(rotation)[0].ravel(), [0., 0., .55], np.log(focal)], size)
+
+
+def test_fit_photo_set_profiles_use_loose_roll_tight_elevation_and_skip_oval_guides(tmp_path, monkeypatch):
+    """A profile with a 35 degree head nod (camera roll) and a level camera: the nod must survive the priors."""
+    from types import SimpleNamespace
+
+    from PIL import Image
+    from twinrefine.landmarks import FaceLandmarks
+
+    import hybridbody
+    from hybridbody import photofit
+
+    mesh, ids, masks = _synthetic_head()
+    flame = SimpleNamespace(neutral=np.asarray(mesh.vertices), faces=np.asarray(mesh.faces),
+                            landmark_points=np.asarray(mesh.vertices[ids]), landmark_ids=np.arange(105) * 4 + 3, masks=masks)
+    truth = {"front": _synthetic_camera(0, 2, 0), "left": _synthetic_camera(72, 0, 35),
+             "right": _synthetic_camera(-72, 0, -35)}
+    size = (1200, 1600)
+    rng = np.random.default_rng(3)
+    folder = tmp_path / "head"
+    folder.mkdir()
+    normals = mesh.vertex_normals[ids]
+    detections = {}
+    oval_points = rng.uniform([100, 100], [1100, 1500], (478, 2))
+    angle = np.linspace(0, 2 * np.pi, len(photofit.FACE_OVAL), endpoint=False)
+    oval_points[photofit.FACE_OVAL] = np.c_[600 + 400 * np.cos(angle), 800 + 600 * np.sin(angle)]
+    for index, (name, camera) in enumerate(truth.items()):
+        Image.new("RGB", size, (140, 120, 110)).save(folder / f"nog_{name}.jpeg")
+        xy = oval_points.copy()  # the same detected oval in every photo
+        projected = camera.project(flame.landmark_points)[:, :2] + rng.normal(0, .3, (105, 2))
+        hidden = ~visible_landmarks(camera, flame.landmark_points, normals, mesh.vertices, mesh.faces)
+        projected[hidden] += rng.uniform(30, 65, (hidden.sum(), 2))
+        xy[flame.landmark_ids] = projected
+        detections[index] = FaceLandmarks(xy, np.zeros(478), (0, 0, *size))
+    calls = iter(range(3))
+    monkeypatch.setattr(photofit, "detect_photo", lambda rgb: (detections[next(calls)], {"method": "synthetic"}))
+    monkeypatch.setattr(hybridbody, "REPO", tmp_path)
+    audit = tmp_path / "user-data" / "photo_fits"
+    cameras, photos, report, face_masks = photofit.fit_photo_set(flame, folder, audit)
+    for name in ("left", "right"):
+        expected = np.asarray(camera_pose(truth[name], flame.landmark_points.mean(0)))
+        fitted = np.asarray(camera_pose(cameras[name], flame.landmark_points.mean(0)))
+        assert np.max(np.abs(expected - fitted)) < 4, (name, expected, fitted)
+        assert report[name]["outline_refinement"] is None and report[name]["outline_guides_enabled"] is False
+        assert report[name]["priors"]["elevation_sigma_deg"] == photofit.PROFILE_ELEVATION_SIGMA_DEG
+        assert report[name]["priors"]["roll_sigma_deg"] == photofit.PROFILE_ROLL_SIGMA_DEG
+        assert report[name]["neck_pitch_correction"]["applied_deg"] == 0
+        assert abs(report[name]["neck_pitch_correction"]["profile_head_pitch_equivalent_deg"] - fitted[2]) < 1e-6
+        assert "large roll" not in " ".join(report[name]["quality_flags"])
+        registration = report[name]["landmark_registration_vs_front"]["after"]
+        assert registration["median_mm"] < 3
+    assert report["front"]["priors"]["azimuth_hint_deg"] is None
+    assert (audit / "camera_fits.json").is_file() and set(face_masks) == {"front", "left", "right"}
+    # Side photos weight the oval boundary band down more than the front (hair strands sit there in a nodded profile).
+    soft = {name: ((0 < mask) & (mask < 1)).sum() for name, mask in face_masks.items()}
+    assert soft["left"] > 3 * soft["front"] and soft["right"] > 3 * soft["front"]
+
+
+def test_landmark_registration_measures_cross_view_displacement_in_millimetres():
+    import trimesh
+
+    from hybridbody.photofit import landmark_registration, surface_hits
+
+    mesh = trimesh.creation.icosphere(subdivisions=3, radius=.085)
+    rng = np.random.default_rng(11)
+    ids = rng.choice(np.flatnonzero(mesh.vertices[:, 2] > .02), 60, replace=False)
+    points, normals = mesh.vertices[ids], mesh.vertex_normals[ids]
+    front, side = _synthetic_camera(0, 0, 0), _synthetic_camera(35, 0, 0)
+    hits = surface_hits(mesh.vertices, mesh.faces, front, front.project(points)[:, :2])
+    assert np.allclose(hits, points, atol=1e-4)
+    assert np.isnan(surface_hits(mesh.vertices, mesh.faces, front, np.array([[5., 5.]]))).all()
+    args = (mesh.vertices, mesh.faces, points, normals, front, front.project(points)[:, :2], side)
+    perfect = landmark_registration(*args, side.project(points)[:, :2])
+    assert perfect["landmarks_seen_by_both"] > 20 and perfect["median_mm"] < .1
+    shifted = side.project(points)[:, :2] + [20., 0.]
+    report = landmark_registration(*args, shifted)
+    # 20 px at ~0.55 m with a 1100 px focal is ~10 mm across the image plane, a bit more on the oblique surface.
+    assert 8 < report["median_mm"] < 25
+    subset = np.arange(len(points)) < 10
+    assert landmark_registration(*args, shifted, only=subset)["landmarks_seen_by_both"] <= 10
+    assert landmark_registration(*args, shifted, only=np.zeros(len(points), bool))["median_mm"] is None
+
+
+def test_ear_edge_guides_alone_refine_the_camera_without_oval_guides():
+    rng = np.random.default_rng(10)
+    points = rng.uniform([-0.07, -0.08, 0.02], [0.07, 0.08, 0.1], (105, 3))
+    camera = _synthetic_camera(40, 0, 0)
+    theta = np.linspace(0, np.pi, 40)
+    ear = np.c_[0.075 * np.ones(40), 0.02 * np.cos(theta), 0.05 + 0.02 * np.sin(theta)]
+    off_guides = camera.project(ear)[:, :2] + [12., -9.]
+    fitted, report, _ = fit_camera(points, camera.project(points)[:, :2], (1200, 1600), ear_points=ear, ear_pixels=off_guides)
+    assert report["outline_refinement"] is None
+    assert report["ear_refinement"]["samples"] == 40
+    assert report["ear_refinement"]["rms_after_px"] < report["ear_refinement"]["rms_before_px"]
+    # Landmarks stay the anchor: an inconsistent 15 px ear guide moves the landmarks by less than the guide offset.
+    assert np.mean(np.linalg.norm(fitted.project(points)[:, :2] - camera.project(points)[:, :2], axis=1)) < 8

@@ -416,6 +416,101 @@ For the app's standard MakeHuman model (nothing here is wired into `apps/web` ye
    `twinHands` always replaces the twin's hands with MakeHuman hands - it could skip that when `dtHasMakeHumanHands` is
    set, because these hands already are the app's hands.
 
+## Glasses-free profile camera audit
+
+`photofit.py` fits one perspective camera per glasses-free photo (`nog_front/left/right.jpeg`) to the existing FLAME
+identity: MediaPipe landmarks through the licensed FLAME embedding (105 points), robust PnP, then a robust refinement.
+
+**What constrains the profile cameras**
+
+- Focal length: EXIF make/model/lens, physical focal length, 35 mm-equivalent focal length and digital zoom are read.
+  Pixel focal length comes from the 35 mm equivalent and the decoded image diagonal (physical millimetres alone do not
+  fix it); the fallback is a broad 24 mm-equivalent phone FOV prior. Verified matching lenses tie the profile focal
+  (diagonal-normalised) to the front fit (6 % log bound, 2.5 % log sigma). With no EXIF at all (the user's set) the common
+  selfie lens is an explicit assumption with a wider tie (30 % bound, 15 % sigma). Different lenses/zoom use independent
+  priors. These are regularisers, not calibrations.
+- Pose: quadratic priors on camera elevation (4 deg sigma) and projected roll (40 deg sigma) for profiles; landmark
+  residuals use soft-L1 so the priors are not weakened by the outlier loss. Elevation is pinned because a handheld phone
+  is near head height. Roll is kept loose on purpose: in a profile, rotation about the optical axis IS the head nodding
+  about the ear-to-ear axis, so a tight roll prior would fight a real nod (the right photo is about 40 deg).
+- Visibility: only landmarks that pass a facing test and a perspective mesh z-test constrain the fit (the detector
+  hallucinates the far side of a profile); the subset is refreshed between solves, and profile RANSAC starts from
+  subject-side yaw hypotheses solved on their visible subset. The inlier threshold has a resolution-dependent floor, so
+  inlier counts of the first release (face-span threshold) are only comparable through the common-visible audit below.
+- Guides: local Canny edges near the visible FLAME ear silhouette (weight 2, 12 px search, six samples; not a semantic ear
+  detector) are ON. The MediaPipe face-oval "outline" ICP guide is OFF by default (`use_outline_guides`): it matches a
+  fixed FLAME mask boundary to a detector contour (in a near-profile closer to an occluding contour), and on this set it
+  pulled the yaw and lowered the ear sampling score (variant table below).
+- Photo face-oval weight: the front keeps its 6 px ramp from the detected oval; the side photos use a 12 px dead zone plus
+  a 24 px ramp (px for a 2048 px long edge). Hair strands at the oval boundary of a nodded profile otherwise landed on the
+  right forehead/temple as a grey smudge (visible in the front render); with the wider band the smudge fades to a faint
+  mark while the side-only high-pass detail drops by about 8 % (1.48 -> 1.36 left, 1.72 -> 1.58 right, high-pass L* RMS).
+- Neck pitch: no separate rigid neck pitch is applied. For the face region a profile camera roll and head pitch are the
+  same rotation, so the fitted roll already carries the nod (`profile_head_pitch_equivalent_deg` in the report);
+  separating them needs independent neck/body observations. No FLAME model or extra weights are needed.
+
+**Profile camera audit on the user's set** (numbers from `photo_fits/`; "before" is the first glasses-free release,
+kept in `camera_baseline.json`). RMS values are pixels over visible landmarks; the old inlier counts used a smaller
+threshold.
+
+| View | Focal px | Azimuth / elevation / roll (deg) | Visible RMS | Common-landmark RMS (n) | Inliers |
+|---|---|---|---|---|---|
+| front, before -> after | 815 -> 944 | 1.2 / 4.3 / -0.2 -> 1.1 / 3.1 / -0.1 | 11.1 -> 11.1 | 11.1 -> 11.1 (103) | 93 -> 93 |
+| left, before -> after | 733 -> 946 | 67.3 / -26.1 / -6.5 -> 67.3 / -4.3 / -12.8 | 19.3 -> 20.3 | 19.9 -> 19.8 (47) | 36 (thr 8.7) -> 32 (thr 16.4) |
+| right, before -> after | 8172 (at bound) -> 941 | -84.2 / +29.2 / -30.2 -> -73.1 / +3.1 / -40.7 | 25.5 -> 19.2 | 27.4 -> 17.6 (26) | 15 (thr 10.1) -> 30 (thr 16.4) |
+
+Texture-side checks, independent of the landmarks (`bake_consistency.json`, `hybrid_report.json`
+`texture.cross_view_consistency`, `camera_fits.json`):
+
+| Check | Left, before -> after | Right, before -> after |
+|---|---|---|
+| Landmark registration vs front, median mm on common landmarks (p90) | 6.0 -> 7.5 (21.6 -> 15.8) | 12.4 -> 5.4 (20.9 -> 13.5) |
+| Ear texels sampled as skin (hair-like dark) | 89.5 % (14 %) -> 95.6 % (7.5 %) | 53.1 % (42 %) -> 68.4 % (30 %) |
+| Face texels sampled as skin (both with the wider side masks) | 99.1 % -> 98.5 % | 97.1 % -> 99.4 % |
+| Production overlap dE: mean-of-colour (median per texel) | 4.21 (5.36; 25.1k texels) -> 2.62 (6.54; 22.4k) | 1.36 (5.68; 4.3k) -> 0.79 (2.76; 191 texels, see below) |
+| Independent single-view paired dE after offset, median (identical texels, 6.5k skin) | 3.97 -> 4.94 (4.02 -> 3.80) | no overlap left |
+
+Reading it honestly: the cameras are now plausible (focal near the front-calibrated value, level elevations, the right
+nod expressed as roll), and the profile ears and the right-view landmarks register better. Colour agreement with the front
+did not improve on the left (the all-overlap paired dE rose by about 1, on identical texels it is unchanged), and with the
+wider side masks the thin right/front overlap strip, which was dominated by dark hair-like samples, is gone, so the right
+colour check is no longer measurable. In the renders the right brow/temple streak of the first release is gone and the
+ears keep their shape; the right ear helix stays grey where hair covers it in the photo. The side cameras cannot be
+validated against ground truth: the right fit keeps a 40 deg roll and 30 inliers of 49 visible landmarks.
+
+Variant scan behind the choices (same photos; ear-texel skin fraction, left / right):
+
+| Variant | Left | Right |
+|---|---|---|
+| first release cameras | 0.895 | 0.531 |
+| elevation 8 / roll 12 priors, oval + ear guides (first draft) | 0.903 | 0.607 |
+| elevation 4 / roll 40, oval guide on | 0.901 | 0.640 |
+| elevation 4 / roll 40, no guides | 0.973 | 0.688 |
+| elevation 4 / roll 40, ear edges only (shipped) | 0.956-0.988 | 0.684-0.722 |
+| elevation 15 / roll 40, ear edges only | 0.949 | 0.457 |
+
+The score moves a few points between runs with near-identical settings (the elevation/focal/yaw trade-off is flat on
+the left), so only the oval-guide and loose-elevation effects (5 to 25 points) are treated as real. The score is a
+proxy: hair that really covers part of an ear lowers every camera.
+
+**Ghosting and overlap checks.** `landmark_registration_vs_front` casts every landmark that both cameras see through
+its own camera onto the identity mesh and reports how far apart the two hits land, in mm (texture-free; detector noise
+is included, so compare on identical photos and landmark subsets). The texture-based ghost proxy (`ghost_alignment`:
+high-pass L* correlation in native UV texels, local patch registration) is inconclusive on this set: the front and side
+bakes are uncorrelated at high-pass scale (NCC about 0), so no patch passes the NCC gate and no displacement is claimed.
+The existing `after_mean_delta_e76` is the distance between mean Lab colours, not the mean per-texel colour difference;
+the independent check reports both separately. `projection_skin_check` reports the ear and face skin/dark fractions
+above. Source photos, crops and single-view colour maps are processed in memory only.
+
+**Private `photo_fits/` files:** `camera_fits.json` and the landmark NPZs (matrices, EXIF/prior provenance, visibility,
+guide residuals, before/after on commonly visible landmarks); `camera_baseline.json` and `bake_baseline.json` preserve the
+first release's numbers once (delete them, or use a new audit directory, when the photo set or identity changes);
+`bake_consistency.json`.
+
+Re-run `run_all.py --body hybrid --head flame --from-stage hybrid --force` with the bundle stage venv after changing the
+glasses-free JPEGs: the launcher does not fingerprint them. Synthetic camera, occlusion, EXIF, ear-edge, registration,
+skin-check and texture-registration tests live in `tests/test_photofit.py` and `tests/test_overlap.py`.
+
 ## Known weaknesses
 
 - The FLAME fit is smooth and statistical: the deformation is small (a few mm on average), ears/skull shape beyond what

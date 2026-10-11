@@ -11,6 +11,7 @@ face-oval masks; the real left view replaces mirrored augmentation.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -248,6 +249,70 @@ def bake_face(
     report["gated_texels"] = int((gate < 0.5).sum())
     report["photos_set"] = photos_set
     report["camera_fits"] = camera_report
+    if photos_set == "noglasses":
+        from flamehead.camera import Camera
+        from flamehead.colour import skin_samples
+
+        from .overlap import compare_single_views, projection_skin_check, single_view_samples
+
+        ear_members = {}
+        for side in ("left", "right"):
+            member = np.zeros(len(next(iter(posed.values()))), bool)
+            member[masks[f"{side}_ear"]] = True
+            ear_members[side] = member[tri].all(1)
+        unmasked = {}
+        samples, weights, semantic_skin, semantic_face = single_view_samples(
+            posed, island_faces, tri, lam, cameras, photos, masks, face_masks, gate, unmasked,
+        )
+        consistency = {
+            "method": "independent single-view UV samples; z-visible confidence > 0.08 before anatomical preferences",
+            "colour_convention": "Lab median offsets; delta of mean and mean paired delta reported separately",
+            "ghost_units": "native head UV texels at square_uv_size; local registration proxy, not a perception guarantee",
+            "after": compare_single_views(samples, weights, semantic_skin, semantic_face, fid.shape, y, x),
+            "projection_skin_check": {
+                "method": "share of each side photo's samples on the ear / face texels that look like skin "
+                          "(flamehead skin_samples); dark = L* < 38 (hair-like). A proxy independent of the landmarks.",
+                "after": projection_skin_check(samples, weights, unmasked, ear_members, semantic_face),
+            },
+        }
+        baseline_path = Path(camera_audit_dir) / "camera_baseline.json"
+        if baseline_path.is_file():
+            baseline = json.loads(baseline_path.read_text(encoding="utf8"))
+            old_cameras = {}
+            for name, camera in cameras.items():
+                old = baseline[name]
+                old_cameras[name] = Camera(np.asarray(old["intrinsics"]), np.asarray(old["world_to_camera"]),
+                                           camera.crop.copy(), camera.original_size, camera.size)
+            old_unmasked = {}
+            old_samples, old_weights, _, _ = single_view_samples(
+                posed, island_faces, tri, lam, old_cameras, photos, masks, face_masks, gate, old_unmasked,
+            )
+            consistency["projection_skin_check"]["before"] = projection_skin_check(
+                old_samples, old_weights, old_unmasked, ear_members, semantic_face,
+            )
+            consistency["before"] = compare_single_views(
+                old_samples, old_weights, semantic_skin, semantic_face, fid.shape, y, x,
+            )
+            support = {name: (old_weights["front"] > 0.08) & (old_weights[name] > 0.08)
+                       & (weights["front"] > 0.08) & (weights[name] > 0.08) for name in ("left", "right")}
+            common_skin = {name: skin_samples(old_samples["front"]) & skin_samples(old_samples[name])
+                           & skin_samples(samples["front"]) & skin_samples(samples[name]) for name in ("left", "right")}
+            consistency["common_overlap"] = {
+                "before": compare_single_views(old_samples, old_weights, semantic_skin, semantic_face, fid.shape, y, x,
+                                               support=support, skin_support=common_skin),
+                "after": compare_single_views(samples, weights, semantic_skin, semantic_face, fid.shape, y, x,
+                                              support=support, skin_support=common_skin),
+            }
+        original_bake_path = Path(camera_audit_dir) / "bake_baseline.json"
+        consistency["production_overlap_colour"] = {"after": report["gains"]}
+        if original_bake_path.is_file():
+            consistency["production_overlap_colour"]["before"] = json.loads(
+                original_bake_path.read_text(encoding="utf8"),
+            )["gains"]
+        report["cross_view_consistency"] = consistency
+        (Path(camera_audit_dir) / "bake_consistency.json").write_text(
+            json.dumps(consistency, indent=2, allow_nan=False) + "\n", encoding="utf8",
+        )
     skin_mask = np.zeros((h, w), bool)
     skin_mask[y[diagnostics["skin"]], x[diagnostics["skin"]]] = True
     return FaceBake(
