@@ -227,12 +227,15 @@ function hipArms(pose, intent) {
     }
     const axis = reach.clone().normalize();
     const along = (upperLength ** 2 - lowerLength ** 2 + distance ** 2) / (2 * distance);
-    const outward = new Vector3(sign, 0, 0).addScaledVector(axis, -axis.x * sign).normalize();
+    // Elbows stay outside and behind the waist, so the forearm approaches the hip along its surface.
+    const outward = new Vector3(sign, 0, -3).projectOnPlane(axis).normalize();
     const offset = Math.sqrt(Math.max(0, upperLength ** 2 - along ** 2));
     const elbow = shoulder.clone().addScaledVector(axis, along).addScaledVector(outward, offset);
     pose.aim(`upperarm_${side}`, elbow.clone().sub(shoulder));
-    pose.aim(`lowerarm_${side}`, wrist.clone().sub(elbow));
-    pose.aim(`hand_${side}`, new Vector3(-sign * 0.25, -0.75, 0.3));
+    const forearm = wrist.clone().sub(elbow).normalize();
+    pose.aim(`lowerarm_${side}`, forearm);
+    // Align the visible hand with the forearm; contact comes from the arm IK, not wrist flexion.
+    orientHand(pose, side, forearm, new Vector3(-1, 0, 0), 'fingers');
   }
   curlFingers(pose);
 }
@@ -273,7 +276,8 @@ function build(spec) {
       relaxedArms(pose, spec.intent);
       break;
     case 'hands-on-hips':
-      hipArms(pose, spec.intent);
+      // Calibrated on both the permissive mannequin and the private twin: a small palm/finger clearance at the hip.
+      hipArms(pose, { ...spec.intent, wristX: 0.188, wristAboveHipM: 0.1 });
       break;
     case 'walk':
       relaxedArms(pose, spec.intent);

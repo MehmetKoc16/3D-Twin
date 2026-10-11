@@ -1,7 +1,7 @@
 // @ts-expect-error Node types are not in the browser app's tsconfig; Vitest supplies this module.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Quaternion, Vector3 } from 'three';
+import { Quaternion, Triangle, Vector3 } from 'three';
 import type { BodyManifest, JointRef, PoseDef, RigDef } from '@dt/avatar-core';
 import { primitive, parseGlb } from '../wardrobe/realAssets.testkit';
 import { blendQuaternion, easeInOut, parsePoseDef } from './poseEngine';
@@ -89,7 +89,12 @@ function palmNormal(state: PoseState, side: string): Vector3 {
     .joint(`middle_01_${side}`)
     .clone()
     .sub(state.joint(`hand_${side}`))
-    .cross(state.joint(`index_01_${side}`).clone().sub(state.joint(`pinky_01_${side}`)))
+    .cross(
+      state
+        .joint(`index_01_${side}`)
+        .clone()
+        .sub(state.joint(`pinky_01_${side}`)),
+    )
     .normalize();
   return side === 'l' ? normal : normal.negate();
 }
@@ -131,12 +136,20 @@ describe('generated poses on the real rig', () => {
         for (const segment of [1, 2, 3]) {
           const name = `${finger}_0${segment}_${side}`;
           const fingerDirection = state.end(name).clone().sub(state.joint(name)).normalize();
-          expect(forearm.angleTo(fingerDirection), `${name} bend`).toBeLessThan((7 * Math.PI) / 180);
+          expect(forearm.angleTo(fingerDirection), `${name} bend`).toBeLessThan(
+            (7 * Math.PI) / 180,
+          );
         }
-        expect(Math.abs(state.end(`${finger}_03_${side}`).y - shoulder.y), `${finger} fingertip height`)
-          .toBeLessThan(0.03);
+        expect(
+          Math.abs(state.end(`${finger}_03_${side}`).y - shoulder.y),
+          `${finger} fingertip height`,
+        ).toBeLessThan(0.03);
       }
-      const thumbDirection = state.end(`thumb_03_${side}`).clone().sub(state.joint(`thumb_03_${side}`)).normalize();
+      const thumbDirection = state
+        .end(`thumb_03_${side}`)
+        .clone()
+        .sub(state.joint(`thumb_03_${side}`))
+        .normalize();
       expect(thumbDirection.z).toBeGreaterThan(0.8);
       expect(Math.abs(state.end(`thumb_03_${side}`).y - shoulder.y)).toBeLessThan(0.03);
       // palms DOWN on both hands (the first generator mirrored the target twice and left them up and twisted)
@@ -160,7 +173,9 @@ describe('generated poses on the real rig', () => {
       expect(hand.y).toBeLessThan(state.joint('pelvis').y);
       expect(Math.abs(hand.x)).toBeGreaterThan(Math.abs(state.joint(`thigh_${side}`).x));
       // the palm faces the thigh: toward the body midline, -X for the left hand and +X for the right hand
-      expect(palmNormal(state, side).x * (side === 'l' ? -1 : 1), `${side} palm`).toBeGreaterThan(0.8);
+      expect(palmNormal(state, side).x * (side === 'l' ? -1 : 1), `${side} palm`).toBeGreaterThan(
+        0.8,
+      );
     }
   });
 
@@ -172,6 +187,43 @@ describe('generated poses on the real rig', () => {
       const hipRegion = new Vector3(Math.sign(thigh.x) * 0.225, thigh.y + 0.055, thigh.z + 0.065);
       expect(hand.distanceTo(hipRegion)).toBeLessThan(0.12);
       expect(Math.abs(state.joint(`lowerarm_${side}`).x)).toBeGreaterThan(Math.abs(hand.x));
+    }
+  });
+
+  it('keeps hands-on-hips wrist flexion within 20 degrees with fingers forward and down', () => {
+    const state = fk(pose('hands-on-hips'));
+    for (const side of ['l', 'r']) {
+      const wrist = state.joint(`hand_${side}`);
+      const forearm = wrist
+        .clone()
+        .sub(state.joint(`lowerarm_${side}`))
+        .normalize();
+      const fingers = state.joint(`middle_01_${side}`).clone().sub(wrist).normalize();
+      expect(forearm.angleTo(fingers), `${side} wrist flexion`).toBeLessThanOrEqual(
+        (20 * Math.PI) / 180,
+      );
+      expect(fingers.y, `${side} fingers down`).toBeLessThan(-0.5);
+      expect(fingers.z, `${side} fingers forward`).toBeGreaterThan(0.5);
+      expect(palmNormal(state, side).x * (side === 'l' ? -1 : 1)).toBeGreaterThan(0.9);
+    }
+  });
+
+  it('mirrors every hands-on-hips arm and finger rotation and joint position', () => {
+    const value = pose('hands-on-hips');
+    const state = fk(value);
+    for (const bone of rig.bones.filter(({ name }) => name.endsWith('_l'))) {
+      const rightName = bone.name.replace(/_l$/, '_r');
+      const left = value.bones[bone.name] ?? [0, 0, 0, 1];
+      const right = value.bones[rightName] ?? [0, 0, 0, 1];
+      expect(
+        new Quaternion(...right)
+          .normalize()
+          .angleTo(new Quaternion(left[0], -left[1], -left[2], left[3]).normalize()),
+        bone.name,
+      ).toBeLessThan(1e-5);
+      const mirrored = state.joint(bone.name).clone();
+      mirrored.x *= -1;
+      expect(state.joint(rightName).distanceTo(mirrored), bone.name).toBeLessThan(1e-5);
     }
   });
 
@@ -228,7 +280,9 @@ describe('hand roll about the forearm', () => {
 });
 
 describe('wrists under linear blend skinning on the real mannequin', () => {
-  const mesh = primitive(parseGlb(readFileSync(new URL('../../../public/assets/body/base.glb', import.meta.url))));
+  const mesh = primitive(
+    parseGlb(readFileSync(new URL('../../../public/assets/body/base.glb', import.meta.url))),
+  );
   const { position, joints, weights } = mesh;
   const restHeads = rig.bones.map((bone) => point(bone.head));
   const vertexCount = position.length / 3;
@@ -258,9 +312,76 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
     return out;
   }
 
+  it.each(['l', 'r'])('rests the %s hand on the hip surface without penetration', (side) => {
+    if (!joints || !weights) throw new Error('base.glb has no skin');
+    const value = pose('hands-on-hips');
+    const state = fk(value);
+    const posed = skinPose(value);
+    const vertex = (positions: ArrayLike<number>, i: number) =>
+      new Vector3(positions[3 * i]!, positions[3 * i + 1]!, positions[3 * i + 2]!);
+    const dominantBones = Array.from({ length: vertexCount }, (_, i) => {
+      let strongest = 0;
+      for (let k = 1; k < 4; k++) {
+        if (weights[4 * i + k]! > weights[4 * i + strongest]!) strongest = k;
+      }
+      return rig.bones[joints[4 * i + strongest]!]!.name;
+    });
+    const handIds = dominantBones.flatMap((name, i) =>
+      /^(hand|thumb|index|middle|ring|pinky)_/.test(name) && name.endsWith(`_${side}`) ? [i] : [],
+    );
+    // Weld UV seam copies before computing the centroid of the whole hand, including the fingers.
+    const uniqueHand = [
+      ...new Map(handIds.map((i) => [vertex(position, i).toArray().join(','), i])).values(),
+    ];
+    expect(uniqueHand.length).toBeGreaterThan(100);
+    const centroid = uniqueHand
+      .reduce((sum, i) => sum.add(vertex(posed, i)), new Vector3())
+      .divideScalar(uniqueHand.length);
+    const hip = state.joint(`thigh_${side}`);
+    expect(Math.abs(centroid.y - hip.y), 'hip height').toBeLessThan(0.15);
+    expect(centroid.x * (side === 'l' ? 1 : -1), 'same-side hip').toBeGreaterThan(Math.abs(hip.x));
+
+    // Only torso/pelvis/thigh triangles count as body contact: never the hand itself or another arm.
+    const bodyTriangles: Triangle[] = [];
+    for (let t = 0; t < mesh.indices.length; t += 3) {
+      const a = mesh.indices[t]!;
+      const b = mesh.indices[t + 1]!;
+      const c = mesh.indices[t + 2]!;
+      if ([a, b, c].every((i) => /^(pelvis|spine_|thigh_)/.test(dominantBones[i]!))) {
+        bodyTriangles.push(new Triangle(vertex(posed, a), vertex(posed, b), vertex(posed, c)));
+      }
+    }
+    expect(bodyTriangles.length).toBeGreaterThan(100);
+    const signedDistance = (p: Vector3) => {
+      let nearest = Infinity;
+      let signed = Infinity;
+      const closest = new Vector3();
+      const normal = new Vector3();
+      for (const triangle of bodyTriangles) {
+        triangle.closestPointToPoint(p, closest);
+        const distance = p.distanceTo(closest);
+        if (distance < nearest) {
+          nearest = distance;
+          signed =
+            p.clone().sub(closest).dot(triangle.getNormal(normal)) < 0 ? -distance : distance;
+        }
+      }
+      return signed;
+    };
+    // A centroid lies inside the hand volume, so near-zero surface distance would bury the palm/fingers.
+    const centroidDistance = signedDistance(centroid);
+    expect(centroidDistance, 'hand centroid outside body').toBeGreaterThan(0);
+    expect(centroidDistance, 'hand centroid to hip surface').toBeLessThan(0.05);
+    const clearances = uniqueHand.map((i) => signedDistance(vertex(posed, i)));
+    expect(Math.min(...clearances), 'no hand vertices inside body').toBeGreaterThanOrEqual(0);
+    expect(Math.min(...clearances), 'hand surface touching hip within 5 mm').toBeLessThan(0.005);
+  });
+
   /** Area of the 2D convex hull of the vertices projected on the plane perpendicular to `axis` (monotone chain). */
   function hullArea(positions: ArrayLike<number>, ids: number[], axis: Vector3): number {
-    const u = new Vector3().crossVectors(axis, Math.abs(axis.y) < 0.9 ? new Vector3(0, 1, 0) : new Vector3(1, 0, 0)).normalize();
+    const u = new Vector3()
+      .crossVectors(axis, Math.abs(axis.y) < 0.9 ? new Vector3(0, 1, 0) : new Vector3(1, 0, 0))
+      .normalize();
     const v = new Vector3().crossVectors(axis, u).normalize();
     const pts = ids
       .map((i) => {
@@ -273,7 +394,8 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
     const chain = (list: (readonly [number, number])[]) => {
       const hull: (readonly [number, number])[] = [];
       for (const pt of list) {
-        while (hull.length >= 2 && cross(hull[hull.length - 2]!, hull[hull.length - 1]!, pt) <= 0) hull.pop();
+        while (hull.length >= 2 && cross(hull[hull.length - 2]!, hull[hull.length - 1]!, pt) <= 0)
+          hull.pop();
         hull.push(pt);
       }
       hull.pop();
@@ -299,7 +421,9 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
     return slabCenters.map((center) => {
       const ids: number[] = [];
       for (let i = 0; i < vertexCount; i++) {
-        const rel = new Vector3(position[3 * i]!, position[3 * i + 1]!, position[3 * i + 2]!).sub(wrist);
+        const rel = new Vector3(position[3 * i]!, position[3 * i + 1]!, position[3 * i + 2]!).sub(
+          wrist,
+        );
         const along = rel.dot(axis);
         const radial = rel.addScaledVector(axis, -along).length();
         if (Math.abs(along - center) <= 0.006 && radial < 0.07) ids.push(i);
@@ -341,8 +465,10 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
           state.joint(`middle_01_${side}`),
         );
         const ratio = hullArea(posed, ring, axis) / restArea[k]!;
-        // candy wrapper: 0.13 with the first generator's 165 deg hand roll, >= 0.86 after the fix
-        expect(ratio, `${id} ${side} slab ${k}`).toBeGreaterThan(0.8);
+        // Hands-on-hips must preserve at least 97% of every wrist slab, rather than just avoiding severe collapse.
+        expect(ratio, `${id} ${side} slab ${k}`).toBeGreaterThanOrEqual(
+          id === 'hands-on-hips' ? 0.97 : 0.8,
+        );
       });
     }
   });
