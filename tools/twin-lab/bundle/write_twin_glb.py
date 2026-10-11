@@ -8,7 +8,7 @@ import io
 import json
 import re
 import struct
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -561,6 +561,85 @@ def validate_bundle(
     return result
 
 
+BUST_RESTRICTIONS = (
+    "Personal non-commercial Hunyuan3D bust source; never shipped or committed"
+)
+HY3D_GLASSES_METHOD = "Hunyuan silhouette fitted procedural wires + FLAME landmarks"
+
+
+def bundle_provenance(
+    document: dict,
+    shape: str,
+    license_name: str,
+    *,
+    shape_meta: Path | None = None,
+    accessory_document: dict | None = None,
+) -> dict:
+    """Record actual component sources; a code/format licence is not asset clearance."""
+    components = {}
+    if shape_meta is not None:
+        meta = json.loads(shape_meta.read_text(encoding="utf-8"))
+        if not isinstance(meta, dict) or any(
+            not isinstance(meta.get(key, {}), dict) for key in ("provenance", "model")
+        ):
+            raise ValueError("Invalid shape metadata provenance")
+        source = meta.get("provenance", {})
+        shape = (
+            source.get("shape") or meta.get("model", {}).get("repo") or "unspecified"
+        )
+        license_name = source.get("license") or meta.get("licenseNote") or "unverified"
+        if (
+            not isinstance(shape, str) or not shape.strip()
+            or not isinstance(license_name, str) or not license_name.strip()
+        ):
+            raise ValueError("Invalid shape metadata provenance")
+        components["shape"] = {"source": shape, "license": license_name}
+        if meta.get("licenseNote"):
+            components["shape"]["licenseNote"] = meta["licenseNote"]
+    hybrid = document.get("asset", {}).get("extras", {}).get("dtHybrid", {})
+    if hybrid:
+        shape = "MakeHuman/FLAME hybrid"
+        license_name = (
+            hybrid.get("license")
+            or "CC0 MakeHuman + non-commercial FLAME/Pixel3DMM fit"
+        )
+        if hybrid.get("hair") == "hy3d" or hybrid.get("hairShell", {}).get("source"):
+            components["hair"] = {
+                "source": "User's own Hunyuan3D bust; cut out and fitted hair shell",
+                "license": BUST_RESTRICTIONS,
+            }
+        elif hybrid.get("hair"):
+            procedural = (
+                hybrid.get("hair") == "procedural"
+                or hybrid.get("hairProcedural") is True
+            )
+            components["hair"] = {
+                "source": "Procedural hair"
+                if procedural
+                else f"MakeHuman part: {hybrid['hair']}",
+                "license": "Project-generated geometry"
+                if procedural
+                else "CC0 MakeHuman",
+            }
+    if accessory_document is not None:
+        metadata = (
+            accessory_document.get("asset", {}).get("extras", {}).get("dtAccessory", {})
+        )
+        if metadata.get("placement", {}).get("method") == HY3D_GLASSES_METHOD:
+            components["glasses"] = {
+                "source": "Procedural wires fitted to the user's own Hunyuan3D bust and FLAME landmarks",
+                "license": BUST_RESTRICTIONS + "; non-commercial FLAME-derived fit",
+            }
+    if any(BUST_RESTRICTIONS in item["license"] for item in components.values()):
+        license_name += "; " + BUST_RESTRICTIONS
+    return {
+        "shape": shape,
+        "license": license_name,
+        "createdAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        **({"components": components} if components else {}),
+    }
+
+
 def write_bundle(
     rigged: Path,
     twin_path: Path,
@@ -572,10 +651,13 @@ def write_bundle(
     license_name: str = "unspecified",
     rig_path: Path = RIG,
     glasses: Path | None = None,
+    shape_meta: Path | None = None,
 ) -> dict:
     inputs = [rigged, twin_path, mapping_path] + ([texture] if texture else [])
     if glasses is not None:
         inputs.append(glasses)
+    if shape_meta is not None:
+        inputs.append(shape_meta)
     if out.resolve() in [path.resolve() for path in inputs]:
         raise ValueError("Output must not overwrite an input")
     # Personal artifacts can never be copied into tracked paths, even accidentally.
@@ -591,6 +673,17 @@ def write_bundle(
     if len(data) != count * 4:
         raise ValueError("mh2twin.bin length must equal vertex count * 4 bytes")
     tone = sample_skin_tone(document, blob, primitive, names, texture)
+    accessory = glasses.read_bytes() if glasses is not None else None
+    params = validate_glasses(accessory) if accessory is not None else None
+    provenance = bundle_provenance(
+        document,
+        shape,
+        license_name,
+        shape_meta=shape_meta,
+        accessory_document=read_glb_bytes(accessory)[0]
+        if accessory is not None
+        else None,
+    )
     blob += b"\0" * (-len(blob) % 4)
     views = document.setdefault("bufferViews", [])
     mapping_index = len(views)
@@ -606,22 +699,23 @@ def write_bundle(
             "count": count,
             "componentType": "uint32",
         },
-        "provenance": {
-            "shape": shape,
-            "license": license_name,
-            "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        },
+        "provenance": provenance,
     }
-    if glasses is not None:
-        accessory = glasses.read_bytes()
-        params = validate_glasses(accessory)
+    if accessory is not None:
         blob += b"\0" * (-len(blob) % 4)
         index = len(views)
-        views.append({"buffer": 0, "byteOffset": len(blob), "byteLength": len(accessory)})
+        views.append(
+            {"buffer": 0, "byteOffset": len(blob), "byteLength": len(accessory)}
+        )
         blob += accessory
         document["buffers"][0]["byteLength"] = len(blob)
         document["asset"]["extras"]["dtTwin"]["accessories"] = [
-            {"id": "glasses", "bone": "head", "mesh": {"bufferView": index}, "params": params}
+            {
+                "id": "glasses",
+                "bone": "head",
+                "mesh": {"bufferView": index},
+                "params": params,
+            }
         ]
     encoded = json.dumps(
         document, ensure_ascii=False, separators=(",", ":"), allow_nan=False
@@ -659,6 +753,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--glasses", type=Path, help="optional head-local glasses GLB")
     parser.add_argument(
+        "--shape-meta",
+        type=Path,
+        help="actual shape-stage meta.json; source/licence override short CLI labels",
+    )
+    parser.add_argument(
         "--texture",
         type=Path,
         help="optional sampling image; the embedded GLB texture stays unchanged",
@@ -680,6 +779,7 @@ def main(argv: list[str] | None = None) -> int:
             shape=args.shape,
             license_name=args.license,
             glasses=args.glasses,
+            shape_meta=args.shape_meta,
         )
     except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
         # Do not dump private JSON, texture samples, or geometry in error logs.

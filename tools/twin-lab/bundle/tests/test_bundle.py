@@ -173,6 +173,77 @@ def test_synthetic_round_trip_preserves_data_and_forearm_median(synthetic):
     assert bundle.validate_bundle(out) == result
 
 
+@pytest.mark.parametrize("hair", ["hy3d", "procedural", "hair-short"])
+def test_hybrid_component_provenance_survives_packaging(synthetic, hair):
+    rigged, twin, mapping, out = synthetic
+    document, blob = bundle.read_glb(rigged)
+    document["asset"]["extras"]["dtHybrid"] = {
+        "hair": hair, "hairProcedural": hair == "procedural",
+        "license": "MakeHuman CC0 + private non-commercial FLAME/Pixel3DMM fit",
+    }
+    save_glb(rigged, document, blob)
+    bundle.write_bundle(rigged, twin, mapping, out)
+    packed, _ = bundle.read_glb(out)
+    provenance = packed["asset"]["extras"]["dtTwin"]["provenance"]
+    assert provenance["shape"] == "MakeHuman/FLAME hybrid"
+    assert "FLAME/Pixel3DMM" in provenance["license"]
+    assert (bundle.BUST_RESTRICTIONS in provenance["license"]) == (hair == "hy3d")
+    source = provenance["components"]["hair"]
+    if hair == "hy3d":
+        assert "User's own Hunyuan3D bust" in source["source"]
+        assert "never shipped" in source["license"]
+    else:
+        assert "Hunyuan" not in source["source"]
+
+
+@pytest.mark.parametrize("hy3d", [True, False])
+def test_glasses_bust_provenance_uses_accessory_metadata(synthetic, hy3d):
+    rigged, twin, mapping, out = synthetic
+    glasses = out.parent / "glasses.glb"
+    method = bundle.HY3D_GLASSES_METHOD if hy3d else "synthetic procedural parameters"
+    glasses.write_bytes(make_glasses.encode_glasses(make_glasses.DEFAULTS, np.zeros(3), method))
+    bundle.write_bundle(rigged, twin, mapping, out, glasses=glasses)
+    packed, _ = bundle.read_glb(out)
+    provenance = packed["asset"]["extras"]["dtTwin"]["provenance"]
+    assert (bundle.BUST_RESTRICTIONS in provenance["license"]) == hy3d
+    if hy3d:
+        component = provenance["components"]["glasses"]
+        assert "Procedural wires fitted" in component["source"]
+        assert "Hunyuan3D bust" in component["source"]
+        assert "non-commercial FLAME" in component["license"]
+
+
+@pytest.mark.parametrize("meta,expected_shape,expected_license", [
+    ({"model": {"repo": "tencent/Hunyuan3D-2mini"}, "licenseNote": "Tencent Hunyuan 3D 2.0 Community License"},
+     "tencent/Hunyuan3D-2mini", "Tencent Hunyuan 3D 2.0 Community License"),
+    ({"provenance": {"shape": "Microsoft TRELLIS.2-4B", "license": "MIT + DINOv3 custom license"}},
+     "Microsoft TRELLIS.2-4B", "MIT + DINOv3 custom license"),
+    ({"model": {"repo": "synthetic/unknown"}}, "synthetic/unknown", "unverified"),
+])
+def test_shape_metadata_overrides_stale_source_labels(synthetic, meta, expected_shape, expected_license):
+    rigged, twin, mapping, out = synthetic
+    metadata = out.parent / "meta.json"
+    metadata.write_text(json.dumps(meta))
+    bundle.write_bundle(rigged, twin, mapping, out, shape="Hunyuan3D-2",
+                        license_name="stale licence", shape_meta=metadata)
+    document, _ = bundle.read_glb(out)
+    provenance = document["asset"]["extras"]["dtTwin"]["provenance"]
+    assert provenance["shape"] == expected_shape
+    assert provenance["license"] == expected_license
+    assert provenance["components"]["shape"]["source"] == expected_shape
+
+
+@pytest.mark.parametrize("meta", [[], {"model": "invalid"}, {"provenance": {"shape": 42}}])
+def test_invalid_shape_metadata_preserves_existing_output(synthetic, meta):
+    rigged, twin, mapping, out = synthetic
+    metadata = out.parent / "meta.json"
+    metadata.write_text(json.dumps(meta))
+    out.write_bytes(b"synthetic previous output")
+    with pytest.raises(ValueError, match="shape metadata"):
+        bundle.write_bundle(rigged, twin, mapping, out, shape_meta=metadata)
+    assert out.read_bytes() == b"synthetic previous output"
+
+
 def test_bodyfix_solution_and_achieved_measurements_survive_bundle(synthetic):
     rigged, twin_path, mapping, out = synthetic
     twin = json.loads(twin_path.read_text())

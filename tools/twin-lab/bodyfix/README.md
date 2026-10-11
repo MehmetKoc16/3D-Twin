@@ -13,8 +13,7 @@ tools/twin-lab/rig/.venv/Scripts/python.exe -m pytest tools/twin-lab/bodyfix/tes
 ```
 
 If a head stage is installed, use its output as `--in`. The launcher inserts
-bodyfix immediately before rig, currently after refine; the separately added
-head launcher block must go upstream of bodyfix. Its interpreter
+bodyfix after the optional head stage and before hybrid/rig. Its interpreter
 is always `rig/.venv`, including when a bodyfix venv happens to exist.
 
 The JSON object accepts any subset of `heightCm`, `weightKg`, `shoulderCm`,

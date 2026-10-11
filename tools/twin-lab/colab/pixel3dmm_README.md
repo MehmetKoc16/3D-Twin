@@ -94,6 +94,11 @@ detection to avoid a second CUDA runtime dependency; MICA itself runs on GPU.
 The pipeline installer fetches PIPNet's WFLW checkpoint and Pixel3DMM's UV/normal
 checkpoints. Facer fetches its detector/FaRL parsing assets when initialized;
 PyTorch/torch-hub also fetch required pretrained encoders/backbones automatically.
+Checkpoint-by-checkpoint download sources, attribution and verified/unverified weight terms are recorded in
+[CREDITS.md](../../../CREDITS.md#twin-lab-preprocessing-checkpoint-inventory). RetinaFace, FaRL parser, PIPNet WFLW,
+FaceBoxesV2, cloned MobileNetV3 and torchvision ResNet18 weights remain **unverified**; MIT/BSD code licences are
+not substituted for model terms. The DINO small/base model cards declare Apache-2.0, but a loaded Pixel3DMM
+checkpoint's actual encoder configuration/revision still needs runtime recording.
 Model/software caches stay in `/content/dt-pixel3dmm-cache` until final cleanup. Weight URLs can expire or hit quotas;
 there is no redistribution mirror or credential fallback.
 

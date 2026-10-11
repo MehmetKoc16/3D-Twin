@@ -107,7 +107,7 @@ parts). Run it with `--fingers keep --smooth 0` (MakeHuman hands are real hands,
 
 **Separate hair node.** The hybrid GLB can hold a second primitive on its own node (`asset.extras.dtHairNode`, `"dtHair"`):
 hair with its own material: strand cards with a strand data atlas (`rcov-groot-bvar/1`) or a solid textured shell with a colour
-texture and a normal map (`shell/1`, the hy3d hair of the hybrid stage). `rig_scan.split_hair_prim` finds it by node name, requires exactly
+texture and an optional normal map (`shell/1`, the hy3d hair of the hybrid stage). `rig_scan.split_hair_prim` finds it by node name, requires exactly
 one other (body) primitive, and everything else works as for one mesh: the hair's skin weights are transferred from the
 closest body vertices (the head bone, `neck_01` at the nape), both nodes use the one shared skin, the hair keeps its own
 smooth card normals, and `twin.json` / `mh2twin.bin` describe the body primitive only. `rig_report.json` gets a `hair`

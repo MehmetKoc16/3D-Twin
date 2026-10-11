@@ -93,8 +93,9 @@ when resuming; `--dry-run` prints commands without creating files or checking in
 
 ### Photo sets, hair and cleanup flags
 
-`--photos-set`, `--hair` and `--keep-neck-hair` are **hybrid.py flags**, not `run_all.py` flags. The launcher uses their
-defaults. `--photos-set auto` requires the complete `nog_front.jpeg`, `nog_left.jpeg`, `nog_right.jpeg` set when its
+`--photos-set` is accepted by both `hybrid.py` and `run_all.py` (default `auto`). `--hair` and
+`--keep-neck-hair` belong to `hybrid.py`; the launcher uses their defaults. `--photos-set auto` requires the complete
+`nog_front.jpeg`, `nog_left.jpeg`, `nog_right.jpeg` set when its
 front file exists in `head/` (or the supplied photo directory), otherwise uses `colab_upload/{front,right}.jpg` and
 exported cameras. `noglasses` requires the three-view set; `glasses` chooses the legacy two-view bake. The glasses-free
 path runs local `hybridbody/photofit.py` on the existing FLAME identity, fitting robust perspective cameras using
@@ -121,9 +122,10 @@ python tools/twin-lab/run_all.py --body hybrid --head flame --from-stage hybrid 
 
 For legacy cameras use the first direct command with `--photos-set glasses`; select a shipped MakeHuman part with
 `--hair hair-short` instead. See [hybrid options and formats](hybrid/README.md) for tuning. The launcher's hybrid cache
-currently inventories legacy front/right JPEGs, not the `nog_*.jpeg` inputs: after replacing those photos use
-`--from-stage hybrid --force`. The bust is tracked when present; custom direct-CLI settings must be retained by resuming
-at rig. With `--no-glasses`, launcher also passes `--no-deglass`; without a bust it does the same and omits glasses.
+tracks the resolved photo set, all existing FLAME fit files, measurements and the bust when present. Replacing a selected
+photo or switching sets invalidates it without `--force`; an incomplete glasses-free set fails instead of falling back.
+Custom direct-CLI hair settings must be retained by resuming at rig. With `--no-glasses`, launcher also passes
+`--no-deglass`; without a bust it does the same and omits glasses.
 
 ### Bundle contract and direct packaging
 
@@ -135,7 +137,11 @@ For hybrid direct packaging, use `hybrid/rig/` inputs and `hybrid/twin.glb` outp
 (including any restricted bust source). `--glasses <glasses.glb>` embeds a head accessory. Optional `--texture <image>`
 overrides only forearm skin-colour sampling, not the embedded baseColor texture. Without it the bundled albedo is
 sampled at lowerarm-weighted vertices, excluding transparent texels, clipped luminance and tails; no samples is an error.
-Direct provenance defaults to `unspecified`; launcher supplies scan/hybrid source labels.
+Direct scan provenance defaults to `unspecified`; `--shape-meta <shape/meta.json>` takes the actual shape source and
+licence from metadata and overrides short CLI labels. The launcher passes it for scans, including imported TRELLIS.2
+shapes. Hybrid metadata identifies the template/fit and hair; the embedded glasses placement method identifies
+bust-fitted procedural wires. `provenance.components` records these sources, and the aggregate licence includes
+personal non-commercial bust restrictions whenever hair or glasses use it. Such outputs are never shipped or committed.
 
 `asset.extras.dtTwin` version 1 embeds full `twin.json`, `skinToneHex`, provenance and
 `mh2twin {bufferView, count, componentType: "uint32"}`. The mapping is aligned little-endian uint32 in the BIN chunk,
@@ -310,8 +316,8 @@ NVIDIA PBR exporter. See [setup, licences and limitations](colab/README.md).
 
 Only front conditions the shape; optional views provide camera fits/cutouts. Extract `trellis2_shape.zip` under
 `user-data/twin/out/shape/`, validate using `colab/check_meta.py`, then resume the local launcher at texture.
-The launcher's scan bundle provenance currently remains Hunyuan-labelled even for an imported TRELLIS shape; use the
-direct bundler with the actual source/licence label rather than treating that default as accurate provenance.
+The launcher passes the imported `shape/meta.json` to the bundler, preserving TRELLIS.2 and its DINOv3 licence caveat.
+For direct bundling, supply `--shape-meta` as well; source labels alone do not establish output rights.
 The notebook involves an explicit session upload; follow its cleanup and disconnect/delete the runtime afterwards.
 
 ## Current limits

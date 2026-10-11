@@ -378,7 +378,8 @@ side fill. `--photos-set noglasses` requires all three files; `glasses` explicit
 FLAME's 105-landmark embedding, robust PnP and focal/pose refinement. It honours EXIF orientation and records camera
 fits in private reports. The three-view bake uses independently observed sides, visibility masks and overlap colour
 matching, and automatically skips deglass. Camera reprojection residuals are not independent 3D shape measurements.
-Photo-set, hair and neck-hair selection flags currently belong to `hybrid.py`, not the launcher.
+Both `hybrid.py` and the launcher accept `--photos-set`; hair and neck-hair flags belong to `hybrid.py`.
+The launcher's hybrid cache tracks the resolved photo paths/mtimes, bust, FLAME fit files and measurements.
 
 #### Twin bundle contract
 
@@ -394,6 +395,14 @@ preserved alongside it; metadata presence alone does not change app behaviour.
 | `asset.extras.dtHybrid`            | Version 1, `frame: "MakeHuman-grounded-A-pose"`, `bodyManifestSha256`, `cutHeightM`, plus method/parts/provenance diagnostics. Rig validates the manifest and anchored body positions, then reuses the native identity pose. |
 | `asset.extras.dtFlameHead`         | Version 2 scan-head provenance, input hash, alignment, smooth stitch and ears option. Passed through bodyfix/rig/bundle; not an app head-fitting command.                                                                    |
 | `asset.extras.dtHairNode`          | Nonempty name of a separate skinned hair node. Its material must contain `extras.dtHair` and its own base-colour texture. Parsed by the app; mapping describes only the body.                                                |
+
+Bundle provenance retains the required `shape`, `license` and `createdAt` strings and adds optional `components`
+entries with `source`/`license` strings. For scans the launcher passes `--shape-meta <shape/meta.json>`; the bundler
+uses its actual source/licence, including imported TRELLIS.2 and DINOv3 terms, rather than a fixed Hunyuan label.
+For hybrids it reads `dtHybrid` hair metadata and the embedded glasses placement method. Bust-cut hair and
+bust-fitted procedural wires record the user's own personal, non-commercial Hunyuan3D bust source, with a
+never-shipped/committed restriction in both the component and aggregate licence. Procedural/CC0 hair is distinguished
+from bust-cut hair. These records document sources and do not establish clearance for redistribution.
 
 The mapping is an aligned BIN buffer view, exactly `count * 4` bytes of little-endian uint32 data, with no GPU target
 or accessor. Each entry maps a twin **body** vertex to a MakeHuman render vertex. The loader uses

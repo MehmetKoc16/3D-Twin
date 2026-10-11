@@ -71,6 +71,18 @@ def source_inputs(folder: Path) -> list[Path]:
     return sorted(result)
 
 
+def hybrid_photo_inputs(photos: Path, choice: str) -> list[Path]:
+    """Mirror hybrid's photo selection using paths only, without loading images."""
+    if choice not in {"auto", "glasses", "noglasses"}:
+        raise ValueError(f"Unknown photo set: {choice}")
+    nog = photos.parent if photos.name == "colab_upload" else photos
+    if choice == "noglasses" or (
+        choice == "auto" and (nog / "nog_front.jpeg").is_file()
+    ):
+        return [nog / f"nog_{view}.jpeg" for view in ("front", "left", "right")]
+    return [photos / f"{view}.jpg" for view in ("front", "right")]
+
+
 def build_stages(
     input_dir: Path,
     out_dir: Path,
@@ -84,6 +96,7 @@ def build_stages(
     glasses_bust: Path | None = None,
     no_glasses: bool = False,
     no_deglass: bool = False,
+    photos_set: str = "auto",
 ) -> list[Stage]:
     views = [
         (name, input_dir / f"{name}.png")
@@ -289,8 +302,11 @@ def build_stages(
         photos = head_photos / "colab_upload"
         flame_assets = REPO / "user-data/flame"
         bust = glasses_bust or input_dir / "hy3d/hy3d.glb"
-        cleanup_args = (["--no-deglass"] if no_glasses or no_deglass or not bust.is_file()
-                        else ["--glasses-bust", str(bust)])
+        cleanup_args = (
+            ["--no-deglass"]
+            if no_glasses or no_deglass or not bust.is_file()
+            else ["--glasses-bust", str(bust)]
+        )
         add(
             "hybrid",
             "hybrid.py",
@@ -303,6 +319,8 @@ def build_stages(
                 str(fit),
                 "--photos",
                 str(photos),
+                "--photos-set",
+                photos_set,
                 "--flame-assets",
                 str(flame_assets),
                 "--out",
@@ -314,7 +332,14 @@ def build_stages(
                 *([bust] if bust.is_file() else []),
                 input_dir / "measurements.json",
                 *sorted(p for p in fit.rglob("*") if p.is_file()),
-                *[photos / f"{name}.jpg" for name in ("front", "right")],
+                *hybrid_photo_inputs(photos, photos_set),
+                # Hair's default bust is repo-relative, independent of --input-dir
+                # and the optional bust override used for glasses/atlas cleanup.
+                *(
+                    [REPO / "user-data/twin/hy3d/hy3d.glb"]
+                    if (REPO / "user-data/twin/hy3d/hy3d.glb").is_file()
+                    else []
+                ),
                 *[
                     flame_assets
                     / (filename if (flame_assets / filename).is_file() else archive)
@@ -494,12 +519,16 @@ def build_stages(
             str(rig / "mh2twin.bin"),
             "--out",
             str(bundled),
-            "--shape",
-            "MakeHuman/FLAME hybrid" if body == "hybrid" else "Hunyuan3D-2",
-            "--license",
-            "CC0 MakeHuman + non-commercial FLAME/Pixel3DMM fit"
-            if body == "hybrid"
-            else "Tencent Hunyuan 3D 2.0 Community License",
+            *(
+                [
+                    "--shape",
+                    "MakeHuman/FLAME hybrid",
+                    "--license",
+                    "CC0 MakeHuman + non-commercial FLAME/Pixel3DMM fit",
+                ]
+                if body == "hybrid"
+                else ["--shape-meta", str(shape / "meta.json")]
+            ),
             *glasses_args,
         ],
         [
@@ -507,6 +536,7 @@ def build_stages(
             *rig_outputs[1:],
             *([accessory] if glasses_args else []),
             body_assets / "rig.json",
+            *([shape / "meta.json"] if body == "scan" else []),
         ],
         [bundled],
     )
@@ -653,6 +683,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--body", choices=("scan", "hybrid"), default="scan")
     parser.add_argument(
+        "--photos-set",
+        choices=("auto", "glasses", "noglasses"),
+        default="auto",
+        help="hybrid photo selection; auto prefers the glasses-free three-view set",
+    )
+    parser.add_argument(
         "--glasses-hy3d",
         type=Path,
         help="fit glasses from this private bust (hybrid only); defaults to input-dir/hy3d/hy3d.glb when present",
@@ -662,7 +698,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip automatic hybrid glasses and UV cleanup",
     )
-    parser.add_argument("--no-deglass", action="store_true", help="keep photographed frames in the hybrid texture")
+    parser.add_argument(
+        "--no-deglass",
+        action="store_true",
+        help="keep photographed frames in the hybrid texture",
+    )
     parser.add_argument(
         "--bundle-out",
         type=Path,
@@ -710,6 +750,7 @@ def main(argv: list[str] | None = None) -> int:
             glasses_bust=args.glasses_hy3d.resolve() if args.glasses_hy3d else None,
             no_glasses=args.no_glasses,
             no_deglass=args.no_deglass,
+            photos_set=args.photos_set,
         )
         if first <= STAGES.index("refine") <= last and not any(
             stage.name == "refine" for stage in stages

@@ -476,3 +476,99 @@ def test_hybrid_cli_selection_and_bundle_override(lab, tmp_path, monkeypatch, ca
     assert "[hybrid] RUN" in text and "[rig] RUN" in text and "[bundle] RUN" in text
     assert "[bodyfix]" not in text and "custom.glb" in text
     assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    "choice,has_nog,use_nog",
+    [
+        ("auto", False, False),
+        ("auto", True, True),
+        ("glasses", True, False),
+        ("noglasses", False, True),
+    ],
+)
+def test_hybrid_cache_tracks_selected_photos_and_dependencies(
+    lab,
+    tmp_path,
+    monkeypatch,
+    choice,
+    has_nog,
+    use_nog,
+):
+    monkeypatch.setattr(runner, "REPO", tmp_path / "repo")
+    (lab / "bodyfix").mkdir()
+    (lab / "bodyfix/bodyfix.py").write_text("# Synthetic stage\n")
+    inputs, out = tmp_path / "input", tmp_path / "out"
+    fit = inputs / "head/flame/fit"
+    fit.mkdir(parents=True)
+    for name in ("head_neutral.obj", "cameras.json", "provenance.json"):
+        (fit / name).write_text("synthetic placeholder")
+    bust = inputs / "hy3d/hy3d.glb"
+    bust.parent.mkdir(parents=True)
+    bust.touch()
+    if has_nog:
+        (inputs / "head/nog_front.jpeg").touch()
+    stages = runner.build_stages(
+        inputs, out, 178, lab=lab, head="flame", body="hybrid", photos_set=choice
+    )
+    hybrid = next(s for s in stages if s.name == "hybrid")
+    assert hybrid.command[hybrid.command.index("--photos-set") + 1] == choice
+    photos = (
+        [inputs / f"head/nog_{view}.jpeg" for view in ("front", "left", "right")]
+        if use_nog
+        else [inputs / f"head/colab_upload/{view}.jpg" for view in ("front", "right")]
+    )
+    assert all(path in hybrid.inputs for path in photos)
+    unused = inputs / (
+        "head/colab_upload/front.jpg" if use_nog else "head/nog_front.jpeg"
+    )
+    assert unused not in hybrid.inputs
+    dependencies = [*photos, bust, inputs / "measurements.json", *fit.iterdir()]
+    assert all(path in hybrid.inputs for path in dependencies)
+    # An incomplete noglasses set is tracked, never silently replaced with legacy photos.
+    if use_nog:
+        assert not (inputs / "head/nog_left.jpeg").exists()
+        assert not runner.is_fresh(hybrid, out / "state.json")
+    for path in [*hybrid.inputs, *hybrid.outputs]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    make_fresh(hybrid)
+    stamp = out / "state.json"
+    stamp.write_text(json.dumps(runner.signature(hybrid)))
+    for path in dependencies:
+        assert runner.is_fresh(hybrid, stamp)
+        os.utime(path, ns=(time.time_ns(), time.time_ns()))
+        assert not runner.is_fresh(hybrid, stamp)
+        make_fresh(hybrid)
+    unused.parent.mkdir(parents=True, exist_ok=True)
+    unused.touch()
+    assert runner.is_fresh(hybrid, stamp)
+    if choice == "auto":
+        if has_nog:
+            (inputs / "head/nog_front.jpeg").unlink()
+        else:
+            (inputs / "head/nog_front.jpeg").touch()
+        changed = next(
+            s
+            for s in runner.build_stages(
+                inputs,
+                out,
+                178,
+                lab=lab,
+                head="flame",
+                body="hybrid",
+            )
+            if s.name == "hybrid"
+        )
+        assert runner.signature(changed) != runner.signature(hybrid)
+        assert not runner.is_fresh(changed, stamp)
+
+
+def test_scan_bundle_uses_shape_metadata_at_execution(lab, tmp_path):
+    out = tmp_path / "out"
+    stage = runner.build_stages(tmp_path / "input", out, 178, lab=lab)[-1]
+    assert stage.command[stage.command.index("--shape-meta") + 1] == str(
+        out / "shape/meta.json"
+    )
+    assert out / "shape/meta.json" in stage.inputs
+    assert "Hunyuan3D-2" not in stage.command

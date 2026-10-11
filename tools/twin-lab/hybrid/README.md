@@ -70,8 +70,7 @@ Inputs: the FLAME fit folder (`head_neutral.obj`, `cameras.json` `dt-flame-head-
 `user-data/twin/head/`, all three `nog_front.jpeg`, `nog_left.jpeg`, `nog_right.jpeg` are required and used. The
 launcher still passes `--photos head/colab_upload`; the hybrid stage finds the glasses-free set in its parent. An
 explicit `--photos` directory may contain the three `nog_*.jpeg` files itself. `--photos-set glasses` retains the
-old exact Colab cameras and mirrored right-side fill. Selection flags belong to `hybrid.py`; the launcher currently
-uses its automatic default (its CLI and input cache inventory are outside this stage's scope).
+old exact Colab cameras and mirrored right-side fill. Both CLIs accept `--photos-set` and the launcher tracks the resolved set.
 
 `hybridbody/photofit.py` processes photos only in memory, honours EXIF orientation, runs the existing local MediaPipe
 Face Landmarker (478 points), and evaluates the official 105-landmark FLAME barycentric embedding on the existing
@@ -111,8 +110,7 @@ decision and still adds the 3D glasses. Head renders in `previews/head_{bare,hai
 three_quarter_right,side_left,side_right}.png` have no glasses accessory. Source photos and crops are never exported
 or displayed by this path.
 
-When replacing photos, run `run_all.py --body hybrid --head flame --from-stage hybrid --force`: the launcher's
-freshness inventory currently tracks the old photo set only. A missing or undetected new view fails clearly;
+When replacing selected photos, resume with `run_all.py --body hybrid --head flame --from-stage hybrid`; their mtimes invalidate the cache. A missing or undetected new view fails clearly;
 it never silently mixes photo sets or mirrors an observed side. Profile fits can be focal-depth ambiguous; inspect
 the reported bounds/residuals and twin renders before accepting a bake. Expression/jaw fitting is not applied;
 face-outline refinement is limited to sparse profile fits.
@@ -161,7 +159,7 @@ to the measured photo tone, bounded to avoid transferring strong source lighting
 neck. The baked face and scalp keep their existing hand-over. World-space grain is the fallback without a cached skin.
 A lossless tangent-space body normal PNG combines source-albedo high-pass relief with subtle analytic world-space
 pores. Mirrored UV charts use their own tangent frames; the eye/lash/brow strip has a neutral normal. `normalTexture`
-on the body material passes unchanged through rigging and bundling. The app must retain that map and `normalScale`
+on the body material passes through rigging/bundling; the app already retains the map and `normalScale`
 when replacing the loader's material. Painted underwear: slate boxer shorts from
 crotch - 11 cm to pelvis + 9 cm, gated by the pelvis/thigh/spine_01 skin weights (arms and hands are never covered),
 with a darker waistband and hem. Each colour write repairs light border contamination / black fill gaps, then pads
@@ -207,7 +205,7 @@ the exact shape with the identity pose; weights come from the template's own ski
 The fallback procedural hair is a modern short cut built on the deformed head: cropped and tapered sides and back (8 mm, fading to
 about 4 mm at the hairline, above the ears and at the nape), more volume on top (4.5 to 5.5 cm) swept up and back from the
 forehead, a visible forehead (no fringe) with the hairline about 6.8 cm above the eye centre line, dark brown `#2a1e18`.
-Everything is procedural (no asset, no licence concern); nothing needs the person's data except the head surface and the
+The hair geometry/atlas are procedural, but fitting them to the private FLAME-derived head retains its restrictions; inputs include the head surface and the
 eye line.
 
 It is written as a **separate skinned node `dtHair`** (the contract with the app): one primitive (`POSITION`, `NORMAL`,
@@ -413,8 +411,7 @@ For the app's standard MakeHuman model (nothing here is wired into `apps/web` ye
    hair, lashes and eyes follow the offsets.
 4. For the twin bundle path: the hair is the separate `dtHair` node (see "Procedural hair"); the body material keeps its
    alpha for the eyelash cards; the MakeHuman hair parts (legacy) are baked into the body mesh;
-   `twinHands` always replaces the twin's hands with MakeHuman hands - it could skip that when `dtHasMakeHumanHands` is
-   set, because these hands already are the app's hands.
+   `twinHands` keeps native hybrid hands when `dtHasMakeHumanHands` is true; scan twins use replacement MakeHuman hands.
 
 ## Glasses-free profile camera audit
 
@@ -507,8 +504,7 @@ guide residuals, before/after on commonly visible landmarks); `camera_baseline.j
 first release's numbers once (delete them, or use a new audit directory, when the photo set or identity changes);
 `bake_consistency.json`.
 
-Re-run `run_all.py --body hybrid --head flame --from-stage hybrid --force` with the bundle stage venv after changing the
-glasses-free JPEGs: the launcher does not fingerprint them. Synthetic camera, occlusion, EXIF, ear-edge, registration,
+Re-run `run_all.py --body hybrid --head flame --from-stage hybrid` after changing selected JPEGs; mtimes invalidate the cache without `--force`. Synthetic camera, occlusion, EXIF, ear-edge, registration,
 skin-check and texture-registration tests live in `tests/test_photofit.py` and `tests/test_overlap.py`.
 
 ## Known weaknesses
@@ -531,8 +527,7 @@ skin-check and texture-registration tests live in `tests/test_photofit.py` and `
   no strands move, no wind, no physics, hair-through-hair translucency does not exist; a forward-leaning brim loses its
   underside (the grid is a height field from the middle of the head); where the bust's skull is wider than the twin's the
   short hair is pulled in by up to about a centimetre; a bust with a fringe over the forehead skips the ICP refinement and
-  the front hairline then depends on the landmark similarity alone. `run_all` does not list the bust as an input of the hybrid
-  stage, so a replaced bust needs `--from-stage hybrid` (or `--force`).
+  the front hairline then depends on the landmark similarity alone. `run_all` tracks the bust when present; replacement invalidates the hybrid cache, and the loader reads it anew on each build.
 - Procedural hair: the hairline, sideburn and nape shapes are tuned on the generic MakeHuman head; the ear and nape
   detection (`parts.hair.procedural.frame`) are reported so a wrong detection is visible in the numbers. The strands are
   cards, not curves: no wind, no physics, one fixed style (tune it with the CLI parameters).

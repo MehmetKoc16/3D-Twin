@@ -143,7 +143,7 @@ stay ignored. Preserve bundled notices if redistributing software later.
 
 | Component                                                          | License / primary reference                                                                                                                 |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Multiclass selfie segmentation                                     | Apache-2.0; [official model documentation](https://developers.google.com/edge/mediapipe/solutions/vision/image_segmenter)                   |
+| Multiclass selfie segmentation                                     | Apache-2.0; [official model card, page 1](https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Multiclass%20Segmentation.pdf)                   |
 | Big-LaMa ONNX export                                               | [Apache-2.0 declared by Carve's model card](https://huggingface.co/Carve/LaMa-ONNX); export of the original Big-LaMa, fixed 512px, opset 17 |
 | ONNX Runtime 1.22.1                                                | [MIT](https://github.com/microsoft/onnxruntime/blob/v1.22.1/LICENSE)                                                                        |
 | MediaPipe, absl-py, flatbuffers                                    | [Apache-2.0](https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE)                                                               |

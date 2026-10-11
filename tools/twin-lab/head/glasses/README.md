@@ -135,10 +135,9 @@ the bust, fit, template assets, head offsets, report and implementation for cach
 invalidation. Raw hybrid and rig GLBs are retained, allowing the hair stage to
 work independently. No source photos are loaded by the glasses stage.
 
-Optional integration hook for the lead in `pipeline.py`, after `seam_blend` and
-before `vertex_photo_check`/scalp tint. Supply the private precomputed
-`glasses_report` from `glasses_report.json`; the normal launcher's post-rig
-cleanup already handles a first build without that report:
+The cleanup API is already integrated in `pipeline.py` after `seam_blend` and before
+neck/scalp finishing. It measures the current bake directly; a precomputed accessory
+report is not required for the first build. The API can also use a supplied report:
 
 ```python
 from .deglass_tex import projection_from_report, remove_glasses_frames
@@ -150,7 +149,7 @@ texture, deglass_report, _ = remove_glasses_frames(
 
 Record `deglass_report` in the hybrid report and use the cleaned `texture` for
 both the body atlas and face asset. Do not run both cleanup passes on the same
-texture. The implementation is not wired into `pipeline.py` here because that
-file belongs to the concurrent hair job. Tests use analytic/synthetic geometry
+texture. `pipeline.py` already measures baked frame outlines and calls this cleanup before neck/scalp finishing;
+the post-rig stage reads the recorded decision and avoids a second cleanup pass. Tests use analytic/synthetic geometry
 and skin gradients only, including skin-filled lens rejection, symmetry,
 watertight winding, rigid skin validation, UV/back-face protection and inpainting.

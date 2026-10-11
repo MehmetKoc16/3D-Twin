@@ -3,7 +3,7 @@
 Input: the textured scan of the texture stage (`user-data/twin/out/texture/textured.glb`) and the front photo.
 Output: `refined.glb` - the same textured, single-primitive mesh (same material / atlas layout, UVs kept) with
 
-1. a **real face relief** instead of the shape model's lumpy generic face (shallow eye slits, no lips, blotchy under light),
+1. a **landmark-fitted MakeHuman face relief** instead of the shape model's lumpy generic face (shallow eye slits, no lips, blotchy under light),
    and the front photo (or a higher resolution `face.png`) projected again onto it;
 2. the **arms cut free from the torso** where the scan fuses them (armpit webbing in a T-pose).
 
@@ -33,7 +33,7 @@ py -3.12 -m venv .venv
 .venv/Scripts/python -m pytest                                      # synthetic + CC0 data only (48 tests, ~10 s)
 ```
 
-The Face Landmarker model is the one the web app ships (`apps/web/public/models/face_landmarker.task`); no download. The stage
+The Face Landmarker model is the local model also used by the web app (`apps/web/public/models/face_landmarker.task`); no download. The stage
 imports the sibling stages without editing them: `texture/twintex` (cameras, flow alignment, rasterisers) and `rig/` (`mh.py`
 MakeHuman model, `rigfit.py` fitter + weight transfer, `glbio.py`). If MediaPipe is missing or finds no face, the face step is skipped
 (reported) and the armpit step still runs.
@@ -106,6 +106,7 @@ See "Limitations" for what is not fixed. Numbers of every run: `refine_report.js
   texture there; a side view (`left.png`) would improve them in the texture stage.
 - The relief is a height field: nostril undersides and the inside of the lips are not modelled.
 - Armpit caps are flat membranes with a solid colour: visible from below in a T-pose as small grey flaps; their outline follows the
-  noisy crease of the scan. Hands fused to the thighs are not handled here (`rig_scan.py --cut-bridges` drops those triangles).
+  noisy crease of the scan. Hands fused to thighs are removed by bodyfix when measurements are supplied;
+  rig's `--cut-bridges` repairs incompatible skin influences while preserving triangles.
 - The face step needs MediaPipe and the landmarker model; it assumes a frontal, un-mirrored photo.
 - Hunyuan3D-2 licence terms of the shape stage apply to everything derived from its meshes (see `../README.md`).
