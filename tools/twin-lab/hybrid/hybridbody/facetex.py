@@ -244,6 +244,7 @@ def bake_face(
         view_face_masks=face_masks,
         reject_forehead_hair=photos_set == "noglasses",
         reject_photo_hair=photos_set == "noglasses",
+        local_chroma_fix=photos_set == "noglasses",
     )
     from .skin import finish_texture
 

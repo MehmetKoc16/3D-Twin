@@ -115,6 +115,63 @@ it never silently mixes photo sets or mirrors an observed side. Profile fits can
 the reported bounds/residuals and twin renders before accepting a bake. Expression/jaw fitting is not applied;
 face-outline refinement is limited to sparse profile fits.
 
+### Photo hair rejection and local colour fixes (glasses-free set)
+
+`bake_texels(reject_photo_hair=True, local_chroma_fix=True)` in `head/flame/flamehead/texture.py` keeps photographed
+hair and grey specks out of the skin. Everything below applies only to skin texels outside the **beard allow-mask**;
+the global face blend (view priors, overlap Lab matching, multiband luminance, measured chroma) is unchanged.
+
+- **Chroma-aware hair rejection.** Every photo gets its own robust Lab skin model (median and MAD of a\*/b\* on the
+  cheek/forehead reference texels that the photo sees with confidence > 0.08; `skin_colour_model`). A sample is hair-like
+  (`hair_like_samples`) when it is far from that model in a\*/b\* (more than 2.5 MAD) **and** has lost chroma or skin hue,
+  or when it is far darker than lit skin (L\* < 30% of the skin median). Shadowed skin keeps its hue and survives;
+  desaturated bright skin (a specular highlight) survives; luminance is deliberately not a rejection axis. On the FLAME
+  temple band, hairline stubble that is far darker than lit skin (22 L\* below the skin median) is rejected as well.
+  Rejected samples get weight 0, so the other views (or the surface fill) supply the colour.
+- **Fringe growth.** A hair edge is anti-aliased with skin, so on the ears and the temple band every sample within
+  1.5 mm (`FRINGE_RADIUS`) of a rejected sample is rejected too. The rest of the face is not grown.
+- **Beard allow-mask.** Jaw, chin, upper lip, the lower face below the nose base and the lips
+  (`hair_vertex_regions`, transferred through the registration correspondence) are exempt: the legacy bake is computed
+  once more and its texels are restored there bit-for-bit, so stubble is never mistaken for hair and never repainted.
+  Eyes, nose and lips are never edited.
+- **Ear gate.** An ear (and its rim triangles) is repaired only when a view that sees it well (at least 500 texels with
+  confidence > 0.08) finds **at least 12% hair-like** samples on it (`EAR_HAIR_SHARE`). A clean ear (a few percent) has
+  only fold shadows and warm creases that a cheek-based skin model calls outliers; repainting those from the other ear
+  leaves visible patches, so a clean ear keeps its photo colour untouched.
+- **Lost-only ear fallback chain** (`ear_fallback`). Only ear texels that were photographed but whose every sample was
+  rejected ("lost"; never merely unobserved ones) are filled, in this order: (1) the other views' accepted samples
+  (already in the blend, they have priority); (2) the clean opposite ear, mirrored by topology correspondence (never UV
+  adjacency or face samples), Gaussian-smoothed over 1.2 mm and shifted to this ear's own skin tone; rim triangles that
+  straddle the ear mask may be mirrored but never take the ear tone; (3) this ear's own skin tone (median of its
+  surviving skin texels, else the median of the photo models) plus only +-3 L\* of fine luminance detail. An ear that was
+  never photographed keeps the legacy surface fill.
+
+**Local chroma fixes** (`local_chroma_repair`, run on the finished blend, `texture.py`). Two small, bounded repairs that
+never touch the beard allow-mask, the ear masks, eyes, nose or lips:
+
+1. _Weak cross-view chroma mismatch_ (the pale-grey temple smudge). Texels where **every** contributing view weight is
+   below 0.12, at least two views contribute, and two views disagree by more than 4 in a\*/b\*, blend inconsistent
+   chroma. If the blend also deviates by more than 3.5 from the neighbouring confident skin (total weight >= 0.15
+   within 8 mm), a\*/b\* come from the dominant (highest weight) view when it agrees with that neighbourhood, otherwise
+   from the neighbouring confident skin. L\* (luminance detail) is untouched.
+2. _Chroma specks_ (the orange dot at the left sideburn, an ear-rim fallback patch). A texel whose a\*/b\* is more than 7
+   from the median of its 6 mm neighbourhood, forming a compact cluster of at most 800 texels (box diagonal <= 6 mm) that
+   is not surrounded by texels of its own colour (so a feature edge is not a speck), gets the median a\*/b\* of its
+   non-outlier neighbours and its L\* pulled to within 5 of the local median.
+
+The statistics (`weak_view_mismatch`, `outlier_specks`, `outlier_texels`, `changed_texels`, `changed_centroid`) are in
+`hybrid_report.json` -> `texture.cross_view_consistency.photo_hair_rejection.local_chroma_fix` (and `bake_consistency.json`).
+On the current photo set 118 of about 3.0 million island texels change (the smudge region 47, the orange dot 20, one more
+weak temple patch 46 and a 5-texel hairline speck).
+
+**`hairaudit` outputs** (numbers only, no photo or crop). `hybridbody/hairaudit.py: bake_hair_audit` writes
+`photo_hair_rejection` into `bake_consistency.json` / `hybrid_report.json`: per-view skin models, rejected texel counts,
+the ear hair share per side, the ear fallback counts (`other_views`, `mirrored`, `skin_tone_detail`), the local chroma fix
+statistics, and for each side `projection_skin_check` (ear and face: raw photo, accepted photo and repaired bake on the
+**same** per-side visibility support > 0.08, with skin and dark fractions and Lab mean/std), `temple_band` and `beard`
+statistics. `photo_fits/earhair_geometry.npz` keeps the private baked geometry and masks (no pixels) so
+`hairaudit.compare_bakes(before, after, geometry)` can compare two final head atlases on identical masks.
+
 ## Method
 
 **Frames.** Metres, +Y up, +Z front, character's left = +X; the grounded MakeHuman A-pose (`model.shape(..., ground=True)`),
@@ -504,7 +561,7 @@ guide residuals, before/after on commonly visible landmarks); `camera_baseline.j
 first release's numbers once (delete them, or use a new audit directory, when the photo set or identity changes);
 `bake_consistency.json`.
 
-Re-run `run_all.py --body hybrid --head flame --from-stage hybrid` after changing selected JPEGs; mtimes invalidate the cache without `--force`. Synthetic camera, occlusion, EXIF, ear-edge, registration,
+Re-run `run_all.py --body hybrid --head flame --from-stage hybrid` after changing selected JPEGs: the hybrid stage tracks the resolved photo set, the bust, the FLAME fit and the measurements, so no `--force` is needed. Synthetic camera, occlusion, EXIF, ear-edge, registration,
 skin-check and texture-registration tests live in `tests/test_photofit.py` and `tests/test_overlap.py`.
 
 ## Known weaknesses

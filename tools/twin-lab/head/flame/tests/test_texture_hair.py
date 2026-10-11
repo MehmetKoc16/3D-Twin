@@ -5,6 +5,7 @@ from flamehead.texture import (
     ear_fallback,
     hair_like_samples,
     hair_vertex_regions,
+    local_chroma_repair,
     mirrored_ear_colour,
     skin_colour_model,
     temple_dark_samples,
@@ -268,3 +269,72 @@ def test_forehead_hair_rejection_still_applies_with_photo_hair_rejection(monkeyp
                                         reject_photo_hair=photo_hair)
     assert report["forehead_photo_hair_rejected_texels"]["front"] == 320
     assert to_lab(texture[fid == 5])[:, 0].mean() > 55
+
+
+def _patch_surface(n=60):
+    """A flat 0.5 mm-pitch grid of texels with a uniform skin colour and two confident views."""
+    gy, gx = np.mgrid[0:n, 0:n]
+    points = np.column_stack((gx.ravel() * 0.0005, gy.ravel() * 0.0005, np.zeros(n * n)))
+    lab = np.tile([55., 12., 18.], (n * n, 1)).astype(np.float32)
+    weights = np.zeros((2, n * n), np.float32)
+    weights[0], weights[1] = 0.5, 0.3
+    ab = np.zeros((2, n * n, 2), np.float32)
+    ab[:] = [12., 18.]
+    return points, lab, weights, ab
+
+
+def test_local_chroma_repair_fixes_weak_view_mismatch_only_locally():
+    points, lab, weights, ab = _patch_surface()
+    patch = np.zeros((60, 60), bool)
+    patch[20:26, 20:26] = True
+    patch = patch.ravel()
+    weights[:, patch] = [[0.085], [0.034]]
+    ab[0, patch] = [4., 6.]  # right photo: grey
+    ab[1, patch] = [12., 18.]  # front photo agrees with the skin
+    lab[patch, 1:] = (ab[0, patch] * 0.085 + ab[1, patch] * 0.034) / 0.119  # the blend: still greyish
+    lab[patch, 0] += 3  # luminance detail
+    original = lab.copy()
+    fixed, stats = local_chroma_repair(points, lab, weights, ab, np.ones(len(lab), bool))
+    changed = np.flatnonzero(np.abs(fixed - original).max(1) > 1e-4)
+    assert set(changed) <= set(np.flatnonzero(patch))
+    assert stats["weak_view_mismatch"] == patch.sum()
+    assert np.allclose(fixed[patch, 0], original[patch, 0])  # L* detail is kept
+    assert np.linalg.norm(fixed[patch, 1:] - [4., 6.], axis=1).min() > 8  # nowhere near the grey mix any more
+    assert np.allclose(fixed[~patch], original[~patch])
+
+
+def test_local_chroma_repair_keeps_confident_texels_and_protected_regions():
+    points, lab, weights, ab = _patch_surface()
+    # Strong evidence that disagrees is the global blend's business, not this repair.
+    weights[:, 600:1000] = 0.4
+    ab[0, 600:1000] = [3., 5.]
+    lab[600:1000, 1:] = [7., 11.]
+    region = np.ones(len(lab), bool)
+    region[200:210] = False
+    weak = np.arange(200, 210)
+    weights[:, weak] = [[0.08], [0.03]]
+    ab[0, weak] = [2., 2.]
+    lab[weak, 1:] = [2., 2.]
+    fixed, stats = local_chroma_repair(points, lab, weights, ab, region)
+    assert np.allclose(fixed, lab)
+    assert stats["weak_view_mismatch"] == 0 and stats["outlier_texels"] == 0
+
+
+def test_local_chroma_repair_paints_small_outlier_specks_and_keeps_large_features():
+    points, lab, weights, ab = _patch_surface(80)
+    n = 80
+    speck = np.zeros((n, n), bool)
+    speck[10:13, 10:13] = True
+    feature = np.zeros((n, n), bool)
+    feature[30:70, 30:70] = True  # 1600 texels: a real feature (e.g. a brow), far above the speck limit
+    lab = lab.reshape(n, n, 3)
+    lab[speck] = [68., 30., 40.]  # saturated orange, brighter than the skin
+    lab[feature] = [40., 5., 6.]
+    lab = lab.reshape(-1, 3)
+    speck, feature = speck.ravel(), feature.ravel()
+    fixed, stats = local_chroma_repair(points, lab, weights, ab, np.ones(len(lab), bool))
+    assert stats["outlier_texels"] == speck.sum() and stats["outlier_specks"] == 1
+    assert np.allclose(fixed[speck, 1:], [12., 18.], atol=1.0)
+    assert np.abs(fixed[speck, 0] - 55).max() <= 5.5  # lightness pulled towards the neighbourhood
+    assert np.allclose(fixed[feature], lab[feature])
+    assert np.allclose(fixed[~speck & ~feature], lab[~speck & ~feature])

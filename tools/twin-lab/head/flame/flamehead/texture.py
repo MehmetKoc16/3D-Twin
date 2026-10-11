@@ -303,6 +303,146 @@ def ear_fallback(points, mirrored_points, raw, observed, ears, labs, accepted, m
     return fallback, mirrored, toned
 
 
+LOCAL_LOW_WEIGHT = 0.12  # every contributing view weight below this: the texel rests on weak photo evidence
+LOCAL_CONFIDENT_WEIGHT = 0.15  # total view weight of a texel that may serve as the neighbouring confident skin
+LOCAL_DISAGREE_AB = 4.0  # a*b* distance between two views' chroma that counts as a cross-view mismatch
+LOCAL_DEVIATION_AB = 3.5  # chroma distance from the confident neighbourhood that makes a weak texel a mismatch
+OUTLIER_AB = 7.0  # chroma distance from the local median that makes a texel a colour outlier
+OUTLIER_MAX_TEXELS = 800  # a cluster of outliers larger than this is a real feature (mole, brow, lip), not a speck
+OUTLIER_L_CLAMP = 5.0  # an outlier's lightness is pulled to within this of its neighbourhood median
+LOCAL_RADIUS = 0.008  # metres: confident-skin neighbourhood of a weak texel
+OUTLIER_RADIUS = 0.006  # metres: neighbourhood for the outlier median
+OUTLIER_LINK = 0.0015  # metres: outlier texels closer than this form one cluster
+OUTLIER_MAX_EXTENT = 0.006  # metres: longest box diagonal of a speck (a feature's boundary ring is longer)
+NEIGHBOUR_VOXEL = 0.0006  # metres: texels are averaged per voxel so a median covers millimetres, not a texel cluster
+
+
+class _VoxelTable:
+    """Texel colours averaged per ``NEIGHBOUR_VOXEL`` cell: neighbourhood medians then span a physical radius whatever
+    the local texel density (a 2 mm speck can cover most of the nearest few hundred texels, but only a few voxels)."""
+
+    def __init__(self, points, values):
+        key = np.floor(points / NEIGHBOUR_VOXEL).astype(np.int64)
+        _, self.inverse = np.unique(key, axis=0, return_inverse=True)
+        self.inverse = self.inverse.ravel()
+        count = np.bincount(self.inverse).astype(np.float64)
+        self.centroids = np.stack([np.bincount(self.inverse, points[:, c]) for c in range(3)], axis=1) / count[:, None]
+        self.means = np.stack([np.bincount(self.inverse, values[:, c]) for c in range(values.shape[1])], axis=1)
+        self.means = (self.means / count[:, None]).astype(np.float32)
+        self.tree = cKDTree(self.centroids)
+
+    def median(self, query, radius, k=160, minimum=8):
+        """Median of the voxel colours within ``radius`` of every query point (NaN where fewer than ``minimum``)."""
+        result = np.full((len(query), self.means.shape[1]), np.nan, np.float32)
+        for start in range(0, len(query), 4000):
+            distance, index = self.tree.query(query[start : start + 4000], k=k, distance_upper_bound=radius)
+            found = np.isfinite(distance)
+            gathered = self.means[np.minimum(index, len(self.means) - 1)]
+            gathered[~found] = np.nan
+            enough = found.sum(1) >= minimum
+            median = np.full((len(distance), self.means.shape[1]), np.nan, np.float32)
+            if enough.any():
+                median[enough] = np.nanmedian(gathered[enough], axis=1)
+            result[start : start + 4000] = median
+        return result
+
+
+def _small_clusters(points, link, max_texels, max_extent):
+    """Mask of the points in connected clusters (closer than ``link``) that are compact specks, and their count.
+
+    The boundary ring of a large feature can also be a small cluster, but it is long and thin: a speck must fit in a
+    ``max_extent`` (metres) box as well.
+    """
+    from scipy.sparse.csgraph import connected_components
+
+    if len(points) == 0:
+        return np.zeros(0, bool), 0
+    tree = cKDTree(points)
+    count, labels = connected_components(tree.sparse_distance_matrix(tree, link, output_type="coo_matrix"), directed=False)
+    sizes = np.bincount(labels, minlength=count)
+    low = np.full((count, 3), np.inf)
+    high = np.full((count, 3), -np.inf)
+    np.minimum.at(low, labels, points)
+    np.maximum.at(high, labels, points)
+    small = (sizes <= max_texels) & (np.linalg.norm(high - low, axis=1) <= max_extent)
+    return small[labels], int(small.sum())
+
+
+def local_chroma_repair(points, lab, view_weights, view_ab, region):
+    """Local, conservative repair of two small colour artefacts of the face bake; the global blend is untouched.
+
+    1. Cross-view chroma mismatch on weak evidence. Where EVERY contributing view weight is low and the views
+       disagree in chroma, the blended a*/b* is a mix of mutually inconsistent colours (a pale grey smudge). If that
+       blend also deviates from the neighbouring confident skin, the chroma comes from the dominant (most confident)
+       view when that view agrees with the neighbourhood, otherwise from the neighbouring confident skin. L* keeps
+       its detail.
+    2. Small chroma outliers (an isolated saturated speck): compact clusters (at most ``OUTLIER_MAX_TEXELS`` texels in
+       a ``OUTLIER_MAX_EXTENT`` box) whose a*/b* is far from the local median and that do not sit on the edge of a
+       larger area of their own colour are painted with the median chroma of the non-outlier neighbours, and their
+       L* is pulled to within ``OUTLIER_L_CLAMP`` of the local median.
+
+    ``lab`` is (n, 3) for the texels, ``view_weights`` (v, n), ``view_ab`` (v, n, 2), ``region`` (n,) bool: texels
+    allowed to change. Returns the new Lab and a statistics dict.
+    """
+    new = lab.copy()
+    stats = {"weak_view_mismatch": 0, "outlier_specks": 0, "outlier_texels": 0}
+    total = view_weights.sum(0)
+    active = view_weights > 1e-5
+    top = view_weights.max(0)
+    disagree = np.zeros(len(lab), np.float32)
+    for i in range(len(view_weights)):
+        for j in range(i + 1, len(view_weights)):
+            both = active[i] & active[j]
+            disagree = np.where(both, np.maximum(disagree, np.linalg.norm(view_ab[i] - view_ab[j], axis=1)), disagree)
+    weak = region & (active.sum(0) >= 2) & (top < LOCAL_LOW_WEIGHT) & (disagree > LOCAL_DISAGREE_AB)
+    confident = region & (total >= LOCAL_CONFIDENT_WEIGHT)
+    if weak.any() and confident.sum() >= 32:
+        ids = np.flatnonzero(weak)
+        reference = _VoxelTable(points[confident], lab[confident][:, 1:]).median(points[ids], LOCAL_RADIUS, 96)
+        deviation = np.linalg.norm(lab[ids, 1:] - reference, axis=1)
+        bad = np.isfinite(deviation) & (deviation > LOCAL_DEVIATION_AB)
+        ids, reference = ids[bad], reference[bad]
+        if len(ids):
+            dominant = view_ab[view_weights[:, ids].argmax(0), ids]
+            use_dominant = np.linalg.norm(dominant - reference, axis=1) <= LOCAL_DEVIATION_AB
+            new[ids, 1:] = np.where(use_dominant[:, None], dominant, reference)
+            stats["weak_view_mismatch"] = len(ids)
+    if region.sum() >= 32:
+        region_ids = np.flatnonzero(region)
+        table = _VoxelTable(points[region_ids], new[region_ids])
+        median = table.median(table.centroids, OUTLIER_RADIUS)[table.inverse]
+        outlier = np.isfinite(median[:, 0]) & (np.linalg.norm(new[region_ids, 1:] - median[:, 1:], axis=1) > OUTLIER_AB)
+        ids = region_ids[outlier]
+        if len(ids):
+            ids = ids[_small_clusters(points[ids], OUTLIER_LINK, OUTLIER_MAX_TEXELS, OUTLIER_MAX_EXTENT)[0]]
+        if len(ids):
+            # A speck stands alone. A texel whose surroundings (outside the outlier set) share its colour sits on the
+            # edge of a larger feature: that is a boundary corner, not a speck.
+            flagged = np.zeros(len(lab), bool)
+            flagged[ids] = True
+            alone = np.ones(len(ids), bool)
+            for n, neighbours in enumerate(cKDTree(points[region_ids]).query_ball_point(points[ids], OUTLIER_LINK * 2)):
+                others = region_ids[neighbours]
+                others = others[~flagged[others]]
+                if len(others):
+                    similar = np.linalg.norm(new[others, 1:] - new[ids[n], 1:], axis=1) < OUTLIER_AB * 0.6
+                    alone[n] = similar.mean() < 0.08
+            ids = ids[alone]
+        if len(ids):
+            flagged = np.zeros(len(lab), bool)
+            flagged[ids] = True
+            clean = region & ~flagged
+            reference = _VoxelTable(points[clean], new[clean]).median(points[ids], OUTLIER_RADIUS, minimum=4)
+            ok = np.isfinite(reference[:, 0])
+            ids, reference = ids[ok], reference[ok]
+            new[ids, 1:] = reference[:, 1:]
+            new[ids, 0] = np.clip(new[ids, 0], reference[:, 0] - OUTLIER_L_CLAMP, reference[:, 0] + OUTLIER_L_CLAMP)
+            stats["outlier_texels"] = len(ids)
+            if len(ids):
+                stats["outlier_specks"] = _small_clusters(points[ids], OUTLIER_LINK, len(ids), np.inf)[1]
+    return new, stats
+
+
 def bake(neutral, faces, mapping, atlas_faces, uv, fitted, cameras, photos, symmetry, masks, size, diagnostics=None,
          **options):
     fid, bary = rasterize_uv(uv * size, atlas_faces, size, size)
@@ -319,6 +459,7 @@ def bake_texels(
     view_face_masks=None,
     reject_forehead_hair=False,
     reject_photo_hair=False,
+    local_chroma_fix=False,
 ):
     """Bake the photos into the texels ``(y, x)`` of a (rows, cols) canvas whose triangle ids are ``fid``.
 
@@ -593,6 +734,19 @@ def bake_texels(
     result = srgb_to_linear(np.clip(from_lab(np.dstack((luminance, chroma))), 0, 1))
     result[y[~observed], x[~observed]] = fallback[~observed]
     result[y[repaired_ear], x[repaired_ear]] = fallback[repaired_ear]
+    local_fix = None
+    if reject_photo_hair and local_chroma_fix:
+        # Local repair of weak cross-view chroma mismatches and tiny colour specks (never the beard allow-mask, the
+        # nose, eyes and lips, and never the blend of confident texels; clusters above OUTLIER_MAX_TEXELS are kept).
+        keep = ~beard_allow & ~ear_members["left"] & ~ear_members["right"] & eligible & ~texel_member("nose", True)
+        texel_lab = to_lab(linear_to_srgb(result[y, x]))
+        view_w = np.stack([w[y, x] for w in weights])
+        view_ab = np.stack([lab[y, x, 1:] for lab in labs])
+        fixed, local_fix = local_chroma_repair(points, texel_lab, view_w, view_ab, keep)
+        changed = np.flatnonzero(np.abs(fixed - texel_lab).max(1) > 1e-4)
+        result[y[changed], x[changed]] = srgb_to_linear(np.clip(from_lab(fixed[changed]), 0, 1))
+        local_fix["changed_texels"] = len(changed)
+        local_fix["changed_centroid"] = points[changed].mean(0).tolist() if len(changed) else None
     # Small positive floor is only a numerical fallback; dark photographed glasses
     # are otherwise preserved. Padding fills the entire canvas for valid mipmaps.
     result = np.clip(result, 0.001, 1)
@@ -620,7 +774,7 @@ def bake_texels(
             # Resolved ear evidence should survive hybrid's unobserved-skin fade.
             confidence[y[mirrored_ear | toned_ear], x[mirrored_ear | toned_ear]] = 0.12
             diagnostics.update(hair={"models": skin_models, "rejected_texels": hair_rejections,
-                                    "ear_hair_share": ear_hair_share,
+                                    "ear_hair_share": ear_hair_share, "local_chroma_fix": local_fix,
                                     "ear_fallback": {"other_views": int((repaired_ear & observed).sum()),
                                                      "mirrored": int(mirrored_ear.sum()),
                                                      "skin_tone_detail": int(toned_ear.sum())}},
