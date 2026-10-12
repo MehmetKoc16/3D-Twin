@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { buildWeldMap } from '../avatar/meshMath';
 import {
+  combinedHiddenMask,
   coveredBodyVertices,
   filterBodyIndex,
   hiddenVertexMask,
   parseDeleteVerts,
+  protectedBodyVertices,
 } from './bodyHide';
 
 // Two quads (4 triangles) over 6 vertices; vertex 6 is a UV-seam copy of vertex 1.
@@ -127,5 +129,118 @@ describe('coveredBodyVertices', () => {
         bandM: 0.015,
       }).every((v) => v === 0),
     ).toBe(true);
+  });
+});
+
+describe('protectedBodyVertices', () => {
+  // Bones: 0 spine, 1 neck_01, 2 hand_l, 3 index_02_r, 4 upperarm_l. Vertex 6 is a UV-seam copy of vertex 1.
+  const boneNames = ['spine_03', 'neck_01', 'hand_l', 'index_02_r', 'upperarm_l'];
+  const skinIndex = [
+    0,
+    0,
+    0,
+    0, // 0: spine only
+    2,
+    0,
+    0,
+    0, // 1: hand
+    4,
+    2,
+    0,
+    0, // 2: upper arm, hand weight below the threshold
+    3,
+    0,
+    0,
+    0, // 3: finger
+    1,
+    0,
+    0,
+    0, // 4: neck
+    0,
+    0,
+    0,
+    0, // 5: spine, but high (above the neck line)
+    0,
+    0,
+    0,
+    0, // 6: seam copy of 1, skinned to the spine only
+  ];
+  const skinWeight = [
+    1, 0, 0, 0, 1, 0, 0, 0, 0.9995, 0.0005, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0,
+  ];
+  const pos = (y: number[]): number[] => y.flatMap((v, i) => [i, v, 0]);
+
+  it('protects hand, finger and neck skin by bone weight and the head by height', () => {
+    const mask = protectedBodyVertices({
+      boneNames,
+      skinIndex,
+      skinWeight,
+      positions: pos([1.2, 1.2, 1.2, 1.2, 1.2, 1.5, 1.2]),
+      neckY: 1.45,
+    });
+    expect(Array.from(mask)).toEqual([0, 1, 0, 1, 1, 1, 0]);
+  });
+
+  it('covers the whole band 2.5 cm below the neck joint and skips the height rule without a neck joint', () => {
+    const positions = pos([1.2, 1.2, 1.2, 1.2, 1.2, 1.426, 1.2]);
+    const withNeck = protectedBodyVertices({
+      boneNames,
+      skinIndex,
+      skinWeight,
+      positions,
+      neckY: 1.45,
+    });
+    expect(withNeck[5]).toBe(1);
+    const without = protectedBodyVertices({ boneNames, skinIndex, skinWeight, positions });
+    expect(without[5]).toBe(0);
+  });
+
+  it('extends protection to the UV-seam copies of a protected vertex', () => {
+    const positions = pos([1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2]);
+    // make vertex 6 coincide with vertex 1 so that the weld map groups them
+    positions[6 * 3] = positions[1 * 3]!;
+    positions[6 * 3 + 1] = positions[1 * 3 + 1]!;
+    positions[6 * 3 + 2] = positions[1 * 3 + 2]!;
+    const weld = buildWeldMap(positions);
+    const mask = protectedBodyVertices({ boneNames, skinIndex, skinWeight, positions, weld });
+    expect(mask[6]).toBe(1);
+    expect(protectedBodyVertices({ boneNames, skinIndex, skinWeight, positions })[6]).toBe(0);
+  });
+});
+
+describe('combinedHiddenMask', () => {
+  it('unions delete lists and footprint coverage, then clears the protected vertices', () => {
+    const protectedMask = Uint8Array.from([0, 1, 0, 1, 0, 0, 0]);
+    const coverage = Uint8Array.from([0, 0, 0, 1, 1, 0, 0]); // vertex 3 is protected, 4 is not
+    const mask = combinedHiddenMask([[0, 1]], [coverage, null], 7, undefined, protectedMask);
+    expect(Array.from(mask)).toEqual([1, 0, 0, 0, 1, 0, 0]);
+  });
+
+  it('protection beats both sources, including the seam copies of a deleted vertex', () => {
+    const weld = buildWeldMap(positions);
+    const protectedMask = new Uint8Array(7);
+    protectedMask[1] = 1;
+    protectedMask[6] = 1; // the guard marks every seam copy
+    const mask = combinedHiddenMask(
+      [[1, 2]],
+      [Uint8Array.from([0, 1, 0, 0, 0, 0, 1])],
+      7,
+      weld,
+      protectedMask,
+    );
+    expect(mask[1]).toBe(0);
+    expect(mask[6]).toBe(0);
+    expect(mask[2]).toBe(1);
+    // triangles with a protected vertex always stay; (0, 2, 3) has none and goes
+    const out = filterBodyIndex(
+      indices,
+      combinedHiddenMask([[0, 1, 2, 3]], [], 7, weld, protectedMask),
+    );
+    expect(Array.from(out)).toEqual([0, 1, 2, 6, 4, 5, 6, 5, 2]);
+  });
+
+  it('behaves like the plain union without a protection mask', () => {
+    const mask = combinedHiddenMask([[0]], [Uint8Array.from([0, 0, 0, 0, 0, 1, 0])], 7);
+    expect(Array.from(mask)).toEqual([1, 0, 0, 0, 0, 1, 0]);
   });
 });

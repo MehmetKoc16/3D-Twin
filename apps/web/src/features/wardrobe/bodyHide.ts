@@ -31,6 +31,97 @@ export function hiddenVertexMask(
   return mask;
 }
 
+/** Bone name prefixes whose skin influence protects a body vertex (same list as the importer's `pose_safety.py`). */
+const PROTECTED_BONE_PREFIXES = [
+  'hand',
+  'neck',
+  'head',
+  'thumb',
+  'index',
+  'middle',
+  'ring',
+  'pinky',
+] as const;
+/** Skin weight above which a bone counts as influencing a vertex. */
+const PROTECTED_MIN_WEIGHT = 0.001;
+/** Everything at or above this distance below the neck joint (metres) is protected as neck / head. */
+const NECK_MARGIN_M = 0.025;
+
+export interface ProtectedBodyInput {
+  /** Bone name per skin joint index (the skeleton's bone order). */
+  boneNames: readonly string[];
+  /** Four skin joint indices per render vertex. */
+  skinIndex: ArrayLike<number>;
+  /** Four skin weights per render vertex. */
+  skinWeight: ArrayLike<number>;
+  /** Solved, grounded render positions (3 per vertex). */
+  positions: ArrayLike<number>;
+  /** Height (y, metres) of the `neck_01` joint head in the same frame as `positions`; omit to skip the height rule. */
+  neckY?: number;
+  /** Groups the UV-seam copies of a vertex: a vertex is protected if any copy is. */
+  weld?: WeldLike;
+}
+
+/**
+ * Body render vertices that a worn garment must never hide: skin influenced by a hand, finger, neck or head bone, and
+ * everything within 2.5 cm below the neck joint (the face, scalp and collar skin), including all UV-seam copies. This
+ * is the same definition the garment importer uses for its delete lists (`tools/asset-pipeline/garmentimport/
+ * pose_safety.py::protected_vertices`), derived from the body's skin data instead of index lists. One byte per vertex.
+ */
+export function protectedBodyVertices(input: ProtectedBodyInput): Uint8Array {
+  const { boneNames, skinIndex, skinWeight, positions, neckY, weld } = input;
+  const count = Math.floor(positions.length / 3);
+  const boneProtected = boneNames.map((name) =>
+    PROTECTED_BONE_PREFIXES.some((prefix) => name.startsWith(prefix)),
+  );
+  const out = new Uint8Array(count);
+  const limit = neckY === undefined ? Infinity : neckY - NECK_MARGIN_M;
+  for (let v = 0; v < count; v++) {
+    if (positions[v * 3 + 1]! >= limit) {
+      out[v] = 1;
+      continue;
+    }
+    for (let k = 0; k < 4; k++) {
+      if (skinWeight[v * 4 + k]! > PROTECTED_MIN_WEIGHT && boneProtected[skinIndex[v * 4 + k]!]) {
+        out[v] = 1;
+        break;
+      }
+    }
+  }
+  if (weld) {
+    for (let g = 0; g < weld.start.length - 1; g++) {
+      let any = false;
+      for (let m = weld.start[g]!; m < weld.start[g + 1]!; m++) {
+        if (out[weld.members[m]!]) any = true;
+      }
+      if (!any) continue;
+      for (let m = weld.start[g]!; m < weld.start[g + 1]!; m++) out[weld.members[m]!] = 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * The final hidden mask of the body: the union of the garments' delete lists (with their UV-seam copies) and the
+ * app's own footprint coverage (`coveredBodyVertices`, one byte per vertex or null), with the `protectedMask` vertices
+ * cleared again. The guard applies to the COMBINED mask, so neither source can hide hands, neck or face.
+ */
+export function combinedHiddenMask(
+  deleteLists: readonly ArrayLike<number>[],
+  coverages: readonly (ArrayLike<number> | null)[],
+  vertexCount: number,
+  weld?: WeldLike,
+  protectedMask?: ArrayLike<number>,
+): Uint8Array {
+  const mask = hiddenVertexMask(deleteLists, vertexCount, weld);
+  for (const coverage of coverages) {
+    if (!coverage) continue;
+    for (let v = 0; v < vertexCount; v++) if (coverage[v]) mask[v] = 1;
+  }
+  if (protectedMask) for (let v = 0; v < vertexCount; v++) if (protectedMask[v]) mask[v] = 0;
+  return mask;
+}
+
 /** Body triangle list without the triangles whose three vertices are all hidden. Returns `indices` itself if none. */
 export function filterBodyIndex(indices: Uint32Array, hidden: Uint8Array): Uint32Array {
   let kept = 0;

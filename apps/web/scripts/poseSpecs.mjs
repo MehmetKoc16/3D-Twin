@@ -36,7 +36,7 @@ export const poseSpecs = [
     label: { tr: 'Yürüyüş', en: 'Walking step' },
     intent: {
       clavicleDropDeg: 12,
-      upperArmOutwardDeg: 8,
+      upperArmOutwardDeg: 12,
       elbowFlexDeg: 8,
       upperArmForward: { l: -0.22, r: 0.3 },
       leftThighForwardDeg: 25,
