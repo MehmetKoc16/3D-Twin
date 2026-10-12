@@ -1,0 +1,5 @@
+# Optional geometry dependencies; install only into the asset-pipeline venv.
+trimesh==4.9.0
+scipy==1.16.2
+rtree==1.4.1
+fast-simplification==0.1.12
