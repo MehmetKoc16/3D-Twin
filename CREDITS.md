@@ -37,12 +37,18 @@ its texture was downscaled to at most 1024 px and it was converted to glTF. Pinn
 `tools/asset-pipeline/config.py` (`GARMENT_ASSETS`); the full credit text per item is in
 `apps/web/public/assets/garments/index.json` (`attribution`).
 
+The garments added later (the `mh-*` items and the Khronos sneaker below) were converted with
+`tools/asset-pipeline/garment_import.py` instead: licence evidence per item (`.mhclo` header or upstream `LICENSE.md`,
+verified 2026-10-11) is recorded in `tools/asset-pipeline/garment_sources.json`. They were aligned to the parametric
+body, clearance fitted, bound to body triangles, their PBR maps were baked into at most 2048 px atlases and they were
+converted to glTF. No upstream file is redistributed unchanged.
+
 CC-BY (attribution required):
 
 The wardrobe supports exact **CC BY 3.0** and **CC BY 4.0** identifiers. For every new shipped CC-BY garment,
 record its title, author, original source, exact licence version/link and conversion changes here and in the
 catalogue's `attribution`. Retain upstream notices; do not substitute 4.0 for a 3.0 declaration. Offline review
-candidates (including the MakeHuman Denim Jacket) are not shipped assets and are credited here when the lead adds them.
+candidates that are not in `index.json` are not shipped assets and are credited here when the lead adds them.
 
 - **"Male classic jeans"** (`punkduck_male_classic_jeans`) by **punkduck**, MakeHuman community assets pack
   `pants02` (<https://www.makehumancommunity.org/node/1655>), licensed **CC BY 4.0**
@@ -51,6 +57,22 @@ candidates (including the MakeHuman Denim Jacket) are not shipped assets and are
   ([Sketchfab](https://sketchfab.com/3d-models/brown-sneakers-e6c51d2e77d945d1a0efbca530fb4b5b)), MakeHuman
   community assets pack `shoes02` (<https://www.makehumancommunity.org/node/2555>), licensed **CC BY** (the upstream
   file states no version; treated as 4.0, <https://creativecommons.org/licenses/by/4.0/>).
+- **"M Trousers 01 (loose jeans)"** (`mh-m-trousers-01`) by **Mindfront (Sweden)**, MakeHuman community assets
+  (<http://www.makehumancommunity.org/clothes/m_trousers_01.html>), licensed **CC BY 4.0**
+  (<https://creativecommons.org/licenses/by/4.0/>). Modified: converted and re-bound (aligned, clearance fitted, bound to
+  the body mesh, textures baked and downscaled to at most 2048 px, converted to glTF).
+- **"M Trousers 02 (suit trousers)"** (`mh-m-trousers-02`) by **Mindfront (Sweden)**, MakeHuman community assets
+  (<http://www.makehumancommunity.org/clothes/m_trousers_02.html>), licensed **CC BY 4.0**
+  (<https://creativecommons.org/licenses/by/4.0/>). Modified: converted and re-bound as above.
+- **"Materials Variants Shoe"** (`khronos-materials-variants-shoe`) by **Shopify**, Khronos glTF Sample Assets
+  (<https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe>), licensed
+  **CC BY 4.0** (<https://creativecommons.org/licenses/by/4.0/>, upstream `LICENSE.md`). Modified: converted and
+  re-bound (aligned to the foot, mirrored into a pair, sole rigidly attached to the foot and ball bones, bound to the
+  body mesh, textures baked and downscaled to at most 2048 px, converted to the wardrobe glTF format).
+- **"Denim Jacket"** (`mh-denim-jacket`) by **punkduck**, MakeHuman community assets
+  (<http://www.makehumancommunity.org/clothes/denim_jacket.html>), licensed **CC BY 3.0**
+  (<https://creativecommons.org/licenses/by/3.0/>; the `.mhclo` header states "CC BY 3.0"). Modified: converted and
+  re-bound as above. The licence version is 3.0, not 4.0.
 
 CC0 (credited as a courtesy, no attribution required):
 
@@ -58,6 +80,10 @@ CC0 (credited as a courtesy, no attribution required):
   "Pants_Wool" (`toigo_wool_pants`) and "MJ-Shoes" (`toigo_mj_cloth_shoes`) by **MRT** (MargaretToigo), packs
   `shirts01`, `pants01`, `shoes01`.
 - "hero_boots_2" (`culturalibre_hero_boots_2`) by **culturalibre**, pack `shoes01`.
+- "Jacket_T01 (actually a female T-shirt)" (`mh-jacket-t01`) by **el_toba / Tobinsky**
+  (<http://www.makehumancommunity.org/clothes/jacket_t01.html>) and "Male Polo Shirt" (`mh-male-polo-shirt`) by
+  **namuhekam** (<http://www.makehumancommunity.org/clothes/male_polo_shirt.html>); both `.mhclo` headers state CC0.
+  Converted and re-bound as described above.
 
 ## Body parts (eyes, eyebrows, eyelashes, hair)
 
@@ -126,9 +152,10 @@ The shape adapter replaces Hunyuan postprocessing rather than importing/installi
 ## Audit status and remaining provenance gaps
 
 Checked against tracked public assets, asset-pipeline configuration/catalogues, vendored shader notices and the local
-non-personal source/model cache manifests. All seven shipped MakeHuman garment templates and the listed body parts
-have entries above; both CC-BY garments retain their authors, source links and adaptation descriptions. The sneaker
-source says CC BY without a version; the exported catalogue assumes 4.0. That assumption is recorded, not independent
+non-personal source/model cache manifests. All shipped garment templates (seven original MakeHuman ones, five more
+MakeHuman ones and the Khronos sneaker) and the listed body parts have entries above; every CC-BY garment retains its
+author, source link, exact licence version and adaptation description. The original `culturalibre_sneakers` source
+says CC BY without a version; the exported catalogue assumes 4.0. That assumption is recorded, not independent
 verification of an upstream version.
 
 No Poly Haven, ambientCG, HDRI or other downloaded studio environment was found in tracked assets or the lighting code.

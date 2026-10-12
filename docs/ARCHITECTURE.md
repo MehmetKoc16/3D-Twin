@@ -261,7 +261,9 @@ Details that are not obvious:
   the legs; below the crotch the pass is run once per leg on a body copy that keeps only that leg in the bins.
 - Poke-through. MakeHuman delete lists leave islands (navel); body vertices that project into a garment triangle
   (within 2 cm, prism test) are hidden too, a triangle is dropped only if all three vertices are hidden, so no hole
-  opens at a hem. Layering (`garmentCollide.ts`): `pushOutside` moves the vertices of an outer garment out of the inner
+  opens at a hem. The combined mask (delete lists + footprint coverage) is finally cleared at protected vertices
+  (`protectedBodyVertices`: skin influenced by a hand, finger, neck or head bone, plus everything within 2.5 cm below the
+  neck joint), so a garment never hides hands, neck or face; the guard is recomputed from the solved body. Layering (`garmentCollide.ts`): `pushOutside` moves the vertices of an outer garment out of the inner
   one (up to 5 passes, because a push along one triangle's normal can end inside a neighbouring triangle of a curved
   surface); `pushInside` is its mirror. The inner garment's triangles under the outer one's footprint are hidden.
   Trousers are pushed out of shoes.

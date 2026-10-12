@@ -10,7 +10,7 @@ import {
 import { useWardrobeStore } from '../../store/wardrobeStore';
 import type { AvatarAssets } from '../avatar/avatarAssets';
 import type { SolveEnvelope } from '../../workers/avatarClient';
-import { filterBodyIndex, hiddenVertexMask } from './bodyHide';
+import { combinedHiddenMask, filterBodyIndex, protectedBodyVertices } from './bodyHide';
 import type { Surface } from './garmentCollide';
 import { GarmentInstance, type GarmentUpdateContext } from './garmentInstance';
 import { isTuckedTop } from './garmentStyle';
@@ -46,6 +46,7 @@ export class WardrobeRig {
   private readonly originalIndex: BufferAttribute;
   private readonly unsubscribe: () => void;
   private last: LastSolve | null = null;
+  private protectedCache: { solve: LastSolve; mask: Uint8Array } | null = null;
   private planes: BodyPlanes | undefined;
   private measures: MeasuresDef | null = null;
   private hiddenKey = '';
@@ -298,7 +299,8 @@ export class WardrobeRig {
     const key = parts
       .map((i) => `${i.template.id}${i.coverage ? `+${i.coverageEpoch}` : ''}`)
       .sort()
-      .join('|');
+      .join('|')
+      .concat(this.last ? '#guard' : '');
     if (key === this.hiddenKey) return;
     this.hiddenKey = key;
     const geometry = this.assets.mesh.geometry;
@@ -307,16 +309,41 @@ export class WardrobeRig {
       return;
     }
     const count = geometry.getAttribute('position').count;
-    const mask = hiddenVertexMask(
+    const mask = combinedHiddenMask(
       parts.map((i) => i.runtime.deleteVerts),
+      parts.map((i) => i.coverage),
       count,
       this.assets.weld,
+      this.protectedMask(),
     );
-    for (const part of parts) part.coverage?.forEach((v, i) => (mask[i] = mask[i]! | v));
     const filtered = filterBodyIndex(this.assets.indices, mask);
     geometry.setIndex(
       filtered === this.assets.indices ? this.originalIndex : new BufferAttribute(filtered, 1),
     );
+  }
+
+  /**
+   * Hand / finger / neck / head vertices of the last solved body: the combined hidden mask never covers them. Depends on
+   * the solved positions only, so it is cached per solve.
+   */
+  private protectedMask(): Uint8Array | undefined {
+    const last = this.last;
+    if (!last) return undefined;
+    if (this.protectedCache?.solve === last) return this.protectedCache.mask;
+    const geometry = this.assets.mesh.geometry;
+    const bones = this.assets.skeleton.bones;
+    const neck = bones.findIndex((b) => b.name === 'neck_01');
+    const count = geometry.getAttribute('position').count;
+    const mask = protectedBodyVertices({
+      boneNames: bones.map((b) => b.name),
+      skinIndex: geometry.getAttribute('skinIndex').array,
+      skinWeight: geometry.getAttribute('skinWeight').array,
+      positions: last.body.subarray(0, count * 3),
+      neckY: neck >= 0 ? last.joints[neck * 6 + 1] : undefined,
+      weld: this.assets.weld,
+    });
+    this.protectedCache = { solve: last, mask };
+    return mask;
   }
 
   dispose(): void {

@@ -217,6 +217,204 @@
       },
       "layer": 1,
       "baseColor": "#0a69ab"
+    },
+    {
+      "id": "mh-jacket-t01",
+      "kind": "tshirt",
+      "category": "top",
+      "label": {
+        "tr": "Kad\u0131n ti\u015f\u00f6rt",
+        "en": "T-shirt (women's cut)"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Jacket_T01 (actually a female T-shirt)\" by el_toba / Tobinsky, http://www.makehumancommunity.org/clothes/jacket_t01.html, CC0-1.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "http://www.makehumancommunity.org/clothes/jacket_t01.html sha256:dade208440053561d5e74933549dd01adeeb49e62cd8a565cb53c6962d1aeae7",
+      "mesh": "mh-jacket-t01.glb",
+      "binding": "mh-jacket-t01.bind.bin",
+      "scaleRefs": {
+        "x": [4305, 11531, 0.29301],
+        "y": [1628, 4773, 0.5724],
+        "z": [2004, 4328, 0.18311]
+      },
+      "nativeMeasures": {
+        "chest": 91.0,
+        "waist": 72.8,
+        "length": 58.9,
+        "sleeve": 16.4
+      },
+      "defaultEase": {
+        "chest": 3.0,
+        "waist": 3.5,
+        "sleeve": -37.0
+      },
+      "layer": 2,
+      "baseColor": "#6d462f",
+      "deleteVerts": "mh-jacket-t01.delete.bin"
+    },
+    {
+      "id": "mh-male-polo-shirt",
+      "kind": "tshirt",
+      "category": "top",
+      "label": {
+        "tr": "Polo yaka ti\u015f\u00f6rt",
+        "en": "Polo shirt"
+      },
+      "license": "CC0-1.0",
+      "attribution": "\"Male Polo Shirt\" by namuhekam / Namuhekam, http://www.makehumancommunity.org/clothes/male_polo_shirt.html, CC0-1.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "http://www.makehumancommunity.org/clothes/male_polo_shirt.html sha256:aaee5f49077a8bacb8b1077910e4b9cc7946d587c75e367273f4ecaf94abd627",
+      "mesh": "mh-male-polo-shirt.glb",
+      "binding": "mh-male-polo-shirt.bind.bin",
+      "scaleRefs": {
+        "x": [4305, 11531, 0.31474],
+        "y": [1628, 4773, 0.5723600000000001],
+        "z": [2004, 4328, 0.19557000000000002]
+      },
+      "nativeMeasures": {
+        "chest": 96.5,
+        "waist": 80.7,
+        "length": 60.0,
+        "sleeve": 20.9
+      },
+      "defaultEase": {
+        "chest": 8.5,
+        "waist": 11.5,
+        "sleeve": -32.5
+      },
+      "layer": 2,
+      "baseColor": "#838383",
+      "deleteVerts": "mh-male-polo-shirt.delete.bin"
+    },
+    {
+      "id": "mh-m-trousers-01",
+      "kind": "jeans",
+      "category": "bottom",
+      "label": {
+        "tr": "Bol kot pantolon",
+        "en": "Loose jeans"
+      },
+      "license": "CC-BY-4.0",
+      "attribution": "\"M Trousers 01 (loose jeans)\" by Mindfront (Sweden), http://www.makehumancommunity.org/clothes/m_trousers_01.html, CC-BY-4.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "http://www.makehumancommunity.org/clothes/m_trousers_01.html sha256:8866ae70637c11d6944738e50819609096749a4acb7d3ccef6533cc029607121",
+      "mesh": "mh-m-trousers-01.glb",
+      "binding": "mh-m-trousers-01.bind.bin",
+      "scaleRefs": {
+        "x": [12085, 12093, 0.14763],
+        "z": [12082, 12087, 0.15612],
+        "y": [11970, 12430, 0.74151]
+      },
+      "nativeMeasures": {
+        "waist": 71.3,
+        "hip": 98.2,
+        "thigh": 62.8,
+        "length": 93.5,
+        "inseam": 73.0
+      },
+      "defaultEase": {
+        "waist": 2.0,
+        "hip": 3.5,
+        "thigh": 9.0,
+        "inseam": -5.5
+      },
+      "layer": 1,
+      "baseColor": "#474948",
+      "deleteVerts": "mh-m-trousers-01.delete.bin"
+    },
+    {
+      "id": "mh-m-trousers-02",
+      "kind": "pants",
+      "category": "bottom",
+      "label": {
+        "tr": "Tak\u0131m elbise pantolonu",
+        "en": "Suit trousers"
+      },
+      "license": "CC-BY-4.0",
+      "attribution": "\"M Trousers 02 (suit trousers)\" by Mindfront (Sweden), http://www.makehumancommunity.org/clothes/m_trousers_02.html, CC-BY-4.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "http://www.makehumancommunity.org/clothes/m_trousers_02.html sha256:43bd510dd3c4d2e2a505d2665e4a2ca1fb5031737e55d9e3bf88912d9bb387dd",
+      "mesh": "mh-m-trousers-02.glb",
+      "binding": "mh-m-trousers-02.bind.bin",
+      "scaleRefs": {
+        "x": [12085, 12093, 0.14763],
+        "z": [12082, 12087, 0.15612],
+        "y": [11970, 12430, 0.74151]
+      },
+      "nativeMeasures": {
+        "waist": 68.9,
+        "hip": 99.5,
+        "thigh": 66.9,
+        "length": 97.2,
+        "inseam": 75.7
+      },
+      "defaultEase": {
+        "waist": -0.5,
+        "hip": 5.0,
+        "thigh": 13.0,
+        "inseam": -2.5
+      },
+      "layer": 1,
+      "baseColor": "#1d1d1d",
+      "deleteVerts": "mh-m-trousers-02.delete.bin"
+    },
+    {
+      "id": "khronos-materials-variants-shoe",
+      "kind": "sneakers",
+      "category": "shoes",
+      "label": {
+        "tr": "Spor ayakkab\u0131 2",
+        "en": "Sneakers 2"
+      },
+      "license": "CC-BY-4.0",
+      "attribution": "\"Materials Variants Shoe\" by Shopify, https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe, CC-BY-4.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe sha256:e1d7cb190382111e5a5b37b51e9a7f007f7eb2ab1b6185e0188e8d0a0d1265a7",
+      "mesh": "khronos-materials-variants-shoe.glb",
+      "binding": "khronos-materials-variants-shoe.bind.bin",
+      "scaleRefs": {
+        "x": [2519, 9752, 1.0516400020569563],
+        "y": [7041, 942, 1.6593766714213416],
+        "z": [4615, 3223, 0.4300433255266398]
+      },
+      "nativeMeasures": {
+        "footLength": 25.3
+      },
+      "defaultEase": {
+        "footLength": 2.0
+      },
+      "layer": 1,
+      "baseColor": "#5e7d8d",
+      "deleteVerts": "khronos-materials-variants-shoe.delete.bin",
+      "rigidAttachments": "khronos-materials-variants-shoe.rigid.json"
+    },
+    {
+      "id": "mh-denim-jacket",
+      "kind": "longsleeve",
+      "category": "top",
+      "label": {
+        "tr": "Kot ceket",
+        "en": "Denim jacket"
+      },
+      "license": "CC-BY-3.0",
+      "attribution": "\"Denim Jacket\" by punkduck, http://www.makehumancommunity.org/clothes/denim_jacket.html, CC-BY-3.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "http://www.makehumancommunity.org/clothes/denim_jacket.html sha256:0bf3f51e10c2751efc52263d8ced7254a01f251b64efb082a0e93255ec7373db",
+      "mesh": "mh-denim-jacket.glb",
+      "binding": "mh-denim-jacket.bind.bin",
+      "scaleRefs": {
+        "x": [5866, 12995, 0.1398],
+        "z": [1033, 5782, 0.18441000000000002],
+        "y": [835, 942, 0.22028]
+      },
+      "nativeMeasures": {
+        "chest": 101.2,
+        "waist": 90.8,
+        "length": 58.3,
+        "sleeve": 54.7
+      },
+      "defaultEase": {
+        "chest": 13.0,
+        "waist": 21.5,
+        "sleeve": 1.5
+      },
+      "layer": 3,
+      "baseColor": "#444961",
+      "deleteVerts": "mh-denim-jacket.delete.bin"
     }
   ]
 }
