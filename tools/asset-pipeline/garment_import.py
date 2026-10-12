@@ -9,6 +9,8 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+# Catalogue licences the app accepts for importer garments (GarmentLicense minus the runtime-only `user`).
+LICENSES = ("CC0-1.0","CC-BY-3.0","CC-BY-4.0")
 
 
 def require_venv():
@@ -24,8 +26,9 @@ def parser():
     p.add_argument("--id",required=True)
     p.add_argument("--category",choices=("top","bottom","shoes"),required=True)
     p.add_argument("--kind",choices=("tshirt","longsleeve","sweatshirt","pants","jeans","shorts","sneakers","shoes","boots"),required=True)
-    p.add_argument("--license",choices=("CC0-1.0","CC-BY-4.0"),required=True,
-                   help="Exact licence; declarations do not replace the lead's source/licence review")
+    p.add_argument("--license",choices=LICENSES,required=True,
+                   help="Exact licence (the app's GarmentLicense catalogue values); CC-BY versions are never relabelled. "
+                        "Declarations do not replace the lead's source/licence review")
     p.add_argument("--attribution",required=True,help="Title, author, source URL, exact licence, and changes")
     p.add_argument("--source-url",default="")
     p.add_argument("--node",action="append",help="GLB node name to include (repeatable; isolate clothing from a full character)")
@@ -46,7 +49,7 @@ def parser():
     p.add_argument("--clearance-mm",type=float,help="Default top 3, bottom 3, shoes 4; permitted range 2..4")
     p.add_argument("--layer-gap-mm",type=float,default=3,help="Additional clearance per outer layer (default 3 mm)")
     p.add_argument("--shell",choices=("outer","keep"),default="outer",help="Strip close opposing inner walls, or keep a reviewed single shell")
-    p.add_argument("--rigid-sole-height-mm",type=float,default=35,help="Shoe sole/heel region above its lowest point; writes review-only rigid attachments")
+    p.add_argument("--rigid-sole-height-mm",type=float,default=35,help="Shoe sole/heel region above its lowest point; written to <id>.rigid.json (app rigid-sole format v1)")
     p.add_argument("--mirror-pair",action="store_true",help="Mirror an aligned single left shoe across X=0 to create a pair")
     p.add_argument("--no-delete-mask",action="store_true")
     p.add_argument("--validate",action="store_true",help="Run the actual avatar-core solver/grading and four posed containment checks")
@@ -59,9 +62,13 @@ def import_garment(args):
     import numpy as np
     import garments
     from garmentimport.body import align,load_body
-    from garmentimport.geometry import binding,delete_mask,fit,reconstruct,scale_refs,outer_shell,rigid_shoe_parts
+    from garmentimport.body import skin
+    from garmentimport.geometry import RIGID_REVIEW_NOTES,binding,delete_mask,fit,reconstruct,scale_refs,outer_shell,rigid_shoe_parts,skin_weights
     from garmentimport.mesh_io import atlas,clean,decimate,load_parts,write_glb,refine
+    from garmentimport.pose_safety import POSES,pose_delete_mask,regional_clearance,stable_binding
+    from garmentimport.untangle import untangle
     from garmentimport.validation import read_binding,validate
+    from garmentimport.visibility import triangle_pairs
 
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,79}",args.id):
         raise ValueError("id must contain only lowercase ASCII letters, digits, underscores or hyphens (1..80 characters)")
@@ -149,7 +156,8 @@ def import_garment(args):
     pos,faces,uv,channels,alpha_mode,base_color = atlas(parts,args.texture_max)
     before_fit = pos.copy()
     print(f"garment-import: {args.id}: clearance fitting ({len(pos)} vertices)",file=sys.stderr,flush=True)
-    pos,fit_report = fit(pos,faces,body.positions[:body.render_count],body.faces,clearance/1000)
+    clearances = regional_clearance(pos,body,clearance/1000) if args.category=="top" else clearance/1000
+    pos,fit_report = fit(pos,faces,body.positions[:body.render_count],body.faces,clearances)
     refs = native_refs or scale_refs(body.positions[:body.render_count])
     if native_bind is not None:
         from scipy.spatial import cKDTree
@@ -165,6 +173,25 @@ def import_garment(args):
         native_report["authoredMappingMaxMm"] = float(distance.max()*1000)
     else:
         bind = binding(pos,body.positions[:body.render_count],body.faces)
+    stability_report = None
+    untangle_report = None
+    if args.category=="top":
+        bind,stability_report = stable_binding(pos,faces,bind,body,refs)
+        print(f"garment-import: {args.id}: bounded four-pose shell separation",file=sys.stderr,flush=True)
+        separated,untangle_report = untangle(pos,faces,bind,body)
+        separated,recovery = fit(separated,faces,body.positions[:body.render_count],body.faces,clearances)
+        gi,gw = skin_weights(bind,body.joints,body.weights)
+        final_pairs = {key:len(triangle_pairs(skin(separated,gi,gw,body.transforms(body.pose(pose))),faces))
+                       for key,pose in POSES}
+        accepted = all(final_pairs[key]<=untangle_report["beforePairs"][key] for key,_ in POSES)
+        untangle_report.update({"afterClearancePairs":final_pairs,"accepted":accepted,"clearanceRecovery":recovery})
+        if accepted:
+            pos = separated
+            scales = np.array([abs(body.positions[refs[k][0],i]-body.positions[refs[k][1],i])/refs[k][2]
+                               for i,k in enumerate("xyz")])
+            bind[2][:] = (pos-(body.positions[bind[0]]*bind[1][...,None]).sum(axis=1))/scales
+            fit_report = {**recovery,"maxDisplacementMm":float(np.linalg.norm(pos-before_fit,axis=1).max()*1000),
+                          "initialFitting":fit_report}
     packed = garments.pack_binding(*bind)
     # Test the serialized float32 records, not only the float64 construction.
     from garmentimport.validation import DTYPE
@@ -177,6 +204,8 @@ def import_garment(args):
         raise ValueError(f"Clearance fitting left {fit_report['remainingInsidePercent']:.3f}% vertices inside; inspect alignment/source mesh")
     if fit_report["minClearanceMm"] < clearance-1e-3:
         raise ValueError(f"Clearance fitting reached only {fit_report['minClearanceMm']:.3f} mm; inspect opposing source surfaces")
+    if fit_report["minRegionalClearanceResidualMm"] < -1e-3:
+        raise ValueError("Clearance fitting did not satisfy regional minimum offsets")
     defs = {d["id"]:d for d in body.measures["measures"]}
     arm = defs["armLength"]["verts"]
     lm = {"bust_y":float(body.positions[defs["chest"]["verts"],1].mean()),
@@ -193,7 +222,12 @@ def import_garment(args):
              "source":f"{args.source_url or args.source.name} sha256:{hashlib.sha256(args.source.read_bytes()).hexdigest()}",
              "mesh":f"{args.id}.glb","binding":f"{args.id}.bind.bin","scaleRefs":refs,
              "nativeMeasures":native,"defaultEase":ease,"layer":args.layer,"baseColor":base_color}
-    delete = np.zeros(0,int) if args.no_delete_mask else native_delete if native_delete is not None else delete_mask(body.positions[:body.render_count],body.faces,pos,faces)
+    delete_report = None
+    if args.no_delete_mask:
+        delete = np.zeros(0,int)
+    else:
+        seed = native_delete if native_delete is not None else delete_mask(body.positions[:body.render_count],body.faces,pos,faces)
+        delete,delete_report = pose_delete_mask(body,pos,faces,stored,seed)
     if len(delete):
         entry["deleteVerts"] = f"{args.id}.delete.bin"
     output.mkdir(parents=True,exist_ok=True)
@@ -216,13 +250,16 @@ def import_garment(args):
               "alignment":alignment,"fit":fit_report,"measureNotes":notes,"shell":shell_report,
               "clearanceMm":clearance,"nativeBinding":native_report,"subdivisionLevels":args.subdivide,
               "materialWarnings":material_warnings,
+              "poseSafety":{"binding":stability_report,"deleteMask":delete_report,"shellSeparation":untangle_report,
+                            "regionalClearanceMaxMm":float(np.max(clearances)*1000)},
               "roundTrip":{"maxMm":float(error.max()),"meanMm":float(error.mean()),"passed":True}}
     rigid = None
     if args.category=="shoes":
         rigid = rigid_shoe_parts(pos,body,args.rigid_sole_height_mm/1000)
         (stage/f"{args.id}.rigid.json").write_text(json.dumps(rigid,indent=2,allow_nan=False)+"\n",encoding="utf-8")
-        report["rigidParts"] = {"file":f"{args.id}.rigid.json","vertices":sum(len(a["vertices"]) for a in rigid["attachments"]),
-                                "requiresRuntimeChange":True,"warnings":rigid["warnings"]}
+        report["rigidParts"] = {"file":f"{args.id}.rigid.json","format":"v1","soleHeightMm":rigid["soleHeightMm"],
+                                "vertices":sum(len(a["vertices"]) for a in rigid["attachments"]),
+                                "bones":[a["bone"] for a in rigid["attachments"]],"warnings":RIGID_REVIEW_NOTES}
     offsets = np.linalg.norm(pos-(body.positions[bind[0]]*bind[1][...,None]).sum(axis=1),axis=1)
     report["looseParts"] = {"offsetOver50mmVertices":int((offsets>.05).sum()),
         "warnings":["Loose fabric uses body-triangle skin transfer; review hood/flaps in poses. Authored helper deformation needs runtime helper or skin override support."] if (offsets>.05).any() else []}
@@ -241,7 +278,7 @@ def import_garment(args):
             "originalVertexCount":len(original_positions),"importedVertexCount":len(before_fit)}
     if args.validate or compare:
         print(f"garment-import: {args.id}: four poses and three avatar-core shapes",file=sys.stderr,flush=True)
-        report["validation"] = validate(body,pos,faces,stored,entry,stage,stage/entry["binding"],compare,rigid)
+        report["validation"] = validate(body,pos,faces,stored,entry,stage,stage/entry["binding"],compare,rigid,delete=delete)
     report_path = stage/f"{args.id}.report.json"
     report_path.write_text(json.dumps(report,indent=2,allow_nan=False)+"\n",encoding="utf-8")
     if "validation" in report and not report["validation"]["passed"]:

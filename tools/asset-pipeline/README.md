@@ -135,9 +135,11 @@ tools\asset-pipeline\.venv\Scripts\python.exe tools/asset-pipeline/garment_impor
   --pose a --source-body-height 1.75 --validate
 ```
 
-Licence and attribution are required. The current app contract accepts **CC0-1.0 or CC-BY-4.0**; other permissive
-licences and other CC-BY versions need an app contract change instead of being relabelled. CC-BY attribution must
-include the title, author, source and exact licence. The lead must review the source declarations, textures and
+Licence and attribution are required. `--license` takes the app's `GarmentLicense` catalogue values: **CC0-1.0,
+CC-BY-3.0 or CC-BY-4.0** (the app's runtime-only `user` value is not an import licence). Other permissive licences and
+other CC-BY versions need an app contract change instead of being relabelled, and a source that only says "CC BY"
+without a version must not be assumed to be 4.0. CC-BY attribution must include the title, author, source and exact
+licence. The lead must review the source declarations, textures and
 derivatives, add any required `CREDITS.md` entry and decide what ships. No licence is inferred from a download folder
 or mesh appearance. The importer never reads or changes `garment_sources.json` / `GARMENT_SOURCES.md`.
 
@@ -154,7 +156,8 @@ Processing and outputs:
 - A `.mhclo` source, `--mhclo companion.mhclo`, or an OBJ with a matching `obj_file` companion uses authored bindings
   directly. The tool reconstructs the neutral garment from hm08 bindings, not the OBJ's authoring body. Body indices
   and scale references survive conversion; negative weights are clamped and their positional difference is folded
-  into offsets. Clearance fitting adjusts offsets while retaining these indices. Helpers are reconstructed with
+  into offsets. Clearance fitting adjusts offsets while retaining these indices; the subsequent top-region stability
+  pass may replace selected armpit/side-seam rows and reports that count separately. Helpers are reconstructed with
   `mh_morph.MhMorpher` and the pinned CC0 raw targets, then rebound to render-body triangles because the app has no
   helper index space. Reports count both paths; helper deformation is not preserved under grading. Missing raw data,
   other basemeshes and legacy shear bindings fail explicitly. Transforms/reposing are incompatible with this path.
@@ -186,22 +189,42 @@ Processing and outputs:
   Smooth the displacement field, weld displacement across UV copies, then re-project for clearance. Exterior shape
   stays fixed except where clearance is needed. Opposing surfaces may require a bounded outward escape, reported
   separately. An unresolved inside vertex or unmet minimum clearance fails the import.
+  Tops use compact smoothstep fields around the shoulder underside and elbow: up to 4 mm and 3 mm extra
+  clearance respectively, blended into the category/layer baseline. These are local minimum clearances, not
+  additional offsets on already distant fabric. The armpit field fades out above the shoulder underside, preserving
+  collar folds and shoulder caps. Armpit and side-seam bindings select nearby real body triangles
+  using neighbourhood skin-weight agreement and minimum triangle area over the four validation poses. Rest-space
+  differences are folded into the existing world-axis offset record; no new runtime binding format is required.
+  A bounded triangle-separation pass evaluates all four poses, averages equal/opposite triangle corrections back
+  into rest space, and welds displacement across UV copies. It runs up to 12 iterations with a 12 mm displacement
+  cap, then restores regional body clearance. The result is retained only if no pose's intersection-pair count
+  increases relative to the input of this pass. Remaining intersections and pre-existing overlapping source folds
+  stay in the report; this is a local repair, not a cloth simulation.
 - Write `<id>.glb`, `<id>.bind.bin`, optional `<id>.delete.bin`, `<id>.report.json` and an `index.json` entry.
   Binding is **36 bytes per garment render vertex**, little-endian: three uint32 body render indices, three float32
   nonnegative barycentrics, three float32 offsets in meters. Offsets are **world-axis vectors**, matching MHCLO;
   the runtime does not rotate a scalar normal offset. `scaleRefs` are measured on the neutral body. The serialized
   binding/GLB round-trip must be below 1 mm even without `--validate`.
-- `--mirror-pair` mirrors an aligned single left shoe across X=0. Shoes also write `<id>.rigid.json`: sole/heel vertices
-  below `--rigid-sole-height-mm` (default 35 mm above each shoe's lowest point) get rigid local transforms on `foot_*`
-  and `ball_*`, split at the ball joint. Only the upper retains barycentric skin transfer in the proposed mixed path.
-  Review the boundary manually. **The current app ignores these attachments** and derives every vertex's skin weights
-  from bindings. Reports give current-runtime penetration and separate proposed rigid-override metrics; the candidate
-  is not ready for shipping until the loader supports overrides. No app contract changes are made by this tool.
+- `--mirror-pair` mirrors an aligned single left shoe across X=0. Shoes also write `<id>.rigid.json` in the app's
+  **rigid-sole format v1** (`packages/avatar-core/src/garment/rigid.ts`, `parseGarmentRigidAttachments`), with exactly
+  the keys `version: 1`, `soleHeightMm` and `attachments[{bone, vertices, localPositionsM}]`. Sole/heel vertices below
+  `--rigid-sole-height-mm` (default 35 mm above each shoe's lowest point) go to `foot_l`/`ball_l`/`foot_r`/`ball_r`,
+  split at the ball joint. `vertices` are GLB render-vertex indices (UV copies included, each in a single attachment)
+  and `localPositionsM` is the exported float32 neutral position minus the neutral bone head, in metres. The app
+  rebuilds the sole as `head + local * scale`, fades it into the upper over a 10 mm geodesic band and keeps the MHCLO
+  binding elsewhere. `--validate` also runs the exported sidecar through avatar-core's own parser/preparation and fails
+  if the app would reject it or cannot rebuild the exported sole at the neutral scale (`rigidRuntime` in the report).
+  Review notes (sole boundary, rigid segments) live in the report's `rigidParts.warnings`, not in the sidecar. Rigid
+  override pose metrics (`rigidOverridePoses`) skin each sole segment 100% to its bone and omit the 10 mm blend band.
 - Upstream MHCLO `delete_verts` masks are authored lists. Imported masks use the app's normal-prism coverage rule
   instead: body vertices 2..20 mm behind the garment, interior triangle projections, a 6 mm band retained near
   openings, identical decisions for every UV copy. Body triangles are hidden only when all three corners are hidden
   by the app. `--no-delete-mask` disables this optional file. Inspect necklines, cuffs, hems and transparent fabric.
   Texture alpha is not used to infer holes; use `--no-delete-mask` for lace/cutout garments until reviewed.
+  Authored lists now seed a union of A/T/relaxed/walk coverage with a 35 mm pose margin. Intersecting body triangles
+  contribute all corners within 65 mm of the rest garment. Rest opening bands protect the coverage expansion;
+  hand/finger, neck and head influences and the neck-height guard always override deletion, including UV copies.
+  The report records coverage per pose, protected vertices and the final exported mask.
 
 Alignment overrides live in `--transform sidecar.json`, or automatically in `<source stem>.import.json`.
 World convention is meters, +Y up, +Z front, character left +X. A row-major matrix completely overrides automatic
@@ -245,6 +268,34 @@ collisions would need pose-aware collision handling or cloth deformation in the 
 collision-free animation with the current MHCLO/linear-skinning contract. The raw core fit report also compares a short
 sleeve with full arm length; the app's kind-specific report UI already treats that as informational.
 
+Each pose also has a `visibility` diagnostic. It applies the exported mask **plus the app's fitted-rest
+`coveredBodyVertices` footprint**, retaining a body triangle unless all three corners are hidden. Visible
+poke-through counts non-hidden body triangles intersecting the garment, supplemented by exterior body centroids
+within 40 mm of an interior garment projection next to a contained cloth vertex/centroid. This local-sample guard
+avoids counting nearby bare skin beyond openings. Percentages use **all body triangles** as denominator.
+Garment self-intersection uses an R-tree broad phase and triangle separating-axis tests, including coplanar overlap
+and contacts within 0.1 micrometers; triangles sharing a welded vertex are excluded as normal adjacency. Its
+percentage uses **all garment triangles**, so it is not comparable to vertex containment percentages. Reports
+include triangle IDs and rest-anatomy region counts. Self intersections can include original overlapping folds.
+`insideDeletedRegionVertices` counts contained cloth vertices whose nearest body triangle is deleted. This is a
+local hidden-region diagnostic, not a proof that the vertex has no other contact with visible skin. Posed-body
+self-intersection still limits parity. These checks omit app length grading, layer stacking and camera occlusion.
+
+Reproduce masked front/side previews for every pose and a before/after visibility review in the pipeline venv:
+
+```powershell
+$env:PYTHONPATH = 'tools/asset-pipeline'
+tools\asset-pipeline\.venv\Scripts\python.exe -m garmentimport.review --phase before
+# Repeat this import for each reviewed candidate's saved command.json.
+$importArgs = Get-Content tools/asset-pipeline/.cache/garment-import-out/mh-jacket-t01/command.json -Raw | ConvertFrom-Json
+& tools\asset-pipeline\.venv\Scripts\python.exe tools/asset-pipeline/garment_import.py @importArgs
+tools\asset-pipeline\.venv\Scripts\python.exe -m garmentimport.review --phase after
+```
+
+The review defaults to jacket-t01, polo, trousers 01/02, sneaker, the existing tshirt and the denim jacket. A candidate's
+`before-assets/` snapshot, when present, supplies the baseline instead of its current export. Results are
+`before/after-visibility.json`, per-candidate `before/after-preview.png`, and the combined review previews.
+
 `--compare-original` maps cleaned vertices to the original binding's reconstructed vertices, then reports matching
 triangle records and base/deformed reconstruction differences. Nearest-triangle bindings need not equal an authored
 MHCLO triangle record to reconstruct the same garment. Cleanup/decimation correspondence and clearance fitting are
@@ -255,8 +306,13 @@ same output catalogue are not supported.
 Importer tests (synthetic geometry plus optional shipped CC0 MakeHuman integration; no restricted/personal assets):
 
 ```powershell
-tools\asset-pipeline\.venv\Scripts\python.exe -m pytest tools/asset-pipeline/tests/test_garment_import.py
+tools\asset-pipeline\.venv\Scripts\python.exe -m pytest tools/asset-pipeline/tests/test_garment_import.py tools/asset-pipeline/tests/test_garment_visibility.py
 ```
+
+For the synthetic-only import/visibility suite, add
+`-k "not real and not synthetic_torso and not align_source and not rigid_shoe" -p no:cacheprovider`.
+The excluded tests use the existing permissive body/wardrobe integration fixtures. The visibility suite itself uses
+only synthetic meshes, rigs and poses, including collapsing-joint anchors, welded UV copies and protected-hand contacts.
 
 The geometry implementation uses [Trimesh proximity](https://trimesh.org/trimesh.proximity.html) and
 [fast-simplification](https://github.com/pyvista/fast-simplification); their pinned versions are in
@@ -275,8 +331,8 @@ tools\asset-pipeline\.venv\Scripts\python.exe tools/asset-pipeline/garment_impor
 The 2026-10-12 review runs, commands, alignment overrides and per-pose/per-shape reports are in
 `.cache/garment-import-out/<source-id>/`; `review-summary.md` in the parent directory summarizes the results.
 These are offline candidates. Hoodie hood/flap weights, shoe attachments, texture detail and posed collisions still
-require manual review. The denim jacket's CC-BY-3.0 licence needs an exact app `GarmentLicense` extension; the importer
-rejects it rather than substituting CC-BY-4.0.
+require manual review. The MakeHuman Denim Jacket (CC-BY-3.0, punkduck) imports with `--license CC-BY-3.0 --kind
+longsleeve --layer 2`; the exact licence version is kept in its catalogue entry and attribution.
 
 ## Body parts (Wave 3d)
 

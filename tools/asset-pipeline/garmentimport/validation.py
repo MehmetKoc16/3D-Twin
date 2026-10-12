@@ -9,7 +9,9 @@ from pathlib import Path
 import numpy as np
 
 from .body import skin
-from .geometry import inside, reconstruct, skin_weights, surface
+from .geometry import bone_head, inside, reconstruct, skin_weights, surface, prism_coverage
+from .visibility import diagnostics, contact_anatomy
+from .pose_safety import body_regions
 
 
 DTYPE = np.dtype([("i","<u4",3),("w","<f4",3),("o","<f4",3)])
@@ -39,7 +41,25 @@ def penetration(points,body_positions,faces,garment_faces=None):
     return result
 
 
-def validate(body,points,faces,bind,template,output,binding_path,compare=None,rigid=None):
+def check_rigid_runtime(rigid,rigid_path,points,faces,body,node):
+    """Run the exported sidecar through the app's own avatar-core parser/preparation; raises if it would be rejected."""
+    request_path = rigid_path.with_name(rigid_path.name.replace(".rigid.json",".rigid-check-request.json"))
+    result_path = request_path.with_name(request_path.name.replace("request","result"))
+    heads = {a["bone"]:bone_head(body,a["bone"]).tolist() for a in rigid["attachments"]}
+    request_path.write_text(json.dumps({"rigidPath":str(rigid_path.resolve()),"neutral":np.asarray(points,np.float32).ravel().tolist(),
+                                        "index":np.asarray(faces,int).ravel().tolist(),"bones":list(body.names),"heads":heads}),encoding="utf-8")
+    run = subprocess.run([node,str(Path(__file__).with_name("rigidcheck.mjs")),str(request_path),str(result_path)],
+                         capture_output=True,text=True,timeout=180)
+    if run.returncode:
+        raise ValueError(f"avatar-core rejected {rigid_path.name}: {run.stderr[-1500:]}")
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    request_path.unlink(); result_path.unlink()
+    if result["neutralRebuildMaxErrorM"]>1e-4:
+        raise ValueError(f"Rigid sole rebuild differs from the exported mesh by {result['neutralRebuildMaxErrorM']*1000:.4f} mm")
+    return result
+
+
+def validate(body,points,faces,bind,template,output,binding_path,compare=None,rigid=None,delete=None):
     reconstructed = reconstruct(bind,body.positions,template.get("scaleRefs"))
     error = np.linalg.norm(reconstructed-points.astype(np.float32),axis=1)*1000
     report = {"roundTrip":{"maxMm":float(error.max()),"meanMm":float(error.mean()),"passed":bool(error.max()<1)},
@@ -49,6 +69,19 @@ def validate(body,points,faces,bind,template,output,binding_path,compare=None,ri
                   "Vertex and triangle-centroid samples can miss edge/interior collisions; clearance fitting constrains vertices only.",
                   "Grading uses actual avatar-core rings; app-specific length grading and layering are not included."]}
     garment_joints,garment_weights = skin_weights(bind,body.joints,body.weights)
+    if delete is None:
+        delete_file = output/template.get("deleteVerts", "missing.delete.bin")
+        delete = np.frombuffer(delete_file.read_bytes(),dtype="<u4") if delete_file.exists() else []
+    regions = body_regions(body)
+    effective_delete = np.union1d(delete,np.flatnonzero(prism_coverage(
+        body.positions[:body.render_count],points,faces))).astype(int)
+    report["visibilityMethod"] = {
+        "bodyMask":"exported delete vertices plus app coveredBodyVertices on the fitted rest garment; all three corners",
+        "pokeThrough":"intersecting body triangles or exterior centroid within 40 mm of an interior garment projection next to contained cloth samples",
+        "selfIntersection":"R-tree triangle SAT including coplanar overlap, excluding shared welded vertices",
+        "percentDenominators":"all body triangles for poke-through; all garment triangles for self intersection",
+        "hiddenContainment":"inside garment vertices whose nearest complete-body triangle is deleted; local diagnostic",
+        "contactToleranceM":1e-7}
     rigid_joints,rigid_weights = garment_joints.copy(),garment_weights.copy()
     if rigid:
         for attachment in rigid["attachments"]:
@@ -56,18 +89,23 @@ def validate(body,points,faces,bind,template,output,binding_path,compare=None,ri
             rigid_joints[ids] = body.names.index(attachment["bone"])
             rigid_weights[ids] = [1,0,0,0]
         report["rigidOverridePoses"] = {}
-        report["limitations"].append("Rigid sole/heel metrics use the review-only sidecar; the current app ignores it.")
+        report["limitations"].append("Rigid sole/heel metrics skin each sole segment 100% to its foot/ball bone; the app also blends "
+                                     "the sole into the upper over a 10 mm geodesic band, which these metrics omit.")
     for key,pose_name in (("A","a-pose"),("T","t-pose"),("relaxed","relaxed"),("walk","walk")):
         transforms = body.transforms(body.pose(pose_name))
         posed_body = skin(body.positions[:body.render_count],body.joints,body.weights,transforms)
         posed_garment = skin(reconstructed,garment_joints,garment_weights,transforms)
         report["poses"][key] = penetration(posed_garment,posed_body,body.faces,faces)
+        report["poses"][key]["visibility"] = diagnostics(posed_garment,faces,posed_body,body.faces,effective_delete,regions)
+        report["poses"][key]["visibility"]["contactAnatomy"] = contact_anatomy(body,report["poses"][key]["visibility"])
         if rigid:
             report["rigidOverridePoses"][key] = penetration(
                 skin(reconstructed,rigid_joints,rigid_weights,transforms),posed_body,body.faces,faces)
     node = shutil.which("node")
     if not node:
         raise ValueError("Validation requires Node and the repo's npm dependencies to run avatar-core")
+    if rigid:
+        report["rigidRuntime"] = check_rigid_runtime(rigid,output/f"{template['id']}.rigid.json",points,faces,body,node)
     request_path = output/f"{template['id']}.runtime-request.json"
     result_path = output/f"{template['id']}.runtime-result.json"
     request = {"bodyDir":str(body.directory.resolve()),"base":body.morphs.base.tolist(),"faces":body.faces.tolist(),
@@ -101,11 +139,14 @@ def validate(body,points,faces,bind,template,output,binding_path,compare=None,ri
                         "achievedCm":result["achievedCm"],"unreachable":result["unreachable"],
                         "fitReport":result["fitReport"],"heatmapMinMm":result["heatmapMinMm"],
                         "heatmapMaxMm":result["heatmapMaxMm"],"poses":{}}
+        shape_delete = np.union1d(delete,np.flatnonzero(prism_coverage(shape[:body.render_count],graded,faces))).astype(int)
         for key,pose_name in (("A","a-pose"),("T","t-pose"),("relaxed","relaxed"),("walk","walk")):
             transforms = body.transforms(body.pose(pose_name),shape)
             posed_body = skin(shape[:body.render_count],body.joints,body.weights,transforms)
             posed_garment = skin(graded,garment_joints,garment_weights,transforms)
             shape_report["poses"][key] = penetration(posed_garment,posed_body,body.faces,faces)
+            shape_report["poses"][key]["visibility"] = diagnostics(posed_garment,faces,posed_body,body.faces,shape_delete,regions)
+            shape_report["poses"][key]["visibility"]["contactAnatomy"] = contact_anatomy(body,shape_report["poses"][key]["visibility"])
         # The Python binding evaluator must agree with actual bindGarment too.
         shape_report["runtimeBindingMaxErrorMm"] = runtime_error
         report["shapes"][name] = shape_report

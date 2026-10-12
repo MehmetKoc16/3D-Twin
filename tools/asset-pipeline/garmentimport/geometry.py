@@ -16,6 +16,8 @@ def surface(positions, faces, *, weld=False):
 
 def nearest(mesh, points, batch=512):
     """Bound memory on large garments; return exact closest points, distances, face IDs."""
+    if not len(points):
+        return np.zeros((0, 3)), np.zeros(0), np.zeros(0, int)
     result = [trimesh.proximity.closest_point(mesh, p) for p in np.array_split(points, max(1, (len(points)+batch-1)//batch))]
     return tuple(np.concatenate([r[i] for r in result]) for i in range(3))
 
@@ -62,6 +64,7 @@ def fit(points, faces, body, body_faces, clearance):
     if not mesh.is_watertight:
         raise ValueError("Reference body must be closed after welding for containment validation")
     original = points.copy()
+    clearance = np.broadcast_to(np.asarray(clearance, float), (len(points),))
     moved = np.zeros(len(points), bool)
     edges = np.unique(np.sort(np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1), axis=0)
     # Weld positional copies in the displacement pass so UV seams cannot open.
@@ -78,7 +81,7 @@ def fit(points, faces, body, body_faces, clearance):
         direction /= np.maximum(np.linalg.norm(direction, axis=1, keepdims=True), 1e-12)
         zero = distance < 1e-9
         direction[zero] = mesh.face_normals[tid[zero]]
-        points[active] = closest[active] + direction[active] * (clearance + 1e-6)
+        points[active] = closest[active] + direction[active] * (clearance[active, None] + 1e-6)
         if iteration < 3:
             delta = points - original
             sums, count = np.zeros_like(points), np.zeros(len(points))
@@ -102,10 +105,10 @@ def fit(points, faces, body, body_faces, clearance):
         ids = np.flatnonzero(active)
         directions = np.concatenate([mesh.face_normals[tid[ids]][:,None,:],
                                      np.broadcast_to(np.vstack([np.eye(3),-np.eye(3)]),(len(ids),6,3))],axis=1)
-        candidates = closest[ids,None,:]+directions*(clearance*factor+1e-6)
+        candidates = closest[ids,None,:]+directions*(clearance[ids,None,None]*factor+1e-6)
         outside = (~inside(mesh,candidates.reshape(-1,3))).reshape(len(ids),7)
         _,gap,_ = nearest(mesh,candidates.reshape(-1,3))
-        acceptable = outside & (gap.reshape(len(ids),7)>=clearance-1e-7)
+        acceptable = outside & (gap.reshape(len(ids),7)>=clearance[ids,None]-1e-7)
         displacement = np.linalg.norm(candidates-points[ids,None,:],axis=2)
         displacement[~acceptable] = np.inf
         choices = displacement.argmin(axis=1)
@@ -117,6 +120,7 @@ def fit(points, faces, body, body_faces, clearance):
     _,gap,_ = nearest(mesh,points)
     return points, {"movedVertices": int(moved.sum()), "remainingInsidePercent": float(residual.mean()*100),
                     "minClearanceMm":float(gap.min()*1000),"escapeVertices":escaped,
+                    "minRegionalClearanceResidualMm": float((gap-clearance).min()*1000),
                     "maxDisplacementMm": float(np.linalg.norm(points-original, axis=1).max()*1000)}
 
 
@@ -164,6 +168,29 @@ def skin_weights(bind, joints, weights):
             out_i[v, k], out_w[v, k] = bone, weight
         out_w[v] /= out_w[v].sum()
     return out_i, out_w
+
+
+def prism_coverage(body, garment, garment_faces, band=.02, slack=.3):
+    """App coveredBodyVertices rule: union of triangle normal prisms, either side."""
+    from scipy.spatial import cKDTree
+    tree = cKDTree(body)
+    mesh = surface(garment, garment_faces)
+    covered = np.zeros(len(body), bool)
+    for tri, normal in zip(mesh.triangles, mesh.face_normals):
+        center = tri.mean(axis=0)
+        radius = np.linalg.norm(tri-center, axis=1).max()*(1+6*slack)+band
+        ids = np.asarray(tree.query_ball_point(center, radius), int)
+        ids = ids[~covered[ids]]
+        lo, hi = tri.min(axis=0)-band, tri.max(axis=0)+band
+        ids = ids[((body[ids] >= lo) & (body[ids] <= hi)).all(axis=1)]
+        if not len(ids) or np.linalg.norm(normal) < .5:
+            continue
+        depth = (body[ids]-tri[0])@normal
+        projected = body[ids]-depth[:, None]*normal
+        bary = trimesh.triangles.points_to_barycentric(np.broadcast_to(tri, (len(ids), 3, 3)), projected)
+        covered[ids[(np.abs(depth) <= band) & (bary[:, 1] >= -slack) &
+                    (bary[:, 2] >= -slack) & (bary[:, 1]+bary[:, 2] <= 1+slack)]] = True
+    return covered
 
 
 def outer_shell(parts, body, body_faces, thickness=.008):
@@ -222,8 +249,31 @@ def outer_shell(parts, body, body_faces, thickness=.008):
         "warnings": ["Inspect shell selection at linings, seams and flaps; inconsistent winding needs manual source cleanup."]}
 
 
+def bone_head(body, name, end="head"):
+    """Neutral position of a rig bone's head/tail point (VERTEX, MEAN or fixed-position strategies)."""
+    ref = next(b for b in body.rig["bones"] if b["name"] == name)[end]
+    if ref["strategy"] == "VERTEX":
+        return body.positions[ref["vert"]]
+    if ref["strategy"] == "MEAN":
+        return body.positions[ref["verts"]].mean(axis=0)
+    return np.asarray(ref["position"], float)
+
+
+RIGID_REVIEW_NOTES = [
+    "Review the sole/heel boundary manually; the app blends the rigid sole into the upper over a 10 mm geodesic band.",
+    "Foot and ball segments are individually rigid; the transition is not a cloth simulation."]
+
+
 def rigid_shoe_parts(points, body, sole_height=.035):
-    """Review-only rigid sole/heel attachments; the shipped loader cannot consume overrides yet."""
+    """`<id>.rigid.json` v1 for the app's rigid shoe soles (`parseGarmentRigidAttachments` in avatar-core).
+
+    Exactly the keys the loader reads: `version`, `soleHeightMm` and `attachments[{bone, vertices,
+    localPositionsM}]`. `vertices` index the exported GLB render vertices (UV copies included), and each local position
+    is the neutral GLB position minus the neutral head of `bone`, in metres. Only foot_l/ball_l/foot_r/ball_r are
+    valid bones and a vertex may appear in a single attachment. Review notes belong in the import report.
+    """
+    # The GLB stores float32; the app subtracts the head from those values, so use the same rounding here.
+    points = np.asarray(points, np.float32).astype(float)
     records = []
     for side, sign in (("l", 1), ("r", -1)):
         selected = points[:, 0]*sign > 0
@@ -232,18 +282,12 @@ def rigid_shoe_parts(points, body, sole_height=.035):
         low = points[selected, 1].min()
         # An explicit sole height is reviewable and avoids treating the upper as a rigid hull.
         ids = np.flatnonzero(selected & (points[:, 1] <= low+sole_height))
-        foot, ball = body.names.index(f"foot_{side}"), body.names.index(f"ball_{side}")
-        bones = {b["name"]: b for b in body.rig["bones"]}
-        foot_head = body.positions[bones[f"foot_{side}"]["head"]["vert"]]
-        ball_head = body.positions[bones[f"ball_{side}"]["head"]["vert"]]
+        foot_head, ball_head = bone_head(body, f"foot_{side}"), bone_head(body, f"ball_{side}")
         # Keep each heel/sole segment rigid; split at the anatomical ball joint.
-        for bone, head, mask in ((foot, foot_head, points[ids, 2] < ball_head[2]),
-                                 (ball, ball_head, points[ids, 2] >= ball_head[2])):
+        for name, origin, mask in ((f"foot_{side}", foot_head, points[ids, 2] < ball_head[2]),
+                                   (f"ball_{side}", ball_head, points[ids, 2] >= ball_head[2])):
             vertices = ids[mask]
             if len(vertices):
-                records.append({"bone": body.names[bone], "vertices": vertices.tolist(),
-                                "localPositionsM": (points[vertices]-head).tolist()})
-    return {"version": 1, "requiresRuntimeChange": True, "soleHeightMm": sole_height*1000,
-            "attachments": records,
-            "warnings": ["Manual review of the sole/heel boundary is required. Current app derives all skin weights from barycentrics and ignores this sidecar.",
-                         "Foot and ball segments are individually rigid; the transition is not a cloth simulation."]}
+                records.append({"bone": name, "vertices": [int(v) for v in vertices],
+                                "localPositionsM": (points[vertices]-origin).tolist()})
+    return {"version": 1, "soleHeightMm": float(sole_height*1000), "attachments": records}

@@ -184,7 +184,8 @@ def test_skinned_source_bakes_default_node_pose(tmp_path):
     assert np.allclose(bind_parts[0].positions,pos)
 
 
-def test_synthetic_torso_cli(tmp_path,live_body):
+@pytest.mark.parametrize("licence",["CC0-1.0","CC-BY-3.0"])
+def test_synthetic_torso_cli(tmp_path,live_body,licence):
     # Synthetic permissive sleeveless shell with continuous UVs and deliberate duplication at the seam.
     from PIL import Image
     rings,segments=20,64
@@ -201,11 +202,12 @@ def test_synthetic_torso_cli(tmp_path,live_body):
     source=tmp_path/"synthetic.glb"; write_glb(source,pos,tris,uv,maps,mode)
     identity=tmp_path/"identity.json"; identity.write_text(json.dumps({"matrix":np.eye(4).tolist(),"pose":"a"}),encoding="utf-8")
     args=parser().parse_args([str(source),"--id","synthetic","--category","top","--kind","tshirt",
-        "--license","CC0-1.0","--attribution","Synthetic test shell, CC0-1.0","--transform",str(identity),
+        "--license",licence,"--attribution",f"Synthetic test shell, {licence}","--transform",str(identity),
         "--out",str(tmp_path/"out"),"--texture-max","32"])
     report=import_garment(args)
     assert report["roundTrip"]["maxMm"]<1 and report["fit"]["remainingInsidePercent"]==0
-    assert (args.out/"index.json").exists()
+    assert report["license"]==licence
+    assert json.loads((args.out/"index.json").read_text(encoding="utf-8"))["garments"][0]["license"]==licence
     assert not list(args.out.glob("*.pending"))
 
 
@@ -239,7 +241,13 @@ def test_align_source_height_and_override(live_body):
     assert report["scale"]==pytest.approx(.01)
 
 
-@pytest.mark.parametrize("bad",["CC-BY-NC-4.0","CC-BY-SA-4.0","AGPL-3.0"])
+@pytest.mark.parametrize("licence",["CC0-1.0","CC-BY-3.0","CC-BY-4.0"])
+def test_cli_accepts_the_app_garment_licences(licence):
+    args=parser().parse_args(["x.obj","--id","x","--category","top","--kind","tshirt","--license",licence,"--attribution","Example"])
+    assert args.license==licence
+
+
+@pytest.mark.parametrize("bad",["CC-BY-NC-4.0","CC-BY-SA-4.0","AGPL-3.0","CC-BY-2.0","CC-BY","user"])
 def test_cli_rejects_incompatible_licence(bad):
     with pytest.raises(SystemExit):
         parser().parse_args(["x.obj","--id","x","--category","top","--kind","tshirt","--license",bad,"--attribution","Example"])
@@ -294,20 +302,61 @@ def test_outer_shell_removes_inner_wall_and_preserves_open_fabric():
     assert report["removedInnerTriangles"]==0 and len(result[0].faces)==1
 
 
+RIGID_POINTS=np.array([[.18,.005,.01],[.19,.006,.02],[.18,.005,.19],[.19,.006,.20],[.18,.09,.1],
+                       [-.18,.005,.01],[-.19,.006,.02],[-.18,.005,.19],[-.19,.006,.20]])
+
+
 def test_rigid_shoe_attachment_preserves_segment_distances(live_body):
     from garmentimport.geometry import rigid_shoe_parts
     body = live_body
-    points = np.array([[.18,.005,.01],[.19,.006,.02],[.18,.005,.19],[.19,.006,.20],[.18,.09,.1]])
-    result = rigid_shoe_parts(points,body)
+    result = rigid_shoe_parts(RIGID_POINTS[:5],body)
     ids = sorted(v for a in result["attachments"] for v in a["vertices"])
-    assert ids==[0,1,2,3] and result["requiresRuntimeChange"]
+    assert ids==[0,1,2,3]
     transforms = body.transforms(body.pose("walk"))
     for a in result["attachments"]:
         vertices=np.array(a["vertices"])
         ji=np.full((len(vertices),1),body.names.index(a["bone"]))
-        posed=skin(points[vertices],ji,np.ones((len(vertices),1)),transforms)
+        posed=skin(RIGID_POINTS[vertices],ji,np.ones((len(vertices),1)),transforms)
         assert np.allclose(np.linalg.norm(posed[1:]-posed[0],axis=1),
-                           np.linalg.norm(points[vertices][1:]-points[vertices][0],axis=1))
+                           np.linalg.norm(RIGID_POINTS[vertices][1:]-RIGID_POINTS[vertices][0],axis=1))
+
+
+def test_rigid_sidecar_is_exactly_the_app_v1_format(live_body):
+    """Mirrors `parseGarmentRigidAttachments` in packages/avatar-core/src/garment/rigid.ts."""
+    from garmentimport.geometry import bone_head, rigid_shoe_parts
+    body = live_body
+    result = json.loads(json.dumps(rigid_shoe_parts(RIGID_POINTS,body,.035),allow_nan=False))
+    assert list(result)==["version","soleHeightMm","attachments"] and result["version"]==1
+    assert result["soleHeightMm"]==pytest.approx(35) and result["soleHeightMm"]>0
+    assert {a["bone"] for a in result["attachments"]}=={"foot_l","ball_l","foot_r","ball_r"}
+    seen=[]
+    float32=RIGID_POINTS.astype(np.float32).astype(float)
+    for a in result["attachments"]:
+        assert list(a)==["bone","vertices","localPositionsM"]
+        assert a["vertices"] and len(a["vertices"])==len(a["localPositionsM"])
+        assert all(type(v) is int and 0<=v<len(RIGID_POINTS) for v in a["vertices"])
+        assert all(len(p)==3 and all(isinstance(n,float) for n in p) for p in a["localPositionsM"])
+        # local = exported (float32) neutral position - neutral head, so every vertex of a bone agrees on the head
+        heads=float32[a["vertices"]]-np.array(a["localPositionsM"])
+        assert np.allclose(heads,bone_head(body,a["bone"]),atol=1e-6)
+        assert np.ptp(heads,axis=0).max()<1e-4
+        seen += a["vertices"]
+    assert len(seen)==len(set(seen))==8
+
+
+def test_rigid_sidecar_is_accepted_by_avatar_core(tmp_path,live_body):
+    import shutil
+    from garmentimport.geometry import rigid_shoe_parts
+    from garmentimport.validation import check_rigid_runtime
+    node=shutil.which("node")
+    if not node or not (PIPELINE.parents[1]/"packages/avatar-core/src/garment/rigid.ts").exists():
+        pytest.skip("Node / avatar-core sources unavailable")
+    rigid=rigid_shoe_parts(RIGID_POINTS,live_body)
+    path=tmp_path/"shoe.rigid.json"; path.write_text(json.dumps(rigid),encoding="utf-8")
+    faces=np.array([[0,1,2],[1,2,3],[2,3,4],[5,6,7],[6,7,8]])
+    result=check_rigid_runtime(rigid,path,RIGID_POINTS,faces,live_body,node)
+    assert result["ok"] and result["rigidVertices"]==8 and result["neutralRebuildMaxErrorM"]<1e-5
+    assert sorted(a["bone"] for a in result["attachments"])==sorted(a["bone"] for a in rigid["attachments"])
 
 
 def test_real_tshirt_reimport(tmp_path,live_body):
