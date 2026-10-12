@@ -80,7 +80,7 @@
     "attribution": "Kaynak ve atıf",
     "noAttribution": "Atıf gerekmiyor (CC0)."
   },
-  "license": { "CC0-1.0": "CC0", "CC-BY-4.0": "CC BY", "user": "Kullanıcı" },
+  "license": { "CC0-1.0": "CC0", "CC-BY-3.0": "CC BY 3.0", "CC-BY-4.0": "CC BY 4.0", "user": "Kullanıcı" },
   "form": {
     "addTitle": "Mağaza ürünü ekle",
     "editTitle": "Ürünü düzenle",

@@ -11,7 +11,12 @@ import {
 } from 'three';
 import {
   clearanceToColor,
+  computeScale,
+  fitGarmentRigidAttachments,
+  garmentRigidSkinWeights,
   garmentClearance,
+  prepareGarmentRigidAttachments,
+  type PreparedGarmentRigidAttachments,
   type GarmentSections,
   type Vec3,
   type GarmentTemplateDef,
@@ -68,6 +73,7 @@ export class GarmentInstance {
   private readonly bound: Float32Array;
   private readonly indexArray: Uint32Array;
   private readonly indexAttribute: BufferAttribute;
+  private readonly rigid: PreparedGarmentRigidAttachments | null;
   private hiddenByOuter = false;
   private heat = false;
   /** How far the lowest vertex of the graded garment is below the floor (m, >= 0); the avatar is lifted by it. */
@@ -93,6 +99,17 @@ export class GarmentInstance {
     this.clearance = new Float32Array(n);
     this.normalScratch = new Float32Array(runtime.weld.groupCount * 3);
     this.bound = new Float32Array(n * 3);
+    this.rigid = runtime.rigidAttachments
+      ? prepareGarmentRigidAttachments(
+          runtime.rigidAttachments,
+          runtime.neutralPositions,
+          runtime.index,
+          skeleton.bones.map((bone) => bone.name),
+        )
+      : null;
+    const skin = this.rigid
+      ? garmentRigidSkinWeights(this.rigid, runtime.skinIndices, runtime.skinWeights)
+      : runtime;
 
     this.geometry.setAttribute(
       'position',
@@ -108,8 +125,8 @@ export class GarmentInstance {
     );
     this.colors = colorAttribute.array as Float32Array; // the attribute copies its input: write into its own array
     this.geometry.setAttribute('color', colorAttribute);
-    this.geometry.setAttribute('skinIndex', new BufferAttribute(runtime.skinIndices, 4));
-    this.geometry.setAttribute('skinWeight', new BufferAttribute(runtime.skinWeights, 4));
+    this.geometry.setAttribute('skinIndex', new BufferAttribute(skin.skinIndices, 4));
+    this.geometry.setAttribute('skinWeight', new BufferAttribute(skin.skinWeights, 4));
     this.indexArray = Uint32Array.from(runtime.index);
     this.indexAttribute = new BufferAttribute(this.indexArray, 1).setUsage(DynamicDrawUsage);
     this.geometry.setIndex(this.indexAttribute);
@@ -183,10 +200,13 @@ export class GarmentInstance {
   fit(ctx: GarmentUpdateContext): void {
     const { runtime, item, rest, graded } = this;
     const def = runtime.def;
-    const joint = (name: string): Vec3 | undefined => {
-      const index = this.mesh.skeleton.bones.findIndex((bone) => bone.name === name);
+    const restJoint = (index: number): Vec3 | undefined => {
       if (index < 0 || index * 6 + 2 >= ctx.joints.length) return undefined;
       return [ctx.joints[index * 6]!, ctx.joints[index * 6 + 1]!, ctx.joints[index * 6 + 2]!];
+    };
+    const joint = (name: string): Vec3 | undefined => {
+      const index = this.mesh.skeleton.bones.findIndex((bone) => bone.name === name);
+      return restJoint(index);
     };
     fitToChart(
       {
@@ -203,6 +223,14 @@ export class GarmentInstance {
       rest,
       graded,
     );
+    // Grading/clearance may bend a sole. Restore its scaled local shape before uploading to the shared skeleton.
+    if (this.rigid)
+      fitGarmentRigidAttachments(
+        this.rigid,
+        computeScale(def.scaleRefs, ctx.body),
+        restJoint,
+        graded,
+      );
     const tucked = ctx.tuckedHem ?? false;
     if (tucked !== this.hemTucked) {
       // the hem moved (chart length applied or skipped): the body under the old footprint no longer matches

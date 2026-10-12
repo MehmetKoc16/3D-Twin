@@ -5,6 +5,7 @@ import { useViewerStore } from '../../store/viewerStore';
 import { useWardrobeStore } from '../../store/wardrobeStore';
 import { FitReportView, HeatmapLegend } from './FitReportView';
 import { StoreItemForm } from './StoreItemForm';
+import { GarmentAttribution, LicenseBadge } from './GarmentLicense';
 import './i18n';
 
 const CATEGORIES: readonly GarmentCategory[] = ['top', 'bottom', 'shoes'];
@@ -13,24 +14,6 @@ const buttonClass =
 const primaryClass =
   'rounded-lg bg-teal-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-teal-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-200';
 const sectionTitle = 'text-xs font-bold uppercase tracking-[0.16em] text-teal-300';
-
-function LicenseBadge({ template }: { template: GarmentTemplateDef }) {
-  const { t } = useTranslation();
-  const free = template.license === 'CC0-1.0';
-  return (
-    <span
-      data-testid={`license-${template.id}`}
-      tabIndex={0}
-      title={
-        t('wardrobe.catalog.licenseTitle', { license: t(`wardrobe.license.${template.license}`) }) +
-        (template.attribution ? `\n${template.attribution}` : '')
-      }
-      className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide focus-visible:outline-2 focus-visible:outline-teal-400 ${free ? 'bg-emerald-400/20 text-emerald-200' : 'bg-amber-400/20 text-amber-100'}`}
-    >
-      {t(`wardrobe.license.${template.license}`)}
-    </span>
-  );
-}
 
 function ColorDot({ color }: { color: string }) {
   return (
@@ -365,14 +348,7 @@ export function WardrobePanel() {
               <p className="text-[11px] text-slate-500">
                 {t(`wardrobe.categories.${template.category}`)}
               </p>
-              <details className="text-[11px] text-slate-400">
-                <summary className="cursor-pointer focus-visible:outline-2 focus-visible:outline-teal-400">
-                  {t('wardrobe.catalog.attribution')}
-                </summary>
-                <p className="mt-1 break-words leading-relaxed">
-                  {template.attribution ?? t('wardrobe.catalog.noAttribution')}
-                </p>
-              </details>
+                <GarmentAttribution template={template} />
               <button
                 type="button"
                 data-testid={`use-template-${template.id}`}

@@ -1,5 +1,6 @@
 export * from './binding';
 export * from './skin';
+export * from './rigid';
 export * from './grade';
 export * from './heatmap';
 export * from './centroid';

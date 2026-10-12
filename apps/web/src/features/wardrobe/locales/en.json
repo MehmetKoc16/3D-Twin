@@ -80,7 +80,7 @@
     "attribution": "Source and credit",
     "noAttribution": "No credit required (CC0)."
   },
-  "license": { "CC0-1.0": "CC0", "CC-BY-4.0": "CC BY", "user": "User" },
+  "license": { "CC0-1.0": "CC0", "CC-BY-3.0": "CC BY 3.0", "CC-BY-4.0": "CC BY 4.0", "user": "User" },
   "form": {
     "addTitle": "Add store item",
     "editTitle": "Edit item",

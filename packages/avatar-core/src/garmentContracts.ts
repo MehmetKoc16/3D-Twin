@@ -11,7 +11,35 @@ export type GarmentKind =
   | 'sneakers'
   | 'shoes'
   | 'boots';
-export type GarmentLicense = 'CC0-1.0' | 'CC-BY-4.0' | 'user';
+export type GarmentLicense = 'CC0-1.0' | 'CC-BY-3.0' | 'CC-BY-4.0' | 'user';
+
+export function isGarmentLicense(value: unknown): value is GarmentLicense {
+  return value === 'CC0-1.0' || value === 'CC-BY-3.0' || value === 'CC-BY-4.0' || value === 'user';
+}
+
+/** Validate exact licence identifiers and the credit required by either CC-BY version. */
+export function validateGarmentLicense(license: unknown, attribution: unknown): void {
+  if (!isGarmentLicense(license)) throw new Error('garment licence: unsupported licence');
+  if (
+    (license === 'CC-BY-3.0' || license === 'CC-BY-4.0') &&
+    (typeof attribution !== 'string' || attribution.trim().length === 0)
+  )
+    throw new Error('garment licence: CC-BY requires attribution');
+}
+
+/** Importer's <id>.rigid.json, in garment GLB render-vertex order and neutral bone-local metres. */
+export interface GarmentRigidAttachments {
+  version: 1;
+  soleHeightMm: number;
+  attachments: {
+    bone: 'foot_l' | 'ball_l' | 'foot_r' | 'ball_r';
+    vertices: number[];
+    localPositionsM: Vec3[];
+  }[];
+  /** Review metadata from the importer; these fields do not disable runtime support. */
+  requiresRuntimeChange?: boolean;
+  warnings?: string[];
+}
 
 /** Size-chart measurement points, always stored as full circumference / length in cm. */
 export type GarmentMeasureId =
@@ -42,8 +70,10 @@ export interface GarmentTemplateDef {
   source?: string;
   /** Unskinned garment mesh (.glb): POSITION (neutral-body rest frame, meters), NORMAL, TEXCOORD_0, one material. */
   mesh: string;
-  /** Proxy binding (.bin, format above). Absent for rigid items (shoes). */
+  /** Proxy binding (.bin, format above). Required for mixed rigid soles and barycentric uppers. */
   binding?: string;
+  /** Mixed shoe skinning sidecar (.rigid.json). Shoes also probe <id>.rigid.json when absent. */
+  rigidAttachments?: string;
   scaleRefs?: GarmentScaleRefs;
   /** Body render vertices hidden while this garment is worn (.bin, uint32[]), to avoid poke-through. */
   deleteVerts?: string;

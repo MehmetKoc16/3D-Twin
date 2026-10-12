@@ -39,6 +39,11 @@ its texture was downscaled to at most 1024 px and it was converted to glTF. Pinn
 
 CC-BY (attribution required):
 
+The wardrobe supports exact **CC BY 3.0** and **CC BY 4.0** identifiers. For every new shipped CC-BY garment,
+record its title, author, original source, exact licence version/link and conversion changes here and in the
+catalogue's `attribution`. Retain upstream notices; do not substitute 4.0 for a 3.0 declaration. Offline review
+candidates (including the MakeHuman Denim Jacket) are not shipped assets and are credited here when the lead adds them.
+
 - **"Male classic jeans"** (`punkduck_male_classic_jeans`) by **punkduck**, MakeHuman community assets pack
   `pants02` (<https://www.makehumancommunity.org/node/1655>), licensed **CC BY 4.0**
   (<https://creativecommons.org/licenses/by/4.0/>).
