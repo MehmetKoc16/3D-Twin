@@ -52,6 +52,11 @@ def parser():
     p.add_argument("--shell",choices=("outer","keep"),default="outer",help="Strip close opposing inner walls, or keep a reviewed single shell")
     p.add_argument("--rigid-sole-height-mm",type=float,default=35,help="Shoe sole/heel region above its lowest point; written to <id>.rigid.json (app rigid-sole format v1)")
     p.add_argument("--mirror-pair",action="store_true",help="Mirror an aligned single left shoe across X=0 to create a pair")
+    p.add_argument("--no-shell-cleanup",action="store_true",
+                   help="Skip the per-patch/per-component clean-up after outer-shell pairing (see garmentimport/shell.py)")
+    p.add_argument("--opening-smooth",type=int,default=0,
+                   help="Iterations of light boundary-loop smoothing (<= 5 mm per vertex) at hems/cuffs/necks of tops and "
+                        "bottoms, for sources with jagged opening edges (default 0 = off; 2 is typical)")
     p.add_argument("--no-delete-mask",action="store_true")
     p.add_argument("--validate",action="store_true",help="Run the actual avatar-core solver/grading and four posed containment checks")
     p.add_argument("--compare-original",type=Path,help="Original app .bind.bin; uses its sibling index.json entry")
@@ -70,6 +75,7 @@ def import_garment(args):
     from garmentimport.untangle import untangle
     from garmentimport.validation import read_binding,validate
     from garmentimport.visibility import triangle_pairs
+    from garmentimport.shell import mesh_summary,smooth_openings
 
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,79}",args.id):
         raise ValueError("id must contain only lowercase ASCII letters, digits, underscores or hyphens (1..80 characters)")
@@ -150,10 +156,27 @@ def import_garment(args):
         alignment["mirroredPair"] = True
     shell_report = {"removedInnerTriangles":0,"method":"manual keep"}
     print(f"garment-import: {args.id}: shell selection and simplification",file=sys.stderr,flush=True)
+    def topology(items):
+        # Welded (position) topology of all parts together: boundary loops, non-manifold and sharp edges.
+        offsets = np.cumsum([0]+[len(p.positions) for p in items[:-1]])
+        return mesh_summary(np.concatenate([p.positions for p in items]),
+                            np.concatenate([p.faces+o for p,o in zip(items,offsets)]))
+    topology_report = {"source":topology(parts)}
     if args.shell=="outer":
-        parts,shell_report = outer_shell(parts,body.positions[:body.render_count],body.faces)
+        parts,shell_report = outer_shell(parts,body.positions[:body.render_count],body.faces,
+                                         cleanup_shell=not args.no_shell_cleanup)
+    topology_report["afterShell"] = topology(parts)
     parts = decimate(parts,args.max_tris)
     parts = refine(parts,args.subdivide,args.max_tris)
+    topology_report["afterDecimationAndRefinement"] = topology(parts)
+    opening_report = {"smoothedLoops":0,"maxMoveMm":0.0,"iterations":0}
+    if args.opening_smooth>0 and args.category in ("top","bottom"):
+        # Relax hem/cuff/neck boundary loops before fitting (clearance fitting still runs afterwards).
+        for part in parts:
+            part.positions,part_report = smooth_openings(part.positions,part.faces,iterations=args.opening_smooth)
+            opening_report["smoothedLoops"] += part_report["smoothedLoops"]
+            opening_report["maxMoveMm"] = max(opening_report["maxMoveMm"],part_report["maxMoveMm"])
+        opening_report["iterations"] = args.opening_smooth
     pos,faces,uv,channels,alpha_mode,base_color = atlas(parts,args.texture_max)
     before_fit = pos.copy()
     print(f"garment-import: {args.id}: clearance fitting ({len(pos)} vertices)",file=sys.stderr,flush=True)
@@ -245,7 +268,9 @@ def import_garment(args):
     delete_path = stage/f"{args.id}.delete.bin"
     if len(delete):
         delete_path.write_bytes(np.asarray(delete,dtype="<u4").tobytes())
+    topology_report["final"] = mesh_summary(pos,faces)
     report = {"id":args.id,"license":args.license,"source":entry["source"],"input":input_count,
+              "topology":topology_report,"openingSmoothing":opening_report,
               "output":{"vertices":len(pos),"triangles":len(faces),"deletedBodyVertices":len(delete),
                         "textureSizes":{k:list(v.shape[1::-1]) for k,v in channels.items()}},
               "alignment":alignment,"fit":fit_report,"measureNotes":notes,"shell":shell_report,

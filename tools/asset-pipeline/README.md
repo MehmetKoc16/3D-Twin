@@ -50,6 +50,9 @@ from `tools/asset-pipeline`. The glTF test uses the Khronos validator when `npm`
 | `writers.py`     | JSON writers (stable key order)                                                                        |
 | `mhclo.py`       | MHCLO / garment OBJ / MHMAT parsers, licence classification, reconstruction reference                  |
 | `garments.py`    | garment templates -> `apps/web/public/assets/garments/` (glb, bind.bin, delete.bin, index.json), ADR 0007 |
+| `garmentimport/shell.py` | welded-topology tools of the importer: boundary loops, shell clean-up, opening smoothing |
+| `garmentimport/closeups.py` | hem / neck / sleeve close-up renders with welded boundary edges overlaid (review) |
+| `garmentimport/retexture.py` | carry the material (images, factors) of a shipped GLB over to a re-imported geometry |
 | `mh_morph.py`    | float64 morph model on ALL 19158 MakeHuman vertices (helper geometry included), for re-binding + tests |
 | `parts.py`       | body parts (eyes, eyebrows, eyelashes, hair) -> `apps/web/public/assets/parts/`, ADR 0008              |
 | `parts_tex.py`   | part textures: premultiplied downscale, colour bleed, neutral grey + alpha map, coverage alpha cutoff  |
@@ -166,11 +169,27 @@ Processing and outputs:
 - Default `--shell outer` removes close opposing inner walls using inward rays, opposite face normals and distance
   from the body (8 mm pairing limit). Open fabric without a paired wall survives. Inspect the resulting source shell,
   especially at folds/linings; inconsistent winding or thicker walls need authoring cleanup. `--shell keep` is for a
-  reviewed single shell. This pass is batched to bound ray-query memory.
+  reviewed single shell. This pass is batched to bound ray-query memory. Per-triangle pairing is noisy where hems,
+  collars and cuffs stack several nearly coincident layers (MakeHuman clothes model rolled bands within about a
+  millimetre of the wall), so the pairing is followed by a clean-up on the **position-welded** topology
+  (`garmentimport/shell.py`, off with `--no-shell-cleanup`): (1) the inner/outer decision is made per smooth patch
+  (faces joined across edges flatter than 25 degrees) and small patches follow their neighbours, (2) kept components
+  that duplicate a larger kept component within 6 mm (bands hugging the wall) are dropped, (3) thin leftover strips
+  are dropped, (4) thin removed strips enclosed by kept triangles (lapped side seams) are put back. The report's
+  `shell.topologyAfterPairing` / `topologyAfterCleanup` and the top-level `topology` block (source, after shell, after
+  decimation, final) count welded boundary edges and loops, non-manifold edges and sharp (>40 degree) edges; a top
+  should end with one boundary loop per real opening (hem, neck, each sleeve).
+- `--opening-smooth N` (opt-in; 2 is typical, default 0 = off) lightly relaxes the hem/cuff/neck boundary loops of tops
+  and bottoms after the shell stage: N iterations of moving each loop vertex half way to its two loop neighbours, at
+  most 5 mm per vertex. Use it for sources with jagged opening edges (the MakeHuman polo). All UV copies of a position
+  move together and clearance fitting still runs afterwards.
 - Drop orphan, degenerate and duplicate triangles; merge identical position/UV pairs while retaining UV seams.
   OBJ polygons are triangulated by the loader; export complex concave polygons as triangles in the authoring tool.
-  Above `--max-tris` (default 30000), quadric decimation runs per UV-connected island, followed by barycentric UV
-  transfer within each island. Very fragmented meshes can require a higher budget or source simplification.
+  Above `--max-tris` (default 30000), quadric decimation runs on the **position-welded** part (so UV seams cannot
+  open: simplifying each UV island on its own moved the two copies of every seam vertex independently), then each new
+  triangle is assigned to the UV island of the nearest source triangle and its corners take their UVs from the closest
+  point of that island, splitting shared vertices per island at identical positions. Very fragmented meshes can
+  require a higher budget or source simplification.
   Optional `--subdivide 1/2/3` adds linear midpoint samples before clearance fitting, with exact UV interpolation and
   no exterior smoothing. It fails if subdivision would exceed the triangle budget. The coarse Quaternius hoodie uses
   two levels (20,128 triangles) to prevent large facets crossing the torso despite exterior corner vertices.
@@ -346,6 +365,18 @@ fails visual review. Automatic face removal reduced numerical intersection count
 rejected. The replacement uses its authored MHCLO, `--shell keep --subdivide 1 --validate`, and 1024 px textures.
 Its simpler shape is visibly faceted; numerical self-intersections remain and are not a visual-quality guarantee.
 See [shoe review](SHOE_REVIEW.md) for evidence, sizes, checks and limitations.
+
+Re-import with a hand-made texture set (the procedural cotton tee) and review openings:
+
+```powershell
+$env:PYTHONPATH = 'tools/asset-pipeline'
+tools/asset-pipeline/.venv/Scripts/python.exe -m garmentimport.retexture NEW.glb SHIPPED.glb OUT.glb
+tools/asset-pipeline/.venv/Scripts/python.exe -m garmentimport.closeups DIR --id mh-jacket-t01 --out PREVIEWS
+```
+
+`retexture` keeps the new geometry and copies samplers/images/textures/material from the donor GLB (the UV layout is
+unchanged when the same source and `--max-texture` are used). `closeups` renders hem, neck and both sleeve openings
+from front and side with every welded boundary edge in red.
 
 Render front, three-quarter and side close-ups of both feet in A-pose and walk using the same CPU preview renderer:
 

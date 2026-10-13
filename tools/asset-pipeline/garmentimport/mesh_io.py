@@ -226,31 +226,60 @@ def clean(part):
 
 
 def decimate(parts, budget):
-    """Quadric decimation per UV-connected island, then barycentric UV transfer within that island."""
+    """Quadric decimation of the position-welded mesh, then per-island barycentric UV transfer.
+
+    UV seams split a position into several render vertices. Decimating each UV island on its own would move the two
+    copies of a seam vertex independently and open a gap along every seam. Instead the part is welded on position first
+    and simplified as one surface, so a seam stays one set of vertices. Afterwards each new triangle is assigned to the
+    UV island of the nearest source triangle and every corner takes its UV from the closest point of that island's source
+    surface; a vertex shared by triangles of different islands is split again into one render vertex per island, at the
+    same position. Islands are never merged and unused islands do not matter.
+    """
     import fast_simplification
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
+    from .shell import weld_ids
     total = sum(len(p.faces) for p in parts)
     if total <= budget:
         return parts
     output = []
     for p in parts:
+        target = max(4, int(len(p.faces)*budget/total))
+        if len(p.faces) <= target:
+            output.append(p)
+            continue
         edges = np.concatenate([p.faces[:,[0,1]],p.faces[:,[1,2]],p.faces[:,[2,0]]])
         graph = coo_matrix((np.ones(len(edges)),edges.T),shape=(len(p.positions),len(p.positions))).tocsr()
         _, labels = connected_components(graph,directed=False)
-        for label in np.unique(labels):
-            faces = p.faces[labels[p.faces[:,0]] == label]
-            keep = np.unique(faces)
+        island = labels[p.faces[:,0]]
+        weld = weld_ids(p.positions)
+        welded = np.zeros((int(weld.max())+1,3))
+        welded[weld] = p.positions
+        vertices, faces = fast_simplification.simplify(welded,weld[p.faces],target_count=target)
+        faces = faces[(faces[:,0]!=faces[:,1])&(faces[:,1]!=faces[:,2])&(faces[:,0]!=faces[:,2])]
+        source = surface(p.positions,p.faces)
+        centers = vertices[faces].mean(axis=1)
+        _, _, nearest_face = nearest(source,centers)
+        face_island = island[nearest_face]
+        render, uv, new_faces = {}, [], np.zeros_like(faces)
+        for label in np.unique(face_island):
+            members = np.flatnonzero(face_island == label)
+            used = np.unique(faces[members])
+            local = np.zeros(len(vertices),int); local[used] = np.arange(len(used))
+            source_faces = p.faces[island == label]
+            keep = np.unique(source_faces)
             remap = np.zeros(len(p.positions),int); remap[keep] = np.arange(len(keep))
-            vertices, uv, faces = p.positions[keep], p.uv[keep], remap[faces]
-            target = max(1, int(len(faces)*budget/total))
-            if len(faces) > max(target,4):
-                source = surface(vertices,faces)
-                vertices, faces = fast_simplification.simplify(vertices,faces,target_count=target)
-                closest,_,tid = nearest(source,vertices)
-                bary = trimesh.triangles.points_to_barycentric(source.triangles[tid],closest)
-                uv = (uv[source.faces[tid]]*bary[...,None]).sum(axis=1)
-            output.append(clean(Part(vertices,faces,uv,copy.deepcopy(p.material))))
+            island_mesh = surface(p.positions[keep],remap[source_faces])
+            closest,_,tid = nearest(island_mesh,vertices[used])
+            bary = trimesh.triangles.points_to_barycentric(island_mesh.triangles[tid],closest)
+            corner_uv = (p.uv[keep][island_mesh.faces[tid]]*bary[...,None]).sum(axis=1)
+            base = len(uv)
+            uv.extend(corner_uv)
+            render[int(label)] = (used,base)
+            new_faces[members] = base+local[faces[members]]
+        # One render vertex per (island, simplified vertex); positions of the copies are identical.
+        positions = np.concatenate([vertices[used] for used,_ in render.values()])  # insertion order == base order
+        output.append(clean(Part(positions,new_faces,np.array(uv),copy.deepcopy(p.material))))
     # Preserve material/island identities for atlas packing; refuse an unmet cap rather than destroy ornaments.
     if sum(len(p.faces) for p in output) > budget*1.1:
         raise ValueError("Too many independent UV islands for this triangle budget; simplify the source or increase --max-tris")

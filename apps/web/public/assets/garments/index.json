@@ -239,8 +239,8 @@
       "nativeMeasures": {
         "chest": 91.0,
         "waist": 72.8,
-        "length": 58.9,
-        "sleeve": 16.4
+        "length": 58.6,
+        "sleeve": 16.2
       },
       "defaultEase": {
         "chest": 3.0,
@@ -270,7 +270,7 @@
         "z": [2004, 4328, 0.19557000000000002]
       },
       "nativeMeasures": {
-        "chest": 96.5,
+        "chest": 96.7,
         "waist": 80.7,
         "length": 60.0,
         "sleeve": 20.9

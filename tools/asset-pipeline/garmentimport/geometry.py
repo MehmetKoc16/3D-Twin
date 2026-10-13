@@ -193,7 +193,7 @@ def prism_coverage(body, garment, garment_faces, band=.02, slack=.3):
     return covered
 
 
-def outer_shell(parts, body, body_faces, thickness=.008):
+def outer_shell(parts, body, body_faces, thickness=.008, cleanup_shell=True):
     """Remove close opposing inner faces by inward ray pairing, using body distance for shell order.
 
     Restrict the removal to paired faces, never to every back-facing garment face: open flaps must survive.
@@ -235,6 +235,34 @@ def outer_shell(parts, body, body_faces, thickness=.008):
         locations = origins[valid]+directions[valid]*distance[valid,None]
         bary = trimesh.triangles.points_to_barycentric(mesh.triangles[triangles[valid]],locations)
         removed[rays[valid][(bary>=-1e-7).all(axis=1)]] = True
+    from .shell import mesh_summary, regularize_removal, restore_bridges, sliver_components, stacked_components
+    pairing_only = int(removed.sum())
+    all_positions, all_faces = mesh.vertices, mesh.faces
+    before = mesh_summary(all_positions, all_faces[~removed]) if (~removed).any() else None
+    cleanup = None
+    if cleanup_shell and (~removed).any():
+        # Per-triangle pairing is noisy where hems, collars and cuffs stack several nearly coincident layers: decide per
+        # smooth patch, then drop bands that merely duplicate the wall. See garmentimport/shell.py.
+        regular, patch_report = regularize_removal(all_positions, all_faces, removed)
+        if (~regular).any():
+            removed = regular
+        kept = np.flatnonzero(~removed)
+        stacked, stack_report = stacked_components(all_positions, all_faces[kept])
+        if stacked.any() and not stacked.all():
+            removed = removed.copy()
+            removed[kept[stacked]] = True
+        else:
+            stack_report["droppedTriangles"] = 0
+        kept = np.flatnonzero(~removed)
+        slivers, sliver_report = sliver_components(all_positions, all_faces[kept])
+        if slivers.any() and not slivers.all():
+            removed = removed.copy()
+            removed[kept[slivers]] = True
+        else:
+            sliver_report["droppedTriangles"] = 0
+        removed, bridge_report = restore_bridges(all_positions, all_faces, removed)
+        cleanup = {"patches": patch_report, "stackedBands": stack_report, "slivers": sliver_report,
+                   "restoredBridges": bridge_report}
     output = []
     start = 0
     for p, count in zip(parts, counts):
@@ -244,8 +272,11 @@ def outer_shell(parts, body, body_faces, thickness=.008):
         start += count
     if not output:
         raise ValueError("Outer-shell selection removed the complete garment")
+    after = mesh_summary(all_positions, all_faces[~removed])
     return output, {"removedInnerTriangles": int(removed.sum()), "pairingThicknessMm": thickness*1000,
-        "method": "inward rays, opposing normals, farther from body",
+        "removedByPairing": pairing_only, "method": "inward rays, opposing normals, farther from body" + (
+            "; per-patch regularization; duplicate band components dropped" if cleanup else ""),
+        "cleanup": cleanup, "topologyAfterPairing": before, "topologyAfterCleanup": after,
         "warnings": ["Inspect shell selection at linings, seams and flaps; inconsistent winding needs manual source cleanup."]}
 
 
