@@ -235,7 +235,7 @@ function hipArms(pose, intent) {
     const forearm = wrist.clone().sub(elbow).normalize();
     pose.aim(`lowerarm_${side}`, forearm);
     // Align the visible hand with the forearm; contact comes from the arm IK, not wrist flexion.
-    orientHand(pose, side, forearm, new Vector3(-1, 0, 0), 'fingers');
+    orientHand(pose, side, forearm, new Vector3(...intent.palmNormal), 'fingers');
   }
   curlFingers(pose);
 }
@@ -276,8 +276,8 @@ function build(spec) {
       relaxedArms(pose, spec.intent);
       break;
     case 'hands-on-hips':
-      // Calibrated on both the permissive mannequin and the private twin: a small palm/finger clearance at the hip.
-      hipArms(pose, { ...spec.intent, wristX: 0.188, wristAboveHipM: 0.1 });
+      // Wrist target and palm tilt live in poseSpecs.mjs; see the calibration note there.
+      hipArms(pose, spec.intent);
       break;
     case 'walk':
       relaxedArms(pose, spec.intent);

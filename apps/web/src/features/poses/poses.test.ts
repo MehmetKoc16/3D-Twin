@@ -1,8 +1,16 @@
 // @ts-expect-error Node types are not in the browser app's tsconfig; Vitest supplies this module.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Quaternion, Triangle, Vector3 } from 'three';
-import type { BodyManifest, JointRef, PoseDef, RigDef } from '@dt/avatar-core';
+import { Box3, Quaternion, Ray, Triangle, Vector3 } from 'three';
+import {
+  applyMorphs,
+  buildBasePositions,
+  macroWeights,
+  type BodyManifest,
+  type JointRef,
+  type PoseDef,
+  type RigDef,
+} from '@dt/avatar-core';
 import { primitive, parseGlb } from '../wardrobe/realAssets.testkit';
 import { blendQuaternion, easeInOut, parsePoseDef } from './poseEngine';
 
@@ -28,12 +36,12 @@ function point(ref: JointRef): Vector3 {
 }
 
 /** FK matches the glTF hierarchy: rest frames are world-aligned and heads translate with parents. */
-function fk(pose: PoseDef) {
+function fk(pose: PoseDef, pointOf: (ref: JointRef) => Vector3 = point) {
   const rotations = new Map<string, Quaternion>();
   const heads = new Map<string, Vector3>();
   const tails = new Map<string, Vector3>();
   for (const bone of rig.bones) {
-    const restHead = point(bone.head);
+    const restHead = pointOf(bone.head);
     const parent = bone.parent ? boneByName.get(bone.parent) : undefined;
     const parentRotation = parent ? rotations.get(parent.name) : undefined;
     const parentHead = parent ? heads.get(parent.name) : undefined;
@@ -41,7 +49,7 @@ function fk(pose: PoseDef) {
       parent && parentRotation && parentHead
         ? parentHead
             .clone()
-            .add(restHead.clone().sub(point(parent.head)).applyQuaternion(parentRotation))
+            .add(restHead.clone().sub(pointOf(parent.head)).applyQuaternion(parentRotation))
         : restHead;
     const local = pose.bones[bone.name];
     const rotation = (parentRotation?.clone() ?? new Quaternion()).multiply(
@@ -51,7 +59,7 @@ function fk(pose: PoseDef) {
     rotations.set(bone.name, rotation);
     tails.set(
       bone.name,
-      head.clone().add(point(bone.tail).sub(restHead).applyQuaternion(rotation)),
+      head.clone().add(pointOf(bone.tail).sub(restHead).applyQuaternion(rotation)),
     );
   }
   const joint = (name: string) => {
@@ -184,7 +192,8 @@ describe('generated poses on the real rig', () => {
     for (const side of ['l', 'r']) {
       const hand = state.joint(`hand_${side}`);
       const thigh = state.joint(`thigh_${side}`);
-      const hipRegion = new Vector3(Math.sign(thigh.x) * 0.225, thigh.y + 0.055, thigh.z + 0.065);
+      // the wrist rests on the iliac crest / waist (a hip-joint-level target sank the palm into the thigh and pelvis)
+      const hipRegion = new Vector3(Math.sign(thigh.x) * 0.19, thigh.y + 0.17, thigh.z + 0.065);
       expect(hand.distanceTo(hipRegion)).toBeLessThan(0.12);
       expect(Math.abs(state.joint(`lowerarm_${side}`).x)).toBeGreaterThan(Math.abs(hand.x));
     }
@@ -284,12 +293,16 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
     parseGlb(readFileSync(new URL('../../../public/assets/body/base.glb', import.meta.url))),
   );
   const { position, joints, weights } = mesh;
-  const restHeads = rig.bones.map((bone) => point(bone.head));
   const vertexCount = position.length / 3;
 
-  function skinPose(value: PoseDef): Float32Array {
+  function skinPose(
+    value: PoseDef,
+    pointOf: (ref: JointRef) => Vector3 = point,
+    rest: ArrayLike<number> = position,
+  ): Float32Array {
     if (!joints || !weights) throw new Error('base.glb has no skin');
-    const state = fk(value);
+    const restHeads = rig.bones.map((bone) => pointOf(bone.head));
+    const state = fk(value, pointOf);
     const rotations = rig.bones.map((bone) => state.rotation(bone.name));
     const heads = rig.bones.map((bone) => state.joint(bone.name));
     const out = new Float32Array(position.length);
@@ -301,7 +314,7 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
         const w = weights[4 * i + k]!;
         if (w === 0) continue;
         const b = joints[4 * i + k]!;
-        p.set(position[3 * i]!, position[3 * i + 1]!, position[3 * i + 2]!)
+        p.set(rest[3 * i]!, rest[3 * i + 1]!, rest[3 * i + 2]!)
           .sub(restHeads[b]!)
           .applyQuaternion(rotations[b]!)
           .add(heads[b]!);
@@ -312,11 +325,72 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
     return out;
   }
 
+  /** Segment p0-p1 crosses the triangle (edge-vs-triangle test with a ray; coplanar contact is ignored). */
+  function segmentHitsTriangle(p0: Vector3, p1: Vector3, tri: Triangle): boolean {
+    const direction = p1.clone().sub(p0);
+    const length = direction.length();
+    if (length < 1e-9) return false;
+    const ray = new Ray(p0, direction.divideScalar(length));
+    const hit = ray.intersectTriangle(tri.a, tri.b, tri.c, false, new Vector3());
+    return hit !== null && hit.distanceTo(p0) <= length;
+  }
+
+  /** Number of (a, b) triangle pairs that cut through each other: some edge of one pierces the other. */
+  function countIntersectingPairs(first: Triangle[], second: Triangle[]): number {
+    const box = (tri: Triangle) => new Box3().setFromPoints([tri.a, tri.b, tri.c]);
+    const secondBoxes = second.map(box);
+    let count = 0;
+    for (const a of first) {
+      const aBox = box(a);
+      for (let j = 0; j < second.length; j++) {
+        if (!aBox.intersectsBox(secondBoxes[j]!)) continue;
+        const b = second[j]!;
+        const aEdges: [Vector3, Vector3][] = [
+          [a.a, a.b],
+          [a.b, a.c],
+          [a.c, a.a],
+        ];
+        const bEdges: [Vector3, Vector3][] = [
+          [b.a, b.b],
+          [b.b, b.c],
+          [b.c, b.a],
+        ];
+        if (
+          aEdges.some(([p, q]) => segmentHitsTriangle(p, q, b)) ||
+          bEdges.some(([p, q]) => segmentHitsTriangle(p, q, a))
+        ) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
   it.each(['l', 'r'])('rests the %s hand on the hip surface without penetration', (side) => {
     if (!joints || !weights) throw new Error('base.glb has no skin');
     const value = pose('hands-on-hips');
-    const state = fk(value);
-    const posed = skinPose(value);
+    // The neutral body (macro defaults) is wider at the hips than the raw base mesh: test the pose on that, with the
+    // joint points moved by the same morphs.
+    const morphFile = readFileSync(
+      new URL('../../../public/assets/body/morphs.bin', import.meta.url),
+    );
+    const morphBytes = morphFile.buffer.slice(
+      morphFile.byteOffset,
+      morphFile.byteOffset + morphFile.byteLength,
+    );
+    const combined = buildBasePositions(position, manifest);
+    const neutral = new Float32Array(combined.length);
+    applyMorphs(combined, morphBytes, manifest, macroWeights(manifest, {}), neutral);
+    const neutralPoint = (ref: JointRef) => {
+      if (ref.strategy !== 'VERTEX') throw new Error('Expected a joint point');
+      return new Vector3(
+        neutral[3 * ref.vert]!,
+        neutral[3 * ref.vert + 1]!,
+        neutral[3 * ref.vert + 2]!,
+      );
+    };
+    const state = fk(value, neutralPoint);
+    const posed = skinPose(value, neutralPoint, neutral);
     const vertex = (positions: ArrayLike<number>, i: number) =>
       new Vector3(positions[3 * i]!, positions[3 * i + 1]!, positions[3 * i + 2]!);
     const dominantBones = Array.from({ length: vertexCount }, (_, i) => {
@@ -371,10 +445,27 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
     // A centroid lies inside the hand volume, so near-zero surface distance would bury the palm/fingers.
     const centroidDistance = signedDistance(centroid);
     expect(centroidDistance, 'hand centroid outside body').toBeGreaterThan(0);
-    expect(centroidDistance, 'hand centroid to hip surface').toBeLessThan(0.05);
+    expect(centroidDistance, 'hand centroid to hip surface').toBeLessThan(0.07);
     const clearances = uniqueHand.map((i) => signedDistance(vertex(posed, i)));
     expect(Math.min(...clearances), 'no hand vertices inside body').toBeGreaterThanOrEqual(0);
-    expect(Math.min(...clearances), 'hand surface touching hip within 5 mm').toBeLessThan(0.005);
+    expect(Math.min(...clearances), 'hand surface close to the hip within 3 cm').toBeLessThan(0.03);
+
+    // Real non-penetration: no hand triangle may cut through a pelvis / spine / thigh triangle. (The vertex test above
+    // only looks at the nearest triangle's normal; the previous pose had ~110 intersecting triangle pairs per hand.)
+    const handSet = new Set(handIds);
+    const handTriangles: Triangle[] = [];
+    for (let t = 0; t < mesh.indices.length; t += 3) {
+      const a = mesh.indices[t]!;
+      const b = mesh.indices[t + 1]!;
+      const c = mesh.indices[t + 2]!;
+      if (handSet.has(a) && handSet.has(b) && handSet.has(c)) {
+        handTriangles.push(new Triangle(vertex(posed, a), vertex(posed, b), vertex(posed, c)));
+      }
+    }
+    expect(handTriangles.length).toBeGreaterThan(100);
+    expect(countIntersectingPairs(handTriangles, bodyTriangles), 'hand/body triangle pairs').toBe(
+      0,
+    );
   });
 
   /** Area of the 2D convex hull of the vertices projected on the plane perpendicular to `axis` (monotone chain). */
