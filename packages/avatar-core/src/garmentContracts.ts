@@ -1,6 +1,17 @@
 import type { Quat, Vec3 } from './contracts';
 
 export type GarmentCategory = 'top' | 'bottom' | 'shoes';
+/** Outfit slots are separate from categories used for chart fitting. */
+export type GarmentSlot = GarmentCategory | 'outer';
+
+export function garmentSlot(
+  template: Pick<GarmentTemplateDef, 'category' | 'layer' | 'slot'>,
+): GarmentSlot {
+  return (
+    template.slot ??
+    (template.category === 'top' && template.layer >= 3 ? 'outer' : template.category)
+  );
+}
 export type GarmentKind =
   | 'tshirt'
   | 'longsleeve'
@@ -62,6 +73,8 @@ export interface GarmentTemplateDef {
   id: string;
   kind: GarmentKind;
   category: GarmentCategory;
+  /** Optional outfit slot; legacy tops with layer >= 3 default to outer. */
+  slot?: GarmentSlot;
   label: { tr: string; en: string };
   license: GarmentLicense;
   /** Required for CC-BY assets. */

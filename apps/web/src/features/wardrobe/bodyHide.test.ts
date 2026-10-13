@@ -209,6 +209,16 @@ describe('protectedBodyVertices', () => {
 });
 
 describe('combinedHiddenMask', () => {
+  it('keeps the protection guard after combining four garments', () => {
+    const mask = combinedHiddenMask(
+      [[0, 1], [1, 2], [3], [4, 5, 6]],
+      [[0, 1, 0, 0, 0, 0, 0], null, [0, 0, 0, 1, 0, 0, 0], [0, 0, 0, 0, 0, 0, 1]],
+      7,
+      undefined,
+      [0, 1, 0, 0, 1, 0, 1],
+    );
+    expect(Array.from(mask)).toEqual([1, 0, 1, 1, 0, 1, 0]);
+  });
   it('unions delete lists and footprint coverage, then clears the protected vertices', () => {
     const protectedMask = Uint8Array.from([0, 1, 0, 1, 0, 0, 0]);
     const coverage = Uint8Array.from([0, 0, 0, 1, 1, 0, 0]); // vertex 3 is protected, 4 is not

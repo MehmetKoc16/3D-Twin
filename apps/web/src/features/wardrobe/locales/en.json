@@ -3,7 +3,7 @@
   "description": "Match an online store product to a template, enter its size chart and try it on your avatar.",
   "loadError": "Could not load the template list. Reload the page and try again.",
   "loading": "Loading templates…",
-  "categories": { "top": "Top", "bottom": "Bottom", "shoes": "Shoes" },
+  "categories": { "outer": "Outerwear", "top": "Top", "bottom": "Bottom", "shoes": "Shoes" },
   "measure": {
     "chest": "Chest",
     "waist": "Waist",
@@ -80,7 +80,12 @@
     "attribution": "Source and credit",
     "noAttribution": "No credit required (CC0)."
   },
-  "license": { "CC0-1.0": "CC0", "CC-BY-3.0": "CC BY 3.0", "CC-BY-4.0": "CC BY 4.0", "user": "User" },
+  "license": {
+    "CC0-1.0": "CC0",
+    "CC-BY-3.0": "CC BY 3.0",
+    "CC-BY-4.0": "CC BY 4.0",
+    "user": "User"
+  },
   "form": {
     "addTitle": "Add store item",
     "editTitle": "Edit item",

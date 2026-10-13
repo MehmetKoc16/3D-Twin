@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { GarmentCategory, GarmentTemplateDef, StoreItemDef } from '@dt/avatar-core';
+import {
+  garmentSlot,
+  type GarmentSlot,
+  type GarmentTemplateDef,
+  type StoreItemDef,
+} from '@dt/avatar-core';
 import { useViewerStore } from '../../store/viewerStore';
 import { useWardrobeStore } from '../../store/wardrobeStore';
 import { FitReportView, HeatmapLegend } from './FitReportView';
@@ -8,7 +13,7 @@ import { StoreItemForm } from './StoreItemForm';
 import { GarmentAttribution, LicenseBadge } from './GarmentLicense';
 import './i18n';
 
-const CATEGORIES: readonly GarmentCategory[] = ['top', 'bottom', 'shoes'];
+const CATEGORIES: readonly GarmentSlot[] = ['top', 'outer', 'bottom', 'shoes'];
 const buttonClass =
   'rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400';
 const primaryClass =
@@ -30,7 +35,7 @@ function WornCard({
   item,
   template,
 }: {
-  category: GarmentCategory;
+  category: GarmentSlot;
   item: StoreItemDef;
   template: GarmentTemplateDef;
 }) {
@@ -53,6 +58,7 @@ function WornCard({
             <span className="truncate">{item.name}</span>
           </p>
           <p className="text-[11px] text-slate-500">{template.label[language]}</p>
+          <GarmentAttribution template={template} />
         </div>
         <button
           type="button"
@@ -126,7 +132,7 @@ function ItemRow({
             <button
               type="button"
               data-testid={`unwear-${item.id}`}
-              onClick={() => takeOff(template.category)}
+              onClick={() => takeOff(garmentSlot(template))}
               className={buttonClass}
             >
               {t('wardrobe.items.takeOff')}
@@ -321,7 +327,7 @@ export function WardrobePanel() {
                     key={item.id}
                     item={item}
                     template={template}
-                    worn={template ? worn[template.category] === item.id : false}
+                    worn={template ? worn[garmentSlot(template)] === item.id : false}
                     onEdit={() => openForm(item.templateId, item)}
                   />
                 );
@@ -346,9 +352,9 @@ export function WardrobePanel() {
                 <LicenseBadge template={template} />
               </div>
               <p className="text-[11px] text-slate-500">
-                {t(`wardrobe.categories.${template.category}`)}
+                {t(`wardrobe.categories.${garmentSlot(template)}`)}
               </p>
-                <GarmentAttribution template={template} />
+              <GarmentAttribution template={template} />
               <button
                 type="button"
                 data-testid={`use-template-${template.id}`}

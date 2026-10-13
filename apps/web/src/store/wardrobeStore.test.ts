@@ -10,9 +10,19 @@ vi.mock('idb-keyval', () => ({
   getMany: vi.fn(async (keys: string[]) => keys.map((k) => db.get(k))),
 }));
 
-import { ITEM_KEY_PREFIX, useWardrobeStore, WORN_KEY } from './wardrobeStore';
+import {
+  ITEM_KEY_PREFIX,
+  isTemplateDef,
+  migrateWorn,
+  useWardrobeStore,
+  WORN_KEY,
+} from './wardrobeStore';
 
-function template(id: string, category: GarmentTemplateDef['category'], kind: GarmentTemplateDef['kind']): GarmentTemplateDef {
+function template(
+  id: string,
+  category: GarmentTemplateDef['category'],
+  kind: GarmentTemplateDef['kind'],
+): GarmentTemplateDef {
   return {
     id,
     kind,
@@ -27,18 +37,115 @@ function template(id: string, category: GarmentTemplateDef['category'], kind: Ga
   };
 }
 
-const templates = [template('tshirt', 'top', 'tshirt'), template('sweatshirt', 'top', 'sweatshirt'), template('pants', 'bottom', 'pants')];
+const templates = [
+  template('tshirt', 'top', 'tshirt'),
+  template('sweatshirt', 'top', 'sweatshirt'),
+  template('pants', 'bottom', 'pants'),
+  { ...template('jacket', 'top', 'longsleeve'), layer: 3 },
+  { ...template('coat', 'top', 'longsleeve'), layer: 2, slot: 'outer' as const },
+];
 
 function item(id: string, templateId: string): StoreItemDef {
-  return { id, name: id, templateId, color: '#123456', sizes: ['S', 'M'], chart: { chest: [90, 100] }, selectedSize: 'S' };
+  return {
+    id,
+    name: id,
+    templateId,
+    color: '#123456',
+    sizes: ['S', 'M'],
+    chart: { chest: [90, 100] },
+    selectedSize: 'S',
+  };
 }
 
 beforeEach(() => {
   db.clear();
-  useWardrobeStore.setState({ templates, catalogStatus: 'ready', items: [], worn: {}, heatmap: false, hydrated: false });
+  useWardrobeStore.setState({
+    templates,
+    catalogStatus: 'ready',
+    items: [],
+    worn: {},
+    heatmap: false,
+    hydrated: false,
+  });
 });
 
 describe('wardrobeStore', () => {
+  it('keeps the top while wearing, replacing, removing and deleting outerwear', async () => {
+    const s = useWardrobeStore.getState();
+    for (const [id, templateId] of [
+      ['tee', 'tshirt'],
+      ['j', 'jacket'],
+      ['c', 'coat'],
+    ])
+      await s.saveItem(item(id!, templateId!));
+    s.wear('tee');
+    s.wear('j');
+    expect(useWardrobeStore.getState().worn).toEqual({ top: 'tee', outer: 'j' });
+    s.wear('c');
+    expect(useWardrobeStore.getState().worn).toEqual({ top: 'tee', outer: 'c' });
+    s.takeOff('outer');
+    expect(useWardrobeStore.getState().worn.top).toBe('tee');
+    s.wear('j');
+    await s.deleteItem('j');
+    expect(useWardrobeStore.getState().worn.top).toBe('tee');
+    expect(useWardrobeStore.getState().worn.outer).toBeUndefined();
+    s.takeOff('top');
+    s.wear('c');
+    expect(useWardrobeStore.getState().worn.outer).toBe('c');
+    expect(useWardrobeStore.getState().worn.top).toBeUndefined();
+  });
+
+  it('migrates legacy jackets from top to outer and persists the new slot map', async () => {
+    db.set(`${ITEM_KEY_PREFIX}j`, item('j', 'jacket'));
+    db.set(`${ITEM_KEY_PREFIX}p`, item('p', 'pants'));
+    db.set(WORN_KEY, { top: 'j', bottom: 'p' });
+    await useWardrobeStore.getState().hydrate();
+    expect(useWardrobeStore.getState().worn).toEqual({ outer: 'j', bottom: 'p' });
+    expect(db.get(WORN_KEY)).toEqual({ outer: 'j', bottom: 'p' });
+  });
+
+  it('preserves the saved outfit when catalogue loading fails, then migrates on retry', async () => {
+    db.set(`${ITEM_KEY_PREFIX}j`, item('j', 'jacket'));
+    db.set(WORN_KEY, { top: 'j' });
+    useWardrobeStore.setState({ catalogStatus: 'idle', templates: [] });
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    try {
+      await useWardrobeStore.getState().hydrate();
+      expect(db.get(WORN_KEY)).toEqual({ top: 'j' });
+      expect(useWardrobeStore.getState().hydrated).toBe(false);
+      useWardrobeStore.setState({ templates, catalogStatus: 'ready' });
+      await useWardrobeStore.getState().hydrate();
+      expect(useWardrobeStore.getState().worn).toEqual({ outer: 'j' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('preserves saved top + outer and gives an explicit outer priority over a legacy top jacket', () => {
+    const state = {
+      templates,
+      items: [item('tee', 'tshirt'), item('j', 'jacket'), item('c', 'coat')],
+    };
+    expect(migrateWorn(state, { top: 'tee', outer: 'j' })).toEqual({ top: 'tee', outer: 'j' });
+    expect(migrateWorn(state, { top: 'j', outer: 'c', shoes: 'missing' })).toEqual({ outer: 'c' });
+    expect(migrateWorn(state, null)).toEqual({});
+    expect(migrateWorn(state, { bottom: 'tee' })).toEqual({});
+  });
+
+  it('supports a slot override and rejects malformed catalogue slots', () => {
+    expect(isTemplateDef({ ...templates[0], slot: 'outer' })).toBe(true);
+    expect(isTemplateDef({ ...templates[0], slot: 'invalid' })).toBe(false);
+    expect(isTemplateDef({ ...templates[0], layer: Infinity })).toBe(false);
+  });
+
+  it('moves an edited worn item into its new slot and persists it', async () => {
+    const s = useWardrobeStore.getState();
+    await s.saveItem(item('a', 'tshirt'));
+    s.wear('a');
+    await s.saveItem(item('a', 'jacket'));
+    expect(useWardrobeStore.getState().worn).toEqual({ outer: 'a' });
+    expect(db.get(WORN_KEY)).toEqual({ outer: 'a' });
+  });
   it('wears one item per category: a second top replaces the first', async () => {
     const s = useWardrobeStore.getState();
     await s.saveItem(item('a', 'tshirt'));

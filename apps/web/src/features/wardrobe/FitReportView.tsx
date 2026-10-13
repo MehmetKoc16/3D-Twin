@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type {
-  FitVerdict,
-  GarmentMeasureId,
-  GarmentTemplateDef,
-  StoreItemDef,
+import {
+  garmentSlot,
+  type FitVerdict,
+  type GarmentMeasureId,
+  type GarmentTemplateDef,
+  type StoreItemDef,
 } from '@dt/avatar-core';
 import { useSolveStore } from '../../store/solveStore';
 import { useWardrobeStore } from '../../store/wardrobeStore';
@@ -51,7 +52,7 @@ export function FitReportView({
 
   return (
     <div
-      data-testid={`fit-report-${template.category}`}
+      data-testid={`fit-report-${garmentSlot(template)}`}
       data-size={report.size}
       className="mt-3 rounded-xl border border-white/10 bg-slate-950/40 p-3"
     >

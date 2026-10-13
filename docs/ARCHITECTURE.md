@@ -246,7 +246,7 @@ WardrobeRig (created by Avatar; Avatar forwards every solve after the body geome
       bindGarment -> buildGradeRings (chart[size] - (body + template defaultEase) at the chest / waist / hip / thigh
       planes taken from measures.json loops) -> gradeGarment (leg-aware below the crotch) -> pushOutside (layering)
       -> welded normals -> [heatmap: garmentClearance -> clearanceToColor vertex colours]
-    fit order: shoes, bottom, top - but a TUCKED top is fitted before the bottom (see "Tucked and untucked tops")
+    fit order: shoes, bottom, top, outer - but a TUCKED top is fitted before the bottom (see "Tucked and untucked tops")
   body: delete lists + body vertices under each garment's footprint are hidden (index rebuilt when the worn set changes)
   shoes: the avatar (scene) is lifted so the lowest sole vertex stands at y = 0
 Fit report (React, no worker): analyzeItemFit = analyzeFit on solveStore.achievedCm; chips per region, overall,
@@ -255,6 +255,18 @@ recommended size; recomputed whenever the body or the selected size changes.
 
 Details that are not obvious:
 
+- Outfit slots: `top`, `outer`, `bottom`, `shoes`, one item per slot. Catalogue categories stay
+  `top` / `bottom` / `shoes` for fitting; optional `slot` overrides the outfit slot, otherwise a `top` with
+  `layer >= 3` uses `outer`. Wearing or removing an outer garment preserves the top, including wearing outer alone.
+  IndexedDB `wardrobe:worn` remains a plain slot map; hydration re-keys legacy top jackets into outer, drops stale
+  entries and persists the migrated map. An explicit saved outer entry takes precedence over a legacy top jacket.
+- Outerwear fits after the top and bottom, including the final tucked hem. Authored binding offsets and chart
+  grading are retained; a small welded-normal expansion (1 mm per effective layer, at least 2 mm beyond inner
+  expansions) precedes the existing 6 mm collision-clearance pass. Rigid shoes keep zero normal expansion.
+  Fully covered inner triangles are hidden by the union of outer surfaces, with zero projection slack to preserve
+  open-front jacket gaps; removal restores their complete index. Body hiding still unions every garment's delete
+  list and footprint before clearing the hand/neck/head protection mask. Twin mode shares WardrobeRig and gathers
+  all mounted garment surfaces, including outerwear, for its own body coverage.
 - Grading target. The bound garment already follows the body with the template's own ease, so the ring delta is
   `chart - (body + defaultEase)`, not `chart - nativeMeasures` (identical only on the neutral body).
 - Leg-aware grade / clearance. avatar-core pools all vertices of a 1 cm height bin, which puts the centroid between

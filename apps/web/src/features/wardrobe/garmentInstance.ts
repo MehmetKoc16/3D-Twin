@@ -15,6 +15,9 @@ import {
   fitGarmentRigidAttachments,
   garmentRigidSkinWeights,
   garmentClearance,
+  garmentLayerOrder,
+  garmentNormalOffset,
+  offsetAlongNormals,
   prepareGarmentRigidAttachments,
   type PreparedGarmentRigidAttachments,
   type GarmentSections,
@@ -44,6 +47,8 @@ export interface GarmentUpdateContext {
   lowers: readonly Surface[];
   /** A tucked top worn with a bottom: the chart's hem length is not applied (the hem stays inside the trousers). */
   tuckedHem?: boolean;
+  /** Absolute normal expansion, ordered above all inner garments by the rig. */
+  normalOffsetM?: number;
 }
 
 /**
@@ -132,7 +137,7 @@ export class GarmentInstance {
     this.geometry.setIndex(this.indexAttribute);
 
     // Higher layers win depth ties against lower ones and against the body (which has no offset).
-    const layer = def.layer + (def.category === 'top' ? 0.25 : 0);
+    const layer = garmentLayerOrder(def);
     this.material = runtime.material.clone();
     // Keep fabric matte but allow a broad studio reflection to describe folds.
     this.material.roughness = Math.max(0.65, Math.min(0.85, this.material.roughness));
@@ -231,6 +236,12 @@ export class GarmentInstance {
         restJoint,
         graded,
       );
+    const offset = ctx.normalOffsetM ?? garmentNormalOffset(def);
+    if (offset > 0) {
+      const normals = this.geometry.getAttribute('normal').array as Float32Array;
+      computeWeldedNormals(graded, runtime.index, runtime.weld, normals, this.normalScratch);
+      offsetAlongNormals(graded, normals, offset);
+    }
     const tucked = ctx.tuckedHem ?? false;
     if (tucked !== this.hemTucked) {
       // the hem moved (chart length applied or skipped): the body under the old footprint no longer matches
@@ -292,8 +303,10 @@ export class GarmentInstance {
    * Drops the triangles of this (inner) garment that lie inside the footprint of the outer garment, so that trousers
    * do not poke through a jumper hem between its sparse vertices. `null` restores every triangle.
    */
-  hideUnder(outer: Surface | null): void {
-    if (outer === null) {
+  hideUnder(outer: Surface | readonly Surface[] | null): void {
+    const surfaces: readonly Surface[] =
+      outer === null ? [] : 'positions' in outer ? [outer] : outer;
+    if (surfaces.length === 0) {
       if (!this.hiddenByOuter) return;
       this.indexArray.set(this.runtime.index);
       this.geometry.setDrawRange(0, this.runtime.index.length);
@@ -301,13 +314,17 @@ export class GarmentInstance {
       this.hiddenByOuter = false;
       return;
     }
-    const covered = coveredBodyVertices(
-      this.graded,
-      this.runtime.vertexCount,
-      outer.positions,
-      outer.index,
-      { bandM: 0.02 },
-    );
+    const covered = new Uint8Array(this.runtime.vertexCount);
+    for (const surface of surfaces) {
+      const mask = coveredBodyVertices(
+        this.graded,
+        this.runtime.vertexCount,
+        surface.positions,
+        surface.index,
+        { bandM: 0.02, slack: 0 },
+      );
+      for (let v = 0; v < covered.length; v++) covered[v] = covered[v]! | mask[v]!;
+    }
     const source = this.runtime.index;
     let kept = 0;
     for (let t = 0; t < source.length; t += 3) {

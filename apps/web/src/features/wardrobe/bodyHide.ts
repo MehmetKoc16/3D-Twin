@@ -161,6 +161,8 @@ export interface CoverOptions {
   bandM?: number;
   /** Grid cell size, metres. */
   cellM?: number;
+  /** Projection slack; use zero for garment openings so an open jacket keeps its visible inner top. */
+  slack?: number;
 }
 
 /**
@@ -180,6 +182,7 @@ export function coveredBodyVertices(
 ): Uint8Array {
   const band = options.bandM ?? 0.02;
   const cell = options.cellM ?? 0.03;
+  const slack = options.slack ?? SLACK;
   const key = (ix: number, iy: number, iz: number): number =>
     ((ix + 1024) * 2048 + (iy + 1024)) * 2048 + (iz + 1024);
   const grid = new Map<number, number[]>();
@@ -245,7 +248,7 @@ export function coveredBodyVertices(
             const u = (d22 * p1 - d12 * p2) / det;
             const w = (d11 * p2 - d12 * p1) / det;
             // a little slack closes the wedges between the prisms of neighbouring triangles at folds
-            if (u >= -SLACK && w >= -SLACK && u + w <= 1 + SLACK) covered[v] = 1;
+            if (u >= -slack && w >= -slack && u + w <= 1 + slack) covered[v] = 1;
           }
         }
   }

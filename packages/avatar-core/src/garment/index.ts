@@ -6,3 +6,4 @@ export * from './heatmap';
 export * from './centroid';
 export * from './length';
 export * from './fit';
+export { garmentLayerOrder, garmentNormalOffset, offsetAlongNormals } from './layers';

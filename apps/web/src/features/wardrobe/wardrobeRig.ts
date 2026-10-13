@@ -1,7 +1,9 @@
 import { BufferAttribute } from 'three';
 import {
   createGarmentSections,
-  type GarmentCategory,
+  garmentSlot,
+  garmentNormalOffset,
+  type GarmentSlot,
   type GarmentSections,
   type GarmentTemplateDef,
   type MeasuresDef,
@@ -17,11 +19,11 @@ import { isTuckedTop } from './garmentStyle';
 import { bodyPlanes, type BodyPlanes } from './garmentGrading';
 import { loadTemplateRuntime, type TemplateRuntime } from './templateLoader';
 
-const CATEGORIES: readonly GarmentCategory[] = ['top', 'bottom', 'shoes'];
+const SLOTS: readonly GarmentSlot[] = ['top', 'outer', 'bottom', 'shoes'];
 /** Inner layers first: shoes, trousers over the shoes, then the top over the trousers. */
-const FIT_ORDER: readonly GarmentCategory[] = ['shoes', 'bottom', 'top'];
+const FIT_ORDER: readonly GarmentSlot[] = ['shoes', 'bottom', 'top'];
 /** A tucked top is inner to the trousers: it is fitted before them and they are pushed out of it. */
-const FIT_ORDER_TUCKED: readonly GarmentCategory[] = ['shoes', 'top', 'bottom'];
+const FIT_ORDER_TUCKED: readonly GarmentSlot[] = ['shoes', 'top', 'bottom'];
 
 interface LastSolve {
   body: Float32Array;
@@ -40,9 +42,9 @@ interface LastSolve {
  *   body index that hides triangles under the garments.
  */
 export class WardrobeRig {
-  private readonly instances = new Map<GarmentCategory, GarmentInstance>();
+  private readonly instances = new Map<GarmentSlot, GarmentInstance>();
   private readonly runtimes = new Map<string, Promise<TemplateRuntime>>();
-  private readonly pending = new Map<GarmentCategory, string>();
+  private readonly pending = new Map<GarmentSlot, string>();
   private readonly originalIndex: BufferAttribute;
   private readonly unsubscribe: () => void;
   private last: LastSolve | null = null;
@@ -126,12 +128,12 @@ export class WardrobeRig {
     if (this.disposed) return;
     const state = useWardrobeStore.getState();
     this.heatmap = state.heatmap;
-    for (const category of CATEGORIES) {
+    for (const category of SLOTS) {
       const itemId = state.worn[category];
       const item = itemId ? state.items.find((i) => i.id === itemId) : undefined;
       const template = item ? state.templates.find((t) => t.id === item.templateId) : undefined;
       const existing = this.instances.get(category);
-      if (!item || !template || template.category !== category) {
+      if (!item || !template || garmentSlot(template) !== category) {
         this.pending.delete(category);
         if (existing) this.remove(category);
         continue;
@@ -151,7 +153,7 @@ export class WardrobeRig {
   }
 
   private async create(
-    category: GarmentCategory,
+    category: GarmentSlot,
     item: StoreItemDef,
     template: GarmentTemplateDef,
   ): Promise<void> {
@@ -180,7 +182,7 @@ export class WardrobeRig {
     }
   }
 
-  private remove(category: GarmentCategory): void {
+  private remove(category: GarmentSlot): void {
     this.instances.get(category)?.dispose();
     this.instances.delete(category);
     this.applySoleLift();
@@ -196,7 +198,13 @@ export class WardrobeRig {
    * Inner garments an item is layered over: trousers over shoes and over a tucked top; an untucked top over trousers
    * of a lower layer number.
    */
-  private lowersOf(category: GarmentCategory, instance: GarmentInstance): Surface[] {
+  private lowersOf(category: GarmentSlot, instance: GarmentInstance): Surface[] {
+    if (category === 'outer') {
+      return (['bottom', 'top'] as const).flatMap((slot) => {
+        const inner = this.instances.get(slot);
+        return inner ? [inner.surface()] : [];
+      });
+    }
     if (category === 'bottom') {
       const shoes = this.instances.get('shoes');
       const tucked = this.tuckedTop();
@@ -217,8 +225,21 @@ export class WardrobeRig {
     const tucked = this.tuckedTop();
     // inner layers first: shoes, then trousers (over the shoes), then the top (over the trousers if it is a higher
     // layer); a tucked top goes before the trousers, which then lie over it
+    const offsets = new Map<GarmentSlot, number>();
+    const offsetOrder: readonly GarmentSlot[] = [
+      ...(tucked ? FIT_ORDER_TUCKED : FIT_ORDER),
+      'outer',
+    ];
+    for (const slot of offsetOrder) {
+      const instance = this.instances.get(slot);
+      if (!instance) continue;
+      offsets.set(
+        slot,
+        garmentNormalOffset(instance.template, slot === 'outer' ? [...offsets.values()] : []),
+      );
+    }
     const contextFor = (
-      category: GarmentCategory,
+      category: GarmentSlot,
       instance: GarmentInstance,
     ): GarmentUpdateContext => ({
       body: last.body,
@@ -228,13 +249,10 @@ export class WardrobeRig {
       planes: this.planes,
       heatmap: this.heatmap,
       lowers: this.lowersOf(category, instance),
+      normalOffsetM: offsets.get(category),
       tuckedHem: tucked !== undefined && category === 'top',
     });
-    const guarded = (
-      category: GarmentCategory,
-      instance: GarmentInstance,
-      run: () => void,
-    ): void => {
+    const guarded = (category: GarmentSlot, instance: GarmentInstance, run: () => void): void => {
       try {
         run();
       } catch (error) {
@@ -261,16 +279,28 @@ export class WardrobeRig {
         tucked.commit(contextFor('top', tucked), this.instances.get('bottom')?.surface()),
       );
     }
+    const outer = this.instances.get('outer');
+    if (outer) {
+      guarded('outer', outer, () => {
+        const epoch = outer.coverageEpoch;
+        outer.syncBind(this.assets.mesh.bindMatrix);
+        outer.update(contextFor('outer', outer));
+        if (outer.coverageEpoch !== epoch) coverageReady = true;
+      });
+    }
     const top = this.instances.get('top');
     const bottom = this.instances.get('bottom');
-    if (tucked && top && bottom) {
-      // tucked: the trousers' waistband is the outer layer, the top's triangles behind it are dropped
-      top.hideUnder(bottom.surface());
-      bottom.hideUnder(null);
-    } else {
-      top?.hideUnder(null);
-      bottom?.hideUnder(top && top.template.layer > bottom.template.layer ? top.surface() : null);
-    }
+    const outerSurface = this.instances.get('outer')?.surface();
+    // Always start from each complete index; removing an outer layer restores the inner garment.
+    top?.hideUnder([
+      ...(tucked && bottom ? [bottom.surface()] : []),
+      ...(outerSurface ? [outerSurface] : []),
+    ]);
+    bottom?.hideUnder([
+      ...(!tucked && top && top.template.layer > bottom.template.layer ? [top.surface()] : []),
+      ...(outerSurface ? [outerSurface] : []),
+    ]);
+    this.instances.get('outer')?.hideUnder(null);
     if (coverageReady) this.updateBodyIndex();
     this.applySoleLift();
   }
