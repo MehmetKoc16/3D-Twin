@@ -2,7 +2,7 @@
 
 Verified 2026-10-11. [garment_sources.json](garment_sources.json) records item-level licence evidence, attribution, public download URLs, cached paths/SHA-256, and mesh/image inspections. **18 accepted 3D candidates: 9 CC0, 6 CC-BY-4.0, 3 CC-BY-3.0.** There are 10 CC0/public-domain photographs, one supplementary product render, and 25 rejected records. Accepted means suitable for further preparation, not tested or ready to ship.
 
-Downloads and research scripts are under `.cache/garment-sources/<id>/`, already ignored by `tools/asset-pipeline/.cache/`. Cache size is approximately 162 MiB, including rejected samples and inspection tooling; the limit is 1.5 GB. No shipped assets, importer files, or credits were changed; nothing was committed.
+Downloads and research scripts are under `.cache/garment-sources/<id>/`, already ignored by `tools/asset-pipeline/.cache/`. Cache size at the sourcing audit was approximately 162 MiB, including rejected samples and inspection tooling; the limit is 1.5 GB. That sourcing pass did not change shipped assets. The later shoe review below updates the importer, shipped shoe and credits; nothing was committed.
 
 | Category                            | Accepted 3D | Accepted photos |
 | ----------------------------------- | ----------: | --------------: |
@@ -27,9 +27,27 @@ Counts below are measured triangulated geometry, not source-page polygon estimat
 | Sweater  | [Knitted Sweater 02](http://www.makehumancommunity.org/clothes/knitted_sweater_02.html), Mindfront, CC-BY-4.0                            | 2,524 tris, diffuse/normal/specular and native binding. Sweater 01 is a second knit option. These are not sweatshirt/hoodie substitutes in the counts.                                                                                               |
 | Jeans    | [M Trousers 01](http://www.makehumancommunity.org/clothes/m_trousers_01.html), Mindfront, CC-BY-4.0                                      | Author identifies the garment as loose denim jeans. 3,236 tris, three maps; subdivision needed. Source warns of crotch distortion. No second licence-consistent jeans candidate retained.                                                            |
 | Trousers | [M Trousers 02](http://www.makehumancommunity.org/clothes/m_trousers_02.html), Mindfront, CC-BY-4.0                                      | Suit trousers: 14,584 tris from quads with three 2K maps. SR Tight Pants 01 (2026, CC0) is a simple alternate base, not finished chinos.                                                                                                             |
-| Sneakers | [Materials Variants Shoe](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe), Shopify, CC-BY-4.0 | Best PBR candidate: 22,700 tris, five embedded 2K images and three material variants. One unskinned shoe; align and create a pair. Licence excludes logos/trademarks. Comfortable sneakers (CC-BY-3.0) is a native-binding pair but only 1,556 tris. |
+| Sneakers | [Materials Variants Shoe](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe), Shopify, CC-BY-4.0 | Retired after fitting/close-up review: intersecting lining and decorations cause wedges and sole scratches. Variant materials share one mesh. Licence excludes logos/trademarks. Comfortable sneakers (CC-BY-3.0, punkduck) is the shipped replacement: authored pair, 1,556 source / 6,224 subdivided tris. |
 | Jacket   | [Denim Jacket](http://www.makehumancommunity.org/clothes/denim_jacket.html), punkduck, CC-BY-3.0                                         | 6,988 tris from quads, diffuse/normal, native binding and rigid buttons. Elvs Ladies Leather Jacket (CC-BY-4.0, 40,577 tris) is the more detailed alternative; Motorcycle Jacket is also retained.                                                   |
 | Shirt    | [Male Polo Shirt](http://www.makehumancommunity.org/clothes/male_polo_shirt.html), Namuhekam, CC0                                        | 4,106 tris, four 2K maps including normal/roughness; explicitly wire maps absent from MHMAT. Shirt Material Test (2026, CC0) provides a long-sleeve buttoned alternative with five maps. BTH Shirt White is an untextured base.                      |
+
+## Shoe shipping review, 2026-10-13
+
+`khronos-materials-variants-shoe` is retired from the shipped wardrobe after close-up review. Its source contains one
+mesh/primitive, with alternate materials rather than duplicate variant shells. No position-equivalent duplicate
+triangles were found; source and mirrored shipped winding are consistent. Source self-intersection is 20.502%,
+and the previously shipped pair is 26.615% in A-pose. Inner/overlapping components are pushed into the upper during
+clearance fitting; shell pairing and decimation further fragment the mesh. Keeping the source intact also fails
+visual review. Lower numerical contact counts after aggressive face removal produced holes and were rejected.
+
+The shipped replacement is the already accepted **Comfortable sneakers**, punkduck, **CC-BY-3.0**. Exact version
+and author were rechecked in both cached original OBJ and MHCLO headers (`# license CC BY 3.0`, `# author punkduck`),
+against their recorded upstream URLs and SHA-256 hashes; the cached source page identifies CC Attribution. Attempts
+to refresh the live page/source on 2026-10-13 failed (web inaccessible, local network refused), so the live verification
+date remains 2026-10-11. No new licence grant is inferred. Import uses authored bindings, one subdivision level,
+1024 px edge-dilated textures and a validated rigid-sole sidecar. Both feet were visually reviewed in front,
+three-quarter and side views, A-pose and walk: wedges/scratches are absent in the CPU previews, with visible faceting.
+Numerical contacts remain: 16.003% A-pose and 15.970% walk. See [SHOE_REVIEW.md](SHOE_REVIEW.md).
 
 ## Product-image picks
 

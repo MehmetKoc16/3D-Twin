@@ -227,7 +227,7 @@
         "en": "T-shirt (women's cut)"
       },
       "license": "CC0-1.0",
-      "attribution": "\"Jacket_T01 (actually a female T-shirt)\" by el_toba / Tobinsky, http://www.makehumancommunity.org/clothes/jacket_t01.html, CC0-1.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "attribution": "\"Jacket_T01 (actually a female T-shirt)\" by el_toba / Tobinsky, http://www.makehumancommunity.org/clothes/jacket_t01.html, CC0-1.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, base colour texture replaced by a procedurally generated cotton-jersey knit (CC0) with a matching knit normal map, converted to glTF.",
       "source": "http://www.makehumancommunity.org/clothes/jacket_t01.html sha256:dade208440053561d5e74933549dd01adeeb49e62cd8a565cb53c6962d1aeae7",
       "mesh": "mh-jacket-t01.glb",
       "binding": "mh-jacket-t01.bind.bin",
@@ -248,7 +248,7 @@
         "sleeve": -37.0
       },
       "layer": 2,
-      "baseColor": "#6d462f",
+      "baseColor": "#cececd",
       "deleteVerts": "mh-jacket-t01.delete.bin"
     },
     {
@@ -293,7 +293,7 @@
         "en": "Loose jeans"
       },
       "license": "CC-BY-4.0",
-      "attribution": "\"M Trousers 01 (loose jeans)\" by Mindfront (Sweden), http://www.makehumancommunity.org/clothes/m_trousers_01.html, CC-BY-4.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "attribution": "\"M Trousers 01 (loose jeans)\" by Mindfront (Sweden), http://www.makehumancommunity.org/clothes/m_trousers_01.html, CC-BY-4.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, baked low-frequency fold shading removed from the base colour and baked fold normals attenuated, hem and lower legs smoothed, converted to glTF.",
       "source": "http://www.makehumancommunity.org/clothes/m_trousers_01.html sha256:8866ae70637c11d6944738e50819609096749a4acb7d3ccef6533cc029607121",
       "mesh": "mh-m-trousers-01.glb",
       "binding": "mh-m-trousers-01.bind.bin",
@@ -316,7 +316,7 @@
         "inseam": -5.5
       },
       "layer": 1,
-      "baseColor": "#474948",
+      "baseColor": "#474949",
       "deleteVerts": "mh-m-trousers-01.delete.bin"
     },
     {
@@ -328,7 +328,7 @@
         "en": "Suit trousers"
       },
       "license": "CC-BY-4.0",
-      "attribution": "\"M Trousers 02 (suit trousers)\" by Mindfront (Sweden), http://www.makehumancommunity.org/clothes/m_trousers_02.html, CC-BY-4.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "attribution": "\"M Trousers 02 (suit trousers)\" by Mindfront (Sweden), http://www.makehumancommunity.org/clothes/m_trousers_02.html, CC-BY-4.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, baked fold normals attenuated, hem and legs smoothed, converted to glTF.",
       "source": "http://www.makehumancommunity.org/clothes/m_trousers_02.html sha256:43bd510dd3c4d2e2a505d2665e4a2ca1fb5031737e55d9e3bf88912d9bb387dd",
       "mesh": "mh-m-trousers-02.glb",
       "binding": "mh-m-trousers-02.bind.bin",
@@ -355,33 +355,45 @@
       "deleteVerts": "mh-m-trousers-02.delete.bin"
     },
     {
-      "id": "khronos-materials-variants-shoe",
+      "id": "mh-comfortable-sneakers",
       "kind": "sneakers",
       "category": "shoes",
       "label": {
-        "tr": "Spor ayakkab\u0131 2",
-        "en": "Sneakers 2"
+        "tr": "Rahat spor ayakkabı",
+        "en": "Comfortable sneakers"
       },
-      "license": "CC-BY-4.0",
-      "attribution": "\"Materials Variants Shoe\" by Shopify, https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe, CC-BY-4.0. No changes made to source files. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
-      "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe sha256:e1d7cb190382111e5a5b37b51e9a7f007f7eb2ab1b6185e0188e8d0a0d1265a7",
-      "mesh": "khronos-materials-variants-shoe.glb",
-      "binding": "khronos-materials-variants-shoe.bind.bin",
+      "license": "CC-BY-3.0",
+      "attribution": "\"Comfortable sneakers\" by punkduck, http://www.makehumancommunity.org/clothes/comfortable_sneakers.html, CC-BY-3.0. Changes: authored MHCLO neutral reconstruction, one midpoint subdivision, clearance fitting, rigid foot/ball sole attachments, UV-covered mean colour, edge-dilated 1024 px texture, converted to glTF.",
+      "source": "http://www.makehumancommunity.org/clothes/comfortable_sneakers.html sha256:3a1af3a3c9c44f6857fc10fc0151c846111f9a5fe46d8a9a4695be2cd6d5fe15",
+      "mesh": "mh-comfortable-sneakers.glb",
+      "binding": "mh-comfortable-sneakers.bind.bin",
       "scaleRefs": {
-        "x": [2519, 9752, 1.0516400020569563],
-        "y": [7041, 942, 1.6593766714213416],
-        "z": [4615, 3223, 0.4300433255266398]
+        "x": [
+          5866,
+          12995,
+          0.1398
+        ],
+        "z": [
+          1033,
+          5782,
+          0.18441000000000002
+        ],
+        "y": [
+          835,
+          942,
+          0.22028
+        ]
       },
       "nativeMeasures": {
-        "footLength": 25.3
+        "footLength": 23.3
       },
       "defaultEase": {
-        "footLength": 2.0
+        "footLength": 0.0
       },
       "layer": 1,
-      "baseColor": "#5e7d8d",
-      "deleteVerts": "khronos-materials-variants-shoe.delete.bin",
-      "rigidAttachments": "khronos-materials-variants-shoe.rigid.json"
+      "baseColor": "#524f4e",
+      "deleteVerts": "mh-comfortable-sneakers.delete.bin",
+      "rigidAttachments": "mh-comfortable-sneakers.rigid.json"
     },
     {
       "id": "mh-denim-jacket",

@@ -45,7 +45,8 @@ def parser():
     p.add_argument("--max-tris",type=int,default=30000)
     p.add_argument("--subdivide",type=int,choices=(0,1,2,3),default=0,
                    help="Linear midpoint subdivision before fitting; useful for coarse facets crossing the body")
-    p.add_argument("--texture-max",type=int,default=2048)
+    p.add_argument("--max-texture","--texture-max",dest="texture_max",type=int,default=1024,
+                   help="Maximum web texture dimension (default 1024; use 2048 for more detail)")
     p.add_argument("--clearance-mm",type=float,help="Default top 3, bottom 3, shoes 4; permitted range 2..4")
     p.add_argument("--layer-gap-mm",type=float,default=3,help="Additional clearance per outer layer (default 3 mm)")
     p.add_argument("--shell",choices=("outer","keep"),default="outer",help="Strip close opposing inner walls, or keep a reviewed single shell")
@@ -256,6 +257,7 @@ def import_garment(args):
     rigid = None
     if args.category=="shoes":
         rigid = rigid_shoe_parts(pos,body,args.rigid_sole_height_mm/1000)
+        entry["rigidAttachments"] = f"{args.id}.rigid.json"
         (stage/f"{args.id}.rigid.json").write_text(json.dumps(rigid,indent=2,allow_nan=False)+"\n",encoding="utf-8")
         report["rigidParts"] = {"file":f"{args.id}.rigid.json","format":"v1","soleHeightMm":rigid["soleHeightMm"],
                                 "vertices":sum(len(a["vertices"]) for a in rigid["attachments"]),

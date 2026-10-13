@@ -284,13 +284,42 @@ def _sample(tex, u, v, default):
     return arr[y,x].astype(float)/255
 
 
-def atlas(parts, max_size=2048):
+def uv_coverage(uv, faces, width, height):
+    """Rasterize texel centers covered by UV triangles, excluding unused atlas islands."""
+    mask = np.zeros((height, width), bool)
+    pixels = uv * [width, height] - .5
+    for triangle in pixels[faces]:
+        lo = np.maximum(np.ceil(triangle.min(axis=0)).astype(int), 0)
+        hi = np.minimum(np.floor(triangle.max(axis=0)).astype(int), [width-1, height-1])
+        if np.any(hi < lo):
+            continue
+        a, b = triangle[1]-triangle[0], triangle[2]-triangle[0]
+        det = a[0]*b[1]-a[1]*b[0]
+        if abs(det) < 1e-12:
+            continue
+        x, y = np.meshgrid(np.arange(lo[0], hi[0]+1), np.arange(lo[1], hi[1]+1))
+        x, y = x-triangle[0,0], y-triangle[0,1]
+        u, v = (x*b[1]-y*b[0])/det, (a[0]*y-a[1]*x)/det
+        mask[lo[1]:hi[1]+1,lo[0]:hi[0]+1] |= (u >= -1e-9) & (v >= -1e-9) & (u+v <= 1+1e-9)
+    return mask
+
+
+def dilate_padding(image, coverage):
+    """Extend the nearest covered texel into every unused texel, for mip-safe gutters."""
+    from scipy.ndimage import distance_transform_edt
+    if not coverage.any():
+        raise ValueError("UV triangles cover no texture texel centers; increase max-texture")
+    indices = distance_transform_edt(~coverage, return_distances=False, return_indices=True)
+    return image[indices[0], indices[1]]
+
+
+def atlas(parts, max_size=1024):
     # Group islands with the same material by equality of serialized scalar values and image content.
     import hashlib
     groups = {}
     for p in parts:
         m = p.material
-        key = tuple((k,hashlib.sha256(v["image"].tobytes()).hexdigest(),v["wrapS"],v["wrapT"]) if isinstance(v,dict)
+        key = tuple((k,v["image"].size,hashlib.sha256(v["image"].tobytes()).hexdigest(),v["wrapS"],v["wrapT"]) if isinstance(v,dict)
                     else (k,str(v)) for k,v in sorted(m.items()))
         groups.setdefault(key,[]).append(p)
     side = math.ceil(math.sqrt(len(groups)))
@@ -302,6 +331,7 @@ def atlas(parts, max_size=2048):
     size = tile*side
     channels = {k:np.zeros((size,size,4),np.uint8) for k in ("base","mr","normal","occlusion","emissive")}
     positions,uvs,faces = [],[],[]
+    covered = np.zeros((size,size),bool)
     n = 0
     for i, group in enumerate(groups.values()):
         m = group[0].material
@@ -313,6 +343,19 @@ def atlas(parts, max_size=2048):
         u,v = np.meshgrid(lo[0]+coords*span[0],lo[1]+coords*span[1])
         defaults = {"base":[1,1,1,1],"mr":[1,1,1,1],"normal":[.5,.5,1,1],"occlusion":[1,1,1,1],"emissive":[1,1,1,1]}
         row,col = divmod(i,side)
+        group_uv = (source_uv-lo)/span*(tile-5)+2.5
+        group_faces = []
+        offset = 0
+        for p in group:
+            group_faces.append(p.faces+offset)
+            offset += len(p.positions)
+        coverage = uv_coverage(group_uv/tile,np.concatenate(group_faces),tile,tile)
+        if not coverage.any() and (not any(m[k] is not None for k in channels) or
+                                   np.ptp(source_uv,axis=0).max()<1e-9):
+            # Constant UVs sample a single texel, including when an untextured
+            # source is re-imported from our constant-texture glTF export.
+            coverage[2,2] = True
+        covered[row*tile:(row+1)*tile,col*tile:(col+1)*tile] = coverage
         for key in channels:
             arr = _sample(m[key],u,v,defaults[key])
             if key in ("base","emissive"):
@@ -335,13 +378,21 @@ def atlas(parts, max_size=2048):
                 arr[...,:3] = (normal+1)/2
             elif key == "occlusion":
                 arr[...,0] = 1+m["occlusionStrength"]*(arr[...,0]-1)
-            channels[key][row*tile:(row+1)*tile,col*tile:(col+1)*tile] = np.round(np.clip(arr,0,1)*255).astype(np.uint8)
+            baked = np.round(np.clip(arr,0,1)*255).astype(np.uint8)
+            channels[key][row*tile:(row+1)*tile,col*tile:(col+1)*tile] = dilate_padding(baked,coverage)
         for p in group:
             mapped = (p.uv-lo)/span*(tile-5)+2
             mapped += [col*tile+.5,row*tile+.5]
             positions.append(p.positions); uvs.append(mapped/size); faces.append(p.faces+n); n += len(p.positions)
     mode = "BLEND" if any(p.material["alphaMode"]=="BLEND" for p in parts) else "MASK" if any(p.material["alphaMode"]=="MASK" for p in parts) else "OPAQUE"
-    base = channels["base"][...,:3].mean(axis=(0,1))/255
+    base = channels["base"][covered,:3].mean(axis=0)/255
+    # Fill unused material-grid cells from the nearest occupied cell as well.
+    occupied = np.zeros_like(covered)
+    for i in range(len(groups)):
+        row,col = divmod(i,side)
+        occupied[row*tile:(row+1)*tile,col*tile:(col+1)*tile] = True
+    if not occupied.all():
+        channels = {key:dilate_padding(value,occupied) for key,value in channels.items()}
     for key in ("normal","occlusion","emissive"):
         used = any(p.material[key] is not None for p in parts)
         if key=="emissive":
@@ -396,10 +447,16 @@ def write_glb(path, positions, faces, uv, channels, alpha_mode):
     indices = acc(faces.reshape(-1),"<u4","SCALAR",5125,34963)
     tex = {}
     g.samplers = [gl.Sampler(magFilter=9729,minFilter=9987,wrapS=33071,wrapT=33071)]
+    images = {}
     for key, image in channels.items():
         data = io.BytesIO(); Image.fromarray(image).save(data,format="PNG",optimize=True)
+        payload = data.getvalue()
+        if payload in images:
+            tex[key] = images[payload]
+            continue
         tex[key] = len(g.textures)
-        g.images.append(gl.Image(bufferView=view(data.getvalue()),mimeType="image/png"))
+        images[payload] = tex[key]
+        g.images.append(gl.Image(bufferView=view(payload),mimeType="image/png"))
         g.textures.append(gl.Texture(source=len(g.images)-1,sampler=0))
     g.materials = [gl.Material(pbrMetallicRoughness=gl.PbrMetallicRoughness(
         baseColorFactor=[1,1,1,1],baseColorTexture=gl.TextureInfo(index=tex["base"]),

@@ -859,10 +859,22 @@
           "4": 778
         },
         "bounds_raw": [
-          [-2.2484, -8.3253, -0.1743],
-          [2.2408, -7.5235, 2.1186]
+          [
+            -2.2484,
+            -8.3253,
+            -0.1743
+          ],
+          [
+            2.2408,
+            -7.5235,
+            2.1186
+          ]
         ],
-        "extents_raw": [4.4892, 0.8018000000000001, 2.2929],
+        "extents_raw": [
+          4.4892,
+          0.8018000000000001,
+          2.2929
+        ],
         "height_axis": "Y",
         "bounding_box_height_raw": 0.8018000000000001,
         "scale_to_meters": 0.1,
@@ -935,7 +947,27 @@
           "cached_file": "tools/asset-pipeline/.cache/garment-sources/mh-comfortable-sneakers/sneakers.obj",
           "quote": "# license CC BY 3.0"
         }
-      ]
+      ],
+      "shipping_review": {
+        "reviewed_on": "2026-10-13",
+        "status": "shipped",
+        "replaces": "khronos-materials-variants-shoe",
+        "license_rechecked_from": "Cached upstream OBJ and MHCLO headers explicitly state CC BY 3.0 and author punkduck; original cached hashes verified. Live source refresh unavailable.",
+        "live_license_verified_on": "2026-10-11",
+        "texture_max_px": 1024,
+        "triangles": 6224,
+        "a_pose_self_intersection_percent": 16.002570694087403,
+        "walk_self_intersection_percent": 15.97043701799486,
+        "rigid_runtime_passed": true,
+        "visual_review": "Wedges and sole-edge scratches absent in both-feet front/three-quarter/side A-pose and walk CPU previews; shape is visibly faceted.",
+        "report": "tools/asset-pipeline/SHOE_REVIEW.md",
+        "shipped_files": {
+          "mh-comfortable-sneakers.glb": 934180,
+          "mh-comfortable-sneakers.bind.bin": 128952,
+          "mh-comfortable-sneakers.delete.bin": 6336,
+          "mh-comfortable-sneakers.rigid.json": 214479
+        }
+      }
     },
     {
       "id": "mh-denim-jacket",
@@ -3788,17 +3820,37 @@
             "material_index": 0,
             "triangles": 22700,
             "bounds_m": [
-              [-0.1473290023, -0.0006479932916700765, -0.053048001191468776],
-              [0.1505499954549708, 0.1524530132916701, 0.06274999819146877]
+              [
+                -0.1473290023,
+                -0.0006479932916700765,
+                -0.053048001191468776
+              ],
+              [
+                0.1505499954549708,
+                0.1524530132916701,
+                0.06274999819146877
+              ]
             ],
             "watertight_after_position_weld": false
           }
         ],
         "bounds_raw": [
-          [-0.1473290023, -0.0006479932916700765, -0.053048001191468776],
-          [0.1505499954549708, 0.1524530132916701, 0.06274999819146877]
+          [
+            -0.1473290023,
+            -0.0006479932916700765,
+            -0.053048001191468776
+          ],
+          [
+            0.1505499954549708,
+            0.1524530132916701,
+            0.06274999819146877
+          ]
         ],
-        "extents_raw": [0.29787899775497084, 0.1531010065833402, 0.11579799938293756],
+        "extents_raw": [
+          0.29787899775497084,
+          0.1531010065833402,
+          0.11579799938293756
+        ],
         "height_axis": "Y",
         "bounding_box_height_raw": 0.1531010065833402,
         "bounding_box_height_m": 0.1531010065833402,
@@ -3813,7 +3865,12 @@
             "pbrMetallicRoughness": {
               "extensions": {},
               "extras": {},
-              "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+              "baseColorFactor": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
               "metallicFactor": 1.0,
               "roughnessFactor": 1.0,
               "baseColorTexture": {
@@ -3843,7 +3900,11 @@
               "texCoord": 0,
               "strength": 1.0
             },
-            "emissiveFactor": [0.0, 0.0, 0.0],
+            "emissiveFactor": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "emissiveTexture": null,
             "alphaMode": "OPAQUE",
             "alphaCutoff": null,
@@ -3856,7 +3917,12 @@
             "pbrMetallicRoughness": {
               "extensions": {},
               "extras": {},
-              "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+              "baseColorFactor": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
               "metallicFactor": 1.0,
               "roughnessFactor": 1.0,
               "baseColorTexture": {
@@ -3886,7 +3952,11 @@
               "texCoord": 0,
               "strength": 1.0
             },
-            "emissiveFactor": [0.0, 0.0, 0.0],
+            "emissiveFactor": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "emissiveTexture": null,
             "alphaMode": "OPAQUE",
             "alphaCutoff": null,
@@ -3899,7 +3969,12 @@
             "pbrMetallicRoughness": {
               "extensions": {},
               "extras": {},
-              "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+              "baseColorFactor": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
               "metallicFactor": 1.0,
               "roughnessFactor": 1.0,
               "baseColorTexture": {
@@ -3929,7 +4004,11 @@
               "texCoord": 0,
               "strength": 1.0
             },
-            "emissiveFactor": [0.0, 0.0, 0.0],
+            "emissiveFactor": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "emissiveTexture": null,
             "alphaMode": "OPAQUE",
             "alphaCutoff": null,
@@ -3974,12 +4053,24 @@
             "mime_type": "image/jpeg"
           }
         ],
-        "extensions_used": ["KHR_materials_variants"],
+        "extensions_used": [
+          "KHR_materials_variants"
+        ],
         "notes": []
       },
       "additional_license_evidence": {
         "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/MaterialsVariantsShoe/LICENSE.md",
         "quote": "This license excludes logos and associated trademarks."
+      },
+      "shipping_review": {
+        "reviewed_on": "2026-10-13",
+        "status": "retired",
+        "replacement_id": "mh-comfortable-sneakers",
+        "reason": "Intersecting lining/decorative components collapse together during independent body-clearance fitting; shell pairing/decimation further damage the exterior. Intact and aggressive shell-removal trials fail visual review.",
+        "source_self_intersection_percent": 20.502202643171806,
+        "previous_shipped_a_pose_percent": 26.61535887569015,
+        "previous_shipped_walk_percent": 26.39785845742011,
+        "report": "tools/asset-pipeline/SHOE_REVIEW.md"
       }
     }
   ],

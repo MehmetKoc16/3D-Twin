@@ -60,15 +60,18 @@ candidates that are not in `index.json` are not shipped assets and are credited 
 - **"M Trousers 01 (loose jeans)"** (`mh-m-trousers-01`) by **Mindfront (Sweden)**, MakeHuman community assets
   (<http://www.makehumancommunity.org/clothes/m_trousers_01.html>), licensed **CC BY 4.0**
   (<https://creativecommons.org/licenses/by/4.0/>). Modified: converted and re-bound (aligned, clearance fitted, bound to
-  the body mesh, textures baked and downscaled to at most 2048 px, converted to glTF).
+  the body mesh, textures baked and downscaled to at most 2048 px, baked fold shading flattened in the colour and
+  normal textures, hem and lower legs smoothed, converted to glTF).
 - **"M Trousers 02 (suit trousers)"** (`mh-m-trousers-02`) by **Mindfront (Sweden)**, MakeHuman community assets
   (<http://www.makehumancommunity.org/clothes/m_trousers_02.html>), licensed **CC BY 4.0**
-  (<https://creativecommons.org/licenses/by/4.0/>). Modified: converted and re-bound as above.
-- **"Materials Variants Shoe"** (`khronos-materials-variants-shoe`) by **Shopify**, Khronos glTF Sample Assets
-  (<https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/MaterialsVariantsShoe>), licensed
-  **CC BY 4.0** (<https://creativecommons.org/licenses/by/4.0/>, upstream `LICENSE.md`). Modified: converted and
-  re-bound (aligned to the foot, mirrored into a pair, sole rigidly attached to the foot and ball bones, bound to the
-  body mesh, textures baked and downscaled to at most 2048 px, converted to the wardrobe glTF format).
+  (<https://creativecommons.org/licenses/by/4.0/>). Modified: converted and re-bound as above. Baked fold normals
+  attenuated, hem and legs smoothed.
+- **"Comfortable sneakers"** (`mh-comfortable-sneakers`) by **punkduck**, MakeHuman community assets
+  (<http://www.makehumancommunity.org/clothes/comfortable_sneakers.html>), licensed **CC BY 3.0**
+  (<https://creativecommons.org/licenses/by/3.0/>; original OBJ and MHCLO headers state "CC BY 3.0"). Modified:
+  reconstructed on the neutral body using authored MHCLO bindings, subdivided once, clearance fitted, sole/heel
+  attached rigidly to foot and ball bones, texture baked/downscaled to 1024 px with UV-edge padding, converted to
+  the wardrobe glTF format. Replaces the retired Shopify/Khronos shoe after visual defect review.
 - **"Denim Jacket"** (`mh-denim-jacket`) by **punkduck**, MakeHuman community assets
   (<http://www.makehumancommunity.org/clothes/denim_jacket.html>), licensed **CC BY 3.0**
   (<https://creativecommons.org/licenses/by/3.0/>; the `.mhclo` header states "CC BY 3.0"). Modified: converted and
@@ -83,7 +86,8 @@ CC0 (credited as a courtesy, no attribution required):
 - "Jacket_T01 (actually a female T-shirt)" (`mh-jacket-t01`) by **el_toba / Tobinsky**
   (<http://www.makehumancommunity.org/clothes/jacket_t01.html>) and "Male Polo Shirt" (`mh-male-polo-shirt`) by
   **namuhekam** (<http://www.makehumancommunity.org/clothes/male_polo_shirt.html>); both `.mhclo` headers state CC0.
-  Converted and re-bound as described above.
+  Converted and re-bound as described above. The T-shirt texture of `mh-jacket-t01` was
+  replaced by a procedurally generated cotton-jersey knit (CC0, no third-party material).
 
 ## Body parts (eyes, eyebrows, eyelashes, hair)
 
@@ -153,7 +157,7 @@ The shape adapter replaces Hunyuan postprocessing rather than importing/installi
 
 Checked against tracked public assets, asset-pipeline configuration/catalogues, vendored shader notices and the local
 non-personal source/model cache manifests. All shipped garment templates (seven original MakeHuman ones, five more
-MakeHuman ones and the Khronos sneaker) and the listed body parts have entries above; every CC-BY garment retains its
+MakeHuman ones and Comfortable sneakers) and the listed body parts have entries above; every CC-BY garment retains its
 author, source link, exact licence version and adaptation description. The original `culturalibre_sneakers` source
 says CC BY without a version; the exported catalogue assumes 4.0. That assumption is recorded, not independent
 verification of an upstream version.

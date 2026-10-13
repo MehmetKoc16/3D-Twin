@@ -175,8 +175,11 @@ Processing and outputs:
   no exterior smoothing. It fails if subdivision would exceed the triangle budget. The coarse Quaternius hoodie uses
   two levels (20,128 triangles) to prevent large facets crossing the torso despite exterior corner vertices.
 - Merge parts into one primitive/material, as required by `templateLoader.ts`. Bake base colour, metallic/roughness,
-  normal, occlusion and emissive maps plus scalar factors into padded PBR atlases, each at most `--texture-max`
-  (default/max 2048). Alternate texture UV sets and texture transforms must be baked in the converter. Atlasing and
+  normal, occlusion and emissive maps plus scalar factors into padded PBR atlases, each at most `--max-texture`
+  (default 1024, maximum 2048; `--texture-max` remains an alias). `--max-texture 2048` keeps more detail.
+  UV triangle coverage determines `baseColor`; unused atlas pixels do not affect it. Padding inside each material
+  tile is filled from the nearest covered texel, including every PBR channel; unused material-grid cells are filled
+  from occupied tiles. Identical exported images share one glTF image/texture. Alternate texture UV sets and texture transforms must be baked in the converter. Atlasing and
   decimation are lossy, so inspect detailed patterns, seam continuity and normal maps before shipping.
 - Infer likely units from category dimensions; scale by body height when `--source-body-height` is supplied. This
   argument is the **full authoring body height in source coordinate units** (e.g. `175` for a cm-space mesh,
@@ -205,7 +208,8 @@ Processing and outputs:
   nonnegative barycentrics, three float32 offsets in meters. Offsets are **world-axis vectors**, matching MHCLO;
   the runtime does not rotate a scalar normal offset. `scaleRefs` are measured on the neutral body. The serialized
   binding/GLB round-trip must be below 1 mm even without `--validate`.
-- `--mirror-pair` mirrors an aligned single left shoe across X=0. Shoes also write `<id>.rigid.json` in the app's
+- `--mirror-pair` mirrors an aligned single left shoe across X=0. Shoes also write `<id>.rigid.json` and link it
+  through the catalogue entry's `rigidAttachments`, in the app's
   **rigid-sole format v1** (`packages/avatar-core/src/garment/rigid.ts`, `parseGarmentRigidAttachments`), with exactly
   the keys `version: 1`, `soleHeightMm` and `attachments[{bone, vertices, localPositionsM}]`. Sole/heel vertices below
   `--rigid-sole-height-mm` (default 35 mm above each shoe's lowest point) go to `foot_l`/`ball_l`/`foot_r`/`ball_r`,
@@ -333,6 +337,28 @@ The 2026-10-12 review runs, commands, alignment overrides and per-pose/per-shape
 These are offline candidates. Hoodie hood/flap weights, shoe attachments, texture detail and posed collisions still
 require manual review. The MakeHuman Denim Jacket (CC-BY-3.0, punkduck) imports with `--license CC-BY-3.0 --kind
 longsleeve --layer 2`; the exact licence version is kept in its catalogue entry and attribution.
+
+The 2026-10-13 shoe review replaces the Khronos sneaker with `mh-comfortable-sneakers` (punkduck, CC-BY-3.0).
+The Khronos source has intersecting lining and separate decorative components; body clearance fitting collapses
+those layers together, and body-distance shell removal/UV-island decimation damages the remaining surface. Variant
+materials do not duplicate geometry, and mirrored winding is already corrected. Keeping all source triangles also
+fails visual review. Automatic face removal reduced numerical intersection counts but produced holes, so it was
+rejected. The replacement uses its authored MHCLO, `--shell keep --subdivide 1 --validate`, and 1024 px textures.
+Its simpler shape is visibly faceted; numerical self-intersections remain and are not a visual-quality guarantee.
+See [shoe review](SHOE_REVIEW.md) for evidence, sizes, checks and limitations.
+
+Render front, three-quarter and side close-ups of both feet in A-pose and walk using the same CPU preview renderer:
+
+```powershell
+$env:PYTHONPATH = 'tools/asset-pipeline'
+tools/asset-pipeline/.venv/Scripts/python.exe -m garmentimport.shoe_review `
+  tools/asset-pipeline/.cache/garment-import-out/mh-comfortable-sneakers --id mh-comfortable-sneakers
+```
+
+This writes 18 individual PNGs, `fixed-closeups.png` and `fixed-closeups.json`. It applies exported body hiding and
+the rigid sole segments. It uses textured face shading, without PBR normal maps, mipmaps or the app's rigid blend band.
+Use the required venv for tests and an explicit `--basetemp` under `.cache`; Windows test scratch directories keep
+inherited ACLs so the restricted process can access them.
 
 ## Body parts (Wave 3d)
 
