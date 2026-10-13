@@ -24,12 +24,15 @@ describe('garment layer ordering', () => {
     expect(garmentSlot({ ...top, slot: 'outer' })).toBe('outer');
   });
 
-  it('places outer normal offsets above the top and bottom even with unusual layer metadata', () => {
-    const inner = garmentNormalOffset({ ...top, layer: 9, slot: 'top' });
+  it('places outer normal offsets above inner garments and gives zero offset alone', () => {
+    expect(garmentNormalOffset(top)).toBe(0);
+    expect(garmentNormalOffset(top, [])).toBe(0);
+    expect(garmentNormalOffset({ ...top, layer: 3, slot: 'outer' })).toBe(0);
+    expect(garmentNormalOffset({ ...top, category: 'shoes' })).toBe(0);
+    const inner = 0.001;
     const outer = { ...top, layer: 1, slot: 'outer' as const };
     expect(garmentNormalOffset(outer, [inner, 0.001])).toBeCloseTo(inner + 0.002);
     expect(garmentLayerOrder({ ...top, layer: 3 })).toBeGreaterThan(garmentLayerOrder(top));
-    expect(garmentNormalOffset({ ...top, category: 'shoes' })).toBe(0);
   });
 
   it('expands along surface normals without altering tangent coordinates', () => {
@@ -41,5 +44,22 @@ describe('garment layer ordering', () => {
     expect(positions[1]).toBe(2);
     expect(positions[4]).toBe(5);
     expect(positions[5]).toBe(6);
+  });
+
+  it('does not split a thin two-sided flap', () => {
+    // Front face at z = 0.10 with normal [0, 0, 1]; back face at z = 0.099 with normal [0, 0, -1]
+    const positions = new Float32Array([0, 1, 0.1, 0, 1, 0.099]);
+    const normals = [0, 0, 1, 0, 0, -1];
+    offsetAlongNormals(positions, normals, 0.003);
+    expect(positions[2]! - positions[5]!).toBeCloseTo(0.001);
+  });
+
+  it('skips offset for vertices with degenerate normals', () => {
+    const positions = new Float32Array([1, 2, 3]);
+    const normals = [0, 0, 0];
+    offsetAlongNormals(positions, normals, 0.004);
+    expect(positions[0]).toBe(1);
+    expect(positions[1]).toBe(2);
+    expect(positions[2]).toBe(3);
   });
 });

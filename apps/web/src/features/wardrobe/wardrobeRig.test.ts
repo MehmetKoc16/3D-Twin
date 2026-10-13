@@ -216,6 +216,11 @@ describe('WardrobeRig outer slot', () => {
         useWardrobeStore.getState().takeOff('top');
         expect(avatar.scene.getObjectByName('garment:coat')).toBeDefined();
         expect(avatar.scene.getObjectByName(`garment:${topId}`)).toBeUndefined();
+        const coatCalls = fit.mock.calls.filter((_, idx) => {
+          const inst = fit.mock.contexts[idx];
+          return inst instanceof GarmentInstance && inst.template.id === 'coat';
+        });
+        expect(coatCalls[coatCalls.length - 1]?.[0].normalOffsetM).toBe(0);
       } finally {
         rig.dispose();
         avatar.mesh.geometry.dispose();

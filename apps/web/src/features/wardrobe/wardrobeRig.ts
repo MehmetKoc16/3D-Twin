@@ -233,10 +233,11 @@ export class WardrobeRig {
     for (const slot of offsetOrder) {
       const instance = this.instances.get(slot);
       if (!instance) continue;
-      offsets.set(
-        slot,
-        garmentNormalOffset(instance.template, slot === 'outer' ? [...offsets.values()] : []),
-      );
+      const innerOffsets =
+        slot === 'outer' && this.instances.has('top')
+          ? [offsets.get('top') ?? 0]
+          : [];
+      offsets.set(slot, garmentNormalOffset(instance.template, innerOffsets));
     }
     const contextFor = (
       category: GarmentSlot,

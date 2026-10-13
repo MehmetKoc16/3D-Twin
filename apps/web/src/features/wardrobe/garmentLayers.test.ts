@@ -3,6 +3,7 @@ import { Bone, Matrix4, MeshStandardMaterial, Skeleton } from 'three';
 import {
   createGarmentSections,
   garmentNormalOffset,
+  offsetAlongNormals,
   type GarmentTemplateDef,
   type StoreItemDef,
 } from '@dt/avatar-core';
@@ -164,6 +165,79 @@ describe('garment-on-garment layers', () => {
       inner.material.dispose();
       outer.instance.dispose();
       outer.material.dispose();
+    }
+  });
+
+  it('gives a garment worn alone zero offset identical to pre-3e9fcf1 path', () => {
+    const { instance, material, ctx } = fixture(3);
+    try {
+      expect(garmentNormalOffset(instance.template)).toBe(0);
+      instance.update(ctx);
+      const alonePositions = Array.from(instance.surface().positions);
+      // Repeated updates must not accumulate offsets
+      instance.update(ctx);
+      expect(Array.from(instance.surface().positions)).toEqual(alonePositions);
+      instance.update({ ...ctx, normalOffsetM: 0 });
+      expect(Array.from(instance.surface().positions)).toEqual(alonePositions);
+    } finally {
+      instance.dispose();
+      material.dispose();
+    }
+  });
+
+  it('does not split a thin two-sided flap under normal expansion', () => {
+    const flapPositions = new Float32Array([
+      0.2, 1.0, 0.1,
+      0.3, 1.0, 0.1,
+      0.2, 1.1, 0.1,
+      0.2, 1.0, 0.098,
+      0.3, 1.0, 0.098,
+      0.2, 1.1, 0.098,
+    ]);
+    const flapNormals = [
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, 1,
+      0, 0, -1,
+      0, 0, -1,
+      0, 0, -1,
+    ];
+    offsetAlongNormals(flapPositions, flapNormals, 0.003);
+    for (let v = 0; v < 3; v++) {
+      expect(flapPositions[v * 3 + 2]! - flapPositions[(v + 3) * 3 + 2]!).toBeCloseTo(0.002);
+    }
+  });
+
+  it('an open-front outer over a top does not hide inner triangles in the opening', () => {
+    const { instance, material } = fixture(2);
+    try {
+      // Left and right panels leaving open front in the center (x = -0.10..0.10)
+      const leftPanel = panel(0.12, 0.35, 0.75, 1.15);
+      const rightPanel = panel(-0.35, -0.12, 0.75, 1.15);
+      instance.hideUnder([leftPanel, rightPanel]);
+      // Triangle [6, 7, 8] is centered in the open front (x = -0.05..0.05) and must NOT be hidden
+      const visible = drawn(instance);
+      expect(visible).toContain(6);
+      expect(visible).toContain(7);
+      expect(visible).toContain(8);
+      // Triangle [0, 1, 2] is fully covered by left panel and must be hidden
+      expect(visible).not.toContain(0);
+      expect(visible).not.toContain(1);
+      expect(visible).not.toContain(2);
+    } finally {
+      instance.dispose();
+      material.dispose();
+    }
+  });
+
+  it('never hides outerwear garment triangles', () => {
+    const { instance, material } = fixture(3);
+    try {
+      instance.hideUnder(panel(0.15, 0.35, 0.75, 1.15));
+      expect(drawn(instance)).toEqual(Array.from(index));
+    } finally {
+      instance.dispose();
+      material.dispose();
     }
   });
 });

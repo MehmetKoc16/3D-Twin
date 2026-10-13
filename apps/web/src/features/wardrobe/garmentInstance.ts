@@ -17,6 +17,7 @@ import {
   garmentClearance,
   garmentLayerOrder,
   garmentNormalOffset,
+  garmentSlot,
   offsetAlongNormals,
   prepareGarmentRigidAttachments,
   type PreparedGarmentRigidAttachments,
@@ -236,11 +237,14 @@ export class GarmentInstance {
         restJoint,
         graded,
       );
+    this.updateBound(ctx.body);
     const offset = ctx.normalOffsetM ?? garmentNormalOffset(def);
     if (offset > 0) {
       const normals = this.geometry.getAttribute('normal').array as Float32Array;
       computeWeldedNormals(graded, runtime.index, runtime.weld, normals, this.normalScratch);
-      offsetAlongNormals(graded, normals, offset);
+      const outward = new Float32Array(runtime.vertexCount * 3);
+      for (let i = 0; i < outward.length; i++) outward[i] = graded[i]! - this.bound[i]!;
+      offsetAlongNormals(graded, normals, offset, { outward });
     }
     const tucked = ctx.tuckedHem ?? false;
     if (tucked !== this.hemTucked) {
@@ -249,10 +253,15 @@ export class GarmentInstance {
       this.coverage = null;
     }
     if (this.coverage === null) {
-      this.coverage = coveredBodyVertices(ctx.body, ctx.body.length / 3, graded, runtime.index);
+      this.coverage = coveredBodyVertices(
+        ctx.body,
+        ctx.body.length / 3,
+        graded,
+        runtime.index,
+        { slack: garmentSlot(def) === 'outer' ? 0 : undefined },
+      );
       this.coverageEpoch++;
     }
-    this.updateBound(ctx.body);
     if (ctx.lowers.length > 0) pushOutside(graded, runtime.vertexCount, ctx.lowers);
   }
 
@@ -304,6 +313,14 @@ export class GarmentInstance {
    * do not poke through a jumper hem between its sparse vertices. `null` restores every triangle.
    */
   hideUnder(outer: Surface | readonly Surface[] | null): void {
+    if (garmentSlot(this.runtime.def) === 'outer') {
+      if (!this.hiddenByOuter) return;
+      this.indexArray.set(this.runtime.index);
+      this.geometry.setDrawRange(0, this.runtime.index.length);
+      this.indexAttribute.needsUpdate = true;
+      this.hiddenByOuter = false;
+      return;
+    }
     const surfaces: readonly Surface[] =
       outer === null ? [] : 'positions' in outer ? [outer] : outer;
     if (surfaces.length === 0) {
