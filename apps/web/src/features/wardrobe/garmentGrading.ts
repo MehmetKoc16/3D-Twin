@@ -21,9 +21,6 @@ import { GIRTH_MEASURES } from './chartModel';
 
 type Measures = Partial<Record<GarmentMeasureId, number>>;
 
-/** Girth-grading smoothing radius (m) for outer-slot garments; other slots use legacy per-vertex grading. */
-export const OUTER_SMOOTH_RADIUS_M = 0.015;
-
 /** Heights (m, grounded body frame) of the measure planes used to place grade rings. */
 export interface BodyPlanes {
   planeY: Partial<Record<GarmentMeasureId, number>>;
@@ -222,13 +219,13 @@ export interface ChartFitInput {
 export function fitToChart(input: ChartFitInput, rest: Float32Array, graded: Float32Array): void {
   const { def, item, binding, body, sections, achievedCm, planes } = input;
   bindGarment(binding, def.scaleRefs, body, rest);
-  const rings = planes ? buildGradeRings(item, def, bodyCmFromSolve(achievedCm), planes) : [];
-  // Outer garments (open-front jackets) have stacked parts (buttons, flaps, doubled plackets) that per-vertex
-  // grading tears apart; they get a smoothed displacement field. Everything else keeps the legacy grading.
   if (garmentSlot(def) === 'outer') {
-    const smoothing = { smoothRadiusM: OUTER_SMOOTH_RADIUS_M };
-    gradeGarment(rest, binding, body, rings, graded, sections, smoothing);
-  } else gradeGarment(rest, binding, body, rings, graded, sections);
+    // Outer garments skip girth grading to avoid tearing stacked parts (buttons, flaps, plackets); the fit report still evaluates girth against the chart.
+    graded.set(rest);
+  } else {
+    const rings = planes ? buildGradeRings(item, def, bodyCmFromSolve(achievedCm), planes) : [];
+    gradeGarment(rest, binding, body, rings, graded, sections);
+  }
   const options: LengthGradeOptions = { tuckedHem: input.tuckedHem ?? false };
   for (const spec of buildLengthGrades(item, def, achievedCm, planes, rest, input.joint, options))
     gradeGarmentLength(graded, binding, body, spec, graded);

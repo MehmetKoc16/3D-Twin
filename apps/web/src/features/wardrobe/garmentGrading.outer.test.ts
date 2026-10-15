@@ -6,12 +6,7 @@ import {
   type GarmentTemplateDef,
   type StoreItemDef,
 } from '@dt/avatar-core';
-import {
-  buildGradeRings,
-  fitToChart,
-  OUTER_SMOOTH_RADIUS_M,
-  type BodyPlanes,
-} from './garmentGrading';
+import { buildGradeRings, fitToChart, type BodyPlanes } from './garmentGrading';
 
 /** Cylinder body of radius 0.2 m at y = 1, 64 vertices. */
 function cylinderBody(): Float32Array {
@@ -68,40 +63,78 @@ const item: StoreItemDef = {
   selectedSize: 'M',
 };
 
-describe('fitToChart grading options', () => {
+describe('fitToChart outer slot grading', () => {
   const body = cylinderBody();
   const sections = createGarmentSections(body);
   const binding = stackedBinding(body);
   const planes: BodyPlanes = { planeY: { chest: 1 } };
   const none = (): undefined => undefined;
 
-  function fit(def: GarmentTemplateDef): { rest: Float32Array; graded: Float32Array } {
+  function fit(
+    def: GarmentTemplateDef,
+    fitItem: StoreItemDef = item,
+    fitPlanes: BodyPlanes = planes,
+  ): { rest: Float32Array; graded: Float32Array } {
     const rest = new Float32Array(6);
     const graded = new Float32Array(6);
     fitToChart(
-      { def, item, binding, body, sections, achievedCm: {}, planes, joint: none },
+      {
+        def,
+        item: fitItem,
+        binding,
+        body,
+        sections,
+        achievedCm: {},
+        planes: fitPlanes,
+        joint: none,
+      },
       rest,
       graded,
     );
     return { rest, graded };
   }
 
-  it('smooths the girth grading of outer-slot garments only; other slots keep legacy grading', () => {
-    const rings = buildGradeRings(item, tee, {}, planes);
-    expect(rings).toHaveLength(1); // chart 94 vs native 100 -> -6 cm
-
-    const plain = fit(tee);
-    const legacy = new Float32Array(6);
-    gradeGarment(plain.rest, binding, body, rings, legacy, sections);
-    expect(Array.from(plain.graded)).toEqual(Array.from(legacy));
+  it("leaves an outer-slot template's graded positions equal to rest when only girth rings would apply", () => {
+    const rings = buildGradeRings(item, jacket, {}, planes);
+    expect(rings).toHaveLength(1); // chart 94 vs native 100 -> delta -6 cm would apply if not outer
 
     const outer = fit(jacket);
-    const smoothed = new Float32Array(6);
-    gradeGarment(outer.rest, binding, body, rings, smoothed, sections, {
-      smoothRadiusM: OUTER_SMOOTH_RADIUS_M,
-    });
-    expect(Array.from(outer.graded)).toEqual(Array.from(smoothed));
-    // The two paths really differ on this stacked pair.
-    expect(Array.from(outer.graded)).not.toEqual(Array.from(plain.graded));
+    expect(Array.from(outer.graded)).toEqual(Array.from(outer.rest));
+  });
+
+  it('still applies girth grading to non-outer garments when the chart differs from the body', () => {
+    const rings = buildGradeRings(item, tee, {}, planes);
+    expect(rings).toHaveLength(1);
+
+    const plain = fit(tee);
+    expect(Array.from(plain.graded)).not.toEqual(Array.from(plain.rest));
+
+    const expected = new Float32Array(6);
+    gradeGarment(plain.rest, binding, body, rings, expected, sections);
+    expect(Array.from(plain.graded)).toEqual(Array.from(expected));
+  });
+
+  it('still applies length grading to outer garments when the chart length differs', () => {
+    const jacketWithLength: GarmentTemplateDef = {
+      ...jacket,
+      nativeMeasures: { ...jacket.nativeMeasures, length: 60 },
+    };
+    const itemWithLength: StoreItemDef = {
+      ...item,
+      chart: { ...item.chart, length: [70] },
+    };
+    const planesWithWaist: BodyPlanes = {
+      planeY: { waist: 1.2, chest: 1.4 },
+    };
+
+    const outer = fit(jacketWithLength, itemWithLength, planesWithWaist);
+    expect(Array.from(outer.graded)).not.toEqual(Array.from(outer.rest));
+    expect(outer.graded[1]).toBeCloseTo(0.9, 5);
+    expect(outer.graded[4]).toBeCloseTo(0.9, 5);
+    // Girth was still skipped: x and z positions remain identical to rest
+    expect(outer.graded[0]).toBe(outer.rest[0]);
+    expect(outer.graded[2]).toBe(outer.rest[2]);
+    expect(outer.graded[3]).toBe(outer.rest[3]);
+    expect(outer.graded[5]).toBe(outer.rest[5]);
   });
 });
