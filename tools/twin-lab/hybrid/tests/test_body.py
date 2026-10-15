@@ -2,8 +2,9 @@ import json
 
 import numpy as np
 import pytest
-from hybridbody.body import neck_definition, solved_body
 from synth_mh import bodyfix_solution, write_bodyfix_glb
+
+from hybridbody.body import neck_definition, solved_body
 
 
 def test_saved_solution_is_reproduced_exactly_and_marked_as_such(model, tmp_path):
