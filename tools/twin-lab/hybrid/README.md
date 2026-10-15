@@ -4,7 +4,7 @@ One artist-made template character with fixed topology, fixed UVs and a rig: the
 web app**. Nothing is scanned and no foreign head is grafted.
 
 1. **Body**: the base mesh with the solved macros and modifiers (bodyfix solution, re-solved natively on the tape
-   measurements without clothing allowance, `body.py`).
+   measurements without clothing allowance, `body.py`), with an optional `--shape-override PATH` JSON variant applied after.
 2. **Head shape**: the template's _own_ head vertices are deformed to the fitted neutral FLAME surface (non-rigid
    registration, `register.py` / `headfit.py`). Same vertices, same topology, no seam. The neck loop and everything below
    it keep their exact positions (neck girth is verified to 1e-6 cm).
@@ -36,7 +36,8 @@ tools/twin-lab/bundle/.venv/Scripts/python.exe tools/twin-lab/run_all.py --body 
 # the stage alone (refine environment)
 tools/twin-lab/refine/.venv/Scripts/python.exe tools/twin-lab/hybrid/hybrid.py \
   --bodyfix user-data/twin/out/bodyfix --measurements user-data/twin/measurements.json \
-  --out user-data/twin/out/hybrid/hybrid.glb [--hair hy3d|procedural|hair-short|hair-tousled|...] [--hair-hex #2a1e18|photo] \
+  --out user-data/twin/out/hybrid/hybrid.glb [--shape-override user-data/twin/muscular.json] \
+  [--hair hy3d|procedural|hair-short|hair-tousled|...] [--hair-hex #2a1e18|photo] \
   [--hairline-mm 68] [--hair-top-mm 55] [--hair-side-mm 8] [--hair-param NAME=VALUE ...] [--brows] \
   [--texture-size 4096] [--no-previews] [--no-deglass] [--glasses-bust user-data/twin/hy3d/hy3d.glb]
 # --hair defaults to hy3d when user-data/twin/hy3d/hy3d.glb exists, else procedural; for hy3d --hair-param takes any field of
@@ -62,7 +63,26 @@ fails (`verify_report`: neck girth, seam colour step, flipped triangles, non-man
 
 Inputs: the FLAME fit folder (`head_neutral.obj`, `cameras.json` `dt-flame-head-cameras/1`, `fitted_views/{front,right}.ply`),
 `front.jpg` / `right.jpg` with exactly the camera's original size, `FLAME_masks` + `mediapipe_landmark_embedding` from
-`user-data/flame/`, the bodyfix GLB (its `dtBodyfix` extras) and the tape `measurements.json`.
+`user-data/flame/`, the bodyfix GLB (its `dtBodyfix` extras), the tape `measurements.json`, and optional `--shape-override`.
+
+## Body shape variants (`--shape-override PATH`)
+
+`hybrid.py --shape-override PATH` applies an optional JSON shape override to macros and modifiers after the bodyfix solution or native tape re-solve:
+
+```json
+{
+  "label": "muscular",
+  "macros":       { "muscle": 0.85, "weight": 0.45 },
+  "modifiers":    { "torso/torso-muscle-pectoral": 0.6 },
+  "addModifiers": { "measure/measure-waist-circ": -0.8 }
+}
+```
+
+- `macros` and `modifiers` set values; `addModifiers` add to the solved value.
+- Values are clamped to the valid range defined by the model (macros `[0, 1]`, modifiers `[-1, 1]`).
+- Unknown macro or modifier names raise a `ValueError` (validated against `model.macro_vars` and `model.mod_index`).
+- After applying the override: body `positions` are recomputed, achieved measurements are re-evaluated (`achievedCm` / `achievedRawCm`), `targetsCm` and `residualsCm` are cleared to `{}` (the variant no longer matches the tape), and `measurementBasis` indicates the tape solve plus the named shape override.
+- Recorded in `report["body"]["shapeOverride"]`: `{"label": ..., "path": <file name only>, "applied": {...final values that were changed...}}`.
 
 ## Glasses-free photo set
 

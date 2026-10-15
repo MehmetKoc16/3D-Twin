@@ -348,6 +348,7 @@ def run(
     out,
     *,
     measurements=None,
+    shape_override=None,
     fit=None,
     photos=None,
     flame_assets=None,
@@ -382,7 +383,7 @@ def run(
 
     model = MHModel()
     log("solving the MakeHuman body")
-    combined, solution, body_report = solved_body(model, bodyfix, measurements)
+    combined, solution, body_report = solved_body(model, bodyfix, measurements, shape_override=shape_override)
     neck = neck_definition()
     face_map = read_face_map(BODY_ASSETS / "face-map.json")
     template = build_template(combined[: model.nr], model.faces, face_map, neck["verts"])

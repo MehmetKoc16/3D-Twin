@@ -85,6 +85,11 @@ def main(argv=None):
         type=Path,
         help="tape measurements: re-solve the skin body natively (no clothing allowance), starting from --bodyfix",
     )
+    parser.add_argument(
+        "--shape-override",
+        type=Path,
+        help="body shape variant JSON ({label, macros, modifiers, addModifiers}) applied after bodyfix/measurements",
+    )
     parser.add_argument("--fit", type=Path, help="FLAME fit folder (default user-data/twin/head/flame/fit)")
     parser.add_argument("--photos", type=Path, help="folder with front.jpg and right.jpg (default colab_upload)")
     parser.add_argument("--photos-set", choices=("auto", "glasses", "noglasses"), default="auto",
@@ -144,6 +149,7 @@ def main(argv=None):
             args.bodyfix,
             args.out,
             measurements=args.measurements,
+            shape_override=args.shape_override,
             fit=args.fit,
             photos=args.photos,
             photos_set=args.photos_set,
