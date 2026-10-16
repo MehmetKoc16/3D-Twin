@@ -514,6 +514,9 @@ def test_patch_glb_fill_mode_noise_and_seed_reproducibility(tmp_path):
     base_img = Image.fromarray(base_arr, mode="RGBA")
     draw = ImageDraw.Draw(base_img)
     draw.ellipse([20 - 8, 32 - 8, 20 + 8, 32 + 8], fill=(255, 255, 255, 255))
+    # Pillow's rasterized ellipse includes pixels beyond the mathematical radius.
+    # Preservation checks must use the actual input, including those logo pixels.
+    input_arr = np.array(base_img)
 
     create_synthetic_glb(src, base_img)
 
@@ -573,12 +576,12 @@ def test_patch_glb_fill_mode_noise_and_seed_reproducibility(tmp_path):
     assert not np.array_equal(img1[inner_mask], img3[inner_mask]), "Different seeds produced identical pixels"
 
     # 5. Outside circle is byte-for-byte identical to original in all cases
-    assert np.array_equal(img1[outside_mask], base_arr[outside_mask])
-    assert np.array_equal(img3[outside_mask], base_arr[outside_mask])
+    assert np.array_equal(img1[outside_mask], input_arr[outside_mask])
+    assert np.array_equal(img3[outside_mask], input_arr[outside_mask])
 
     # 6. Alpha channel preserved
-    assert np.array_equal(img1[..., 3], base_arr[..., 3])
-    assert np.array_equal(img3[..., 3], base_arr[..., 3])
+    assert np.array_equal(img1[..., 3], input_arr[..., 3])
+    assert np.array_equal(img3[..., 3], input_arr[..., 3])
 
 
 def test_patch_glb_fill_mode_explicit_normal(tmp_path):
@@ -594,6 +597,8 @@ def test_patch_glb_fill_mode_explicit_normal(tmp_path):
     base_img = Image.fromarray(base_arr, mode="RGBA")
     draw = ImageDraw.Draw(base_img)
     draw.ellipse([20 - 8, 32 - 8, 20 + 8, 32 + 8], fill=(255, 255, 255, 255))
+    # Compare preservation against the rasterized input, not the pre-logo fabric.
+    input_arr = np.array(base_img)
 
     create_synthetic_glb(src, base_img)
 
@@ -618,8 +623,8 @@ def test_patch_glb_fill_mode_explicit_normal(tmp_path):
 
     # When normal=True is explicitly given, no noise is added (std < 1.0)
     assert patched[inner_mask, :3].std(axis=0).max() < 1.0
-    assert np.array_equal(patched[outside_mask], base_arr[outside_mask])
-    assert np.array_equal(patched[..., 3], base_arr[..., 3])
+    assert np.array_equal(patched[outside_mask], input_arr[outside_mask])
+    assert np.array_equal(patched[..., 3], input_arr[..., 3])
 
 
 def test_patch_glb_fill_mode_cli_and_filtering(tmp_path):

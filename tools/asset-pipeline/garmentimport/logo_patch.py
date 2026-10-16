@@ -97,7 +97,8 @@ def apply_patch_to_image(
     orig_mode = img.mode
     # Convert palette images to RGBA to avoid palette index blending issues
     work_img = img if orig_mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
-    arr = np.array(work_img)
+    original = np.array(work_img)
+    arr = original.copy()
     is_3d = arr.ndim == 3
 
     # Target bounding box in pixel coordinates
@@ -116,7 +117,7 @@ def apply_patch_to_image(
     if not np.any(circle_mask):
         return img
 
-    tgt_box = arr[y0:y1, x0:x1].astype(np.float32)
+    tgt_box = original[y0:y1, x0:x1].astype(np.float32)
 
     if mode == "copy":
         src_x = np.round(grid_x + dx).astype(int)
@@ -131,7 +132,7 @@ def apply_patch_to_image(
 
         src_x_clamped = np.clip(src_x, 0, w - 1)
         src_y_clamped = np.clip(src_y, 0, h - 1)
-        src_box = arr[src_y_clamped, src_x_clamped].astype(np.float32)
+        src_box = original[src_y_clamped, src_x_clamped].astype(np.float32)
 
     elif mode == "fill":
         r_outer = r + float(ring)
@@ -147,13 +148,13 @@ def apply_patch_to_image(
         ring_dist = np.hypot(grid_rx - cx, grid_ry - cy)
         ring_mask = (ring_dist > r) & (ring_dist <= r_outer)
 
-        ring_box = arr[ry0:ry1, rx0:rx1]
+        ring_box = original[ry0:ry1, rx0:rx1].copy()
         if not np.any(ring_mask):
             ring_mask = (ring_dist >= r) & (ring_dist <= r_outer)
         if not np.any(ring_mask):
             ring_mask = np.ones_like(ring_dist, dtype=bool)
 
-        if is_3d and arr.shape[2] == 4:
+        if is_3d and original.shape[2] == 4:
             alpha_ring_mask = ring_mask & (ring_box[..., 3] > 0)
             if np.any(alpha_ring_mask):
                 ring_pixels = ring_box[alpha_ring_mask]
@@ -170,7 +171,7 @@ def apply_patch_to_image(
         if normal is True:
             is_normal = True
         elif normal is not False:
-            if is_3d and arr.shape[2] >= 3:
+            if is_3d and original.shape[2] >= 3:
                 med_r = float(med[0])
                 med_g = float(med[1])
                 med_b = float(med[2])
@@ -181,7 +182,7 @@ def apply_patch_to_image(
         box_h, box_w = y1 - y0, x1 - x0
 
         if is_3d:
-            num_channels = arr.shape[2]
+            num_channels = original.shape[2]
             has_alpha = (num_channels == 4)
             color_channels = 3 if has_alpha else num_channels
 
@@ -224,7 +225,7 @@ def apply_patch_to_image(
     )).astype(arr.dtype)
 
     # Only modify pixels where alpha > 0, ensuring untouched regions stay byte-for-byte identical
-    arr[y0:y1, x0:x1] = np.where(alpha_c > 0, blended, arr[y0:y1, x0:x1])
+    arr[y0:y1, x0:x1] = np.where(alpha_c > 0, blended, original[y0:y1, x0:x1])
 
     res = Image.fromarray(arr, mode=work_img.mode)
     if res.mode != orig_mode and orig_mode != "P":
