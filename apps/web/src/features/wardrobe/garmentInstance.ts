@@ -28,7 +28,7 @@ import {
   type StoreItemDef,
 } from '@dt/avatar-core';
 import { computeWeldedNormals } from '../avatar/meshMath';
-import { coveredBodyVertices } from './bodyHide';
+import { clipCoverageToHem, clipDeleteVerts, coveredBodyVertices } from './bodyHide';
 import { pushInside, pushOutside, type Surface } from './garmentCollide';
 import { boundBodyPoints, fitToChart, type BodyPlanes } from './garmentGrading';
 import type { TemplateRuntime } from './templateLoader';
@@ -84,11 +84,15 @@ export class GarmentInstance {
   private heat = false;
   /** How far the lowest vertex of the graded garment is below the floor (m, >= 0); the avatar is lifted by it. */
   soleLift = 0;
+  /** Static delete list clipped to the graded garment's lower edge; defaults to the template's full list. */
+  deleteVerts: Uint32Array;
   /** Body vertices under this garment's footprint (one byte per render vertex), computed once at the first fit. */
   coverage: Uint8Array | null = null;
   /** Incremented whenever `coverage` is recomputed, so the body index is rebuilt. */
   coverageEpoch = 0;
   private hemTucked = false;
+  private coveredBody: Float32Array | null = null;
+  private coveredHemShift = 0;
   item: StoreItemDef;
 
   constructor(
@@ -100,6 +104,7 @@ export class GarmentInstance {
     const def = runtime.def;
     const n = runtime.vertexCount;
     this.item = item;
+    this.deleteVerts = runtime.deleteVerts;
     this.rest = new Float32Array(n * 3);
     this.graded = new Float32Array(n * 3);
     this.clearance = new Float32Array(n);
@@ -171,8 +176,10 @@ export class GarmentInstance {
 
   /** Swaps the item definition (size, chart or colour changed); the caller re-runs `update`. */
   setItem(item: StoreItemDef): void {
-    if (item.selectedSize !== this.item.selectedSize || item.chart !== this.item.chart)
+    if (item.selectedSize !== this.item.selectedSize || item.chart !== this.item.chart) {
       this.coverage = null;
+      this.deleteVerts = this.runtime.deleteVerts;
+    }
     this.item = item;
     this.applyColor();
   }
@@ -247,19 +254,40 @@ export class GarmentInstance {
       offsetAlongNormals(graded, normals, offset, { outward });
     }
     const tucked = ctx.tuckedHem ?? false;
-    if (tucked !== this.hemTucked) {
-      // the hem moved (chart length applied or skipped): the body under the old footprint no longer matches
+    let restMinY = Infinity;
+    let gradedMinY = Infinity;
+    for (let i = 1; i < graded.length; i += 3) {
+      if (rest[i]! < restMinY) restMinY = rest[i]!;
+      if (graded[i]! < gradedMinY) gradedMinY = graded[i]!;
+    }
+    const hemShift = Number.isFinite(gradedMinY) && Number.isFinite(restMinY) ? gradedMinY - restMinY : 0;
+    if (
+      tucked !== this.hemTucked ||
+      this.coveredBody !== ctx.body ||
+      Math.abs(hemShift - this.coveredHemShift) > 1e-5
+    ) {
+      // the hem or body moved (chart length applied, skipped or re-graded): the old footprint no longer matches
       this.hemTucked = tucked;
       this.coverage = null;
     }
     if (this.coverage === null) {
-      this.coverage = coveredBodyVertices(
+      const rawCoverage = coveredBodyVertices(
         ctx.body,
         ctx.body.length / 3,
         graded,
         runtime.index,
         { slack: garmentSlot(def) === 'outer' ? 0 : undefined },
       );
+      this.coverage =
+        def.category === 'shoes'
+          ? rawCoverage
+          : clipCoverageToHem(rawCoverage, ctx.body, graded, { rest });
+      this.deleteVerts =
+        def.category === 'shoes' || runtime.deleteVerts.length === 0
+          ? runtime.deleteVerts
+          : clipDeleteVerts(runtime.deleteVerts, ctx.body, graded, { rest });
+      this.coveredBody = ctx.body;
+      this.coveredHemShift = hemShift;
       this.coverageEpoch++;
     }
     if (ctx.lowers.length > 0) pushOutside(graded, runtime.vertexCount, ctx.lowers);

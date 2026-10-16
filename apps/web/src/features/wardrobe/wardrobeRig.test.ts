@@ -230,4 +230,172 @@ describe('WardrobeRig outer slot', () => {
       }
     },
   );
+
+  it('reveals ankle skin (and UV-seam copies) below an 8 cm shortened trouser hem while hiding the calf and protecting hands/neck/head', async () => {
+    // Why: When the size chart inseam is 8 cm shorter than the body inseam, length grading pulls the
+    // trouser cuff up by 8 cm; the static delete list must not leave a missing-skin gap at the ankle.
+    const legBody = Float32Array.from([
+      0.08,
+      0.1,
+      0.1, // 0: ankle left (y = 0.10 m)
+      0.12,
+      0.1,
+      0.1, // 1: ankle right (y = 0.10 m)
+      0.1,
+      0.14,
+      0.1, // 2: upper ankle (y = 0.14 m, 4 cm below the 0.18 m shortened cuff)
+      0.12,
+      0.1,
+      0.1, // 3: UV-seam copy of vertex 1 at the ankle
+      0.08,
+      0.25,
+      0.1, // 4: calf left (y = 0.25 m, above the 0.18 m cuff)
+      0.12,
+      0.25,
+      0.1, // 5: calf right (y = 0.25 m, above the 0.18 m cuff)
+      0.1,
+      0.8,
+      0.1, // 6: crotch / upper leg (y = 0.80 m, inseam measure vertex)
+      0.2,
+      1.5,
+      0.1, // 7: protected hand_l
+      0.3,
+      1.5,
+      0.1, // 8: protected neck_01
+      0.2,
+      1.6,
+      0.1, // 9: protected head
+    ]);
+    const legIndices = Uint32Array.from([0, 1, 2, 0, 3, 2, 4, 5, 6, 7, 8, 9]);
+    const trouserDef: GarmentTemplateDef = {
+      id: 'trousers',
+      category: 'bottom',
+      kind: 'pants',
+      layer: 1,
+      label: { tr: 'trousers', en: 'trousers' },
+      mesh: 'test.glb',
+      license: 'CC0-1.0',
+      nativeMeasures: { inseam: 72 },
+      defaultEase: { inseam: 0 },
+      baseColor: '#888888',
+    };
+    const trouserPositions = Float32Array.from([
+      0.08, 0.1, 0.104, 0.12, 0.1, 0.104, 0.12, 0.8, 0.104, 0.08, 0.8, 0.104,
+    ]);
+    const trouserRuntime: TemplateRuntime = {
+      def: trouserDef,
+      vertexCount: 4,
+      index: Uint32Array.from([0, 1, 2, 0, 2, 3]),
+      uv: new Float32Array(8),
+      neutralPositions: trouserPositions,
+      binding: {
+        count: 4,
+        indices: Uint32Array.from([0, 0, 0, 1, 1, 1, 5, 6, 6, 4, 6, 6]),
+        weights: Float32Array.from([1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0]),
+        offsets: Float32Array.from([0, 0, 0.004, 0, 0, 0.004, 0.02, 0, 0.004, -0.02, 0, 0.004]),
+      },
+      skinIndices: new Uint16Array(16),
+      skinWeights: Float32Array.from([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]),
+      weld: buildWeldMap(trouserPositions),
+      // Includes ankle (0, 1, 2), calf (4, 5, 6), and protected (7, 8, 9); 3 is a seam copy of 1
+      deleteVerts: Uint32Array.from([0, 1, 2, 4, 5, 6, 7, 8, 9]),
+      rigidAttachments: null,
+      material: new MeshStandardMaterial(),
+    };
+    vi.mocked(loadTemplateRuntime).mockResolvedValue(trouserRuntime);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          version: 1,
+          measures: [{ id: 'inseam', type: 'vertexHeight', vert: 6, drivers: [] }],
+        }),
+      })),
+    );
+    useWardrobeStore.setState({
+      templates: [trouserDef],
+      catalogStatus: 'ready',
+      hydrated: true,
+      heatmap: false,
+      items: [
+        {
+          id: 'trousers',
+          name: 'trousers',
+          templateId: 'trousers',
+          color: '#888888',
+          sizes: ['Regular', 'Short'],
+          selectedSize: 'Regular',
+          chart: { inseam: [72, 64] },
+        },
+      ],
+      worn: { bottom: 'trousers' },
+    });
+
+    const avatar = assets();
+    avatar.mesh.geometry.setAttribute('position', new BufferAttribute(legBody.slice(), 3));
+    avatar.mesh.geometry.setAttribute(
+      'skinIndex',
+      new BufferAttribute(
+        Uint16Array.from([
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0,
+          0, 0, 1, 0, 0, 0, 3, 0, 0, 0,
+        ]),
+        4,
+      ),
+    );
+    avatar.mesh.geometry.setAttribute(
+      'skinWeight',
+      new BufferAttribute(
+        Float32Array.from({ length: 40 }, (_, i) => (i % 4 === 0 ? 1 : 0)),
+        4,
+      ),
+    );
+    avatar.mesh.geometry.setIndex(new BufferAttribute(legIndices, 1));
+    avatar.indices = legIndices;
+    avatar.weld = buildWeldMap(legBody);
+
+    const rig = new WardrobeRig(avatar);
+    const envelope: SolveEnvelope = {
+      params: { gender: 0.5, heightCm: 170, weightKg: 70, shoe: { system: 'EU', size: 42 } },
+      roundTripMs: 0,
+      result: {
+        positions: legBody,
+        joints: Float32Array.from([
+          0, 1, 0, 0, 1.1, 0, 0, 1.4, 0, 0, 1.5, 0, 0.3, 1.2, 0, 0.3, 1.3, 0, 0, 1.5, 0, 0, 1.6, 0,
+        ]),
+        groundOffsetY: 0,
+        achievedCm: { inseam: 72 },
+        residualsCm: {},
+        unreachable: [],
+        estimatedMassKg: 70,
+        solveMs: 0,
+      },
+    };
+    try {
+      rig.onSolve(envelope);
+      await vi.waitFor(() =>
+        expect(avatar.scene.getObjectByName('garment:trousers')).toBeDefined(),
+      );
+      // Regular (72 cm, unchanged length): ankle + seam copy + calf are hidden; only protected [7, 8, 9] remains.
+      expect(Array.from(avatar.mesh.geometry.getIndex()!.array)).toEqual([7, 8, 9]);
+
+      // Switch to Short (64 cm, 8 cm shorter): cuff rises to y = 0.18 m; ankle [0, 1, 2] and seam copy [0, 3, 2]
+      // are > 1 cm below the new cuff and become visible again, while calf [4, 5, 6] stays hidden.
+      useWardrobeStore.setState((state) => ({
+        items: state.items.map((item) => ({ ...item, selectedSize: 'Short' })),
+      }));
+      await vi.waitFor(() =>
+        expect(Array.from(avatar.mesh.geometry.getIndex()!.array)).toEqual([
+          0, 1, 2, 0, 3, 2, 7, 8, 9,
+        ]),
+      );
+    } finally {
+      rig.dispose();
+      avatar.mesh.geometry.dispose();
+      avatar.material.dispose();
+      avatar.skeleton.dispose();
+      trouserRuntime.material.dispose();
+    }
+  });
 });

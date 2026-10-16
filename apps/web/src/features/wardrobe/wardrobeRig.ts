@@ -341,7 +341,7 @@ export class WardrobeRig {
     }
     const count = geometry.getAttribute('position').count;
     const mask = combinedHiddenMask(
-      parts.map((i) => i.runtime.deleteVerts),
+      parts.map((i) => i.deleteVerts),
       parts.map((i) => i.coverage),
       count,
       this.assets.weld,
