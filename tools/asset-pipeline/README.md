@@ -391,6 +391,29 @@ the rigid sole segments. It uses textured face shading, without PBR normal maps,
 Use the required venv for tests and an explicit `--basetemp` under `.cache`; Windows test scratch directories keep
 inherited ACLs so the restricted process can access them.
 
+### Automatic shoe alignment (`shoe_align`)
+
+Generate an orientation-preserving row-major 4x4 sidecar for one left shoe. Run from `tools/asset-pipeline` using the existing venv; no environment setup or download is needed:
+
+```powershell
+.venv/Scripts/python.exe -m garmentimport.shoe_align SOURCE.glb --out alignment.json --up +y --toe -x
+```
+
+Supported options: repeatable `--node NAME` and `--exclude-material NAME`, `--up auto|+x|-x|+y|-y|+z|-z`, `--toe auto|+x|-x|+y|-y|+z|-z`, `--toe-flip`, `--side left|right`, `--length-margin-cm 1.2`, `--wall-allowance-cm 0.8`, `--body PATH`, and `--report PATH`. Signed axes work with either `--toe -x` or `--toe=-x`.
+
+The default up axis is `+y` for glTF/GLB and `auto` for OBJ. Automatic up detection scores broad supporting planes from the convex hull, rather than assuming that a short PCA axis is vertical. Automatic toe detection uses horizontal PCA and the higher heel collar/lower toe heuristic. An explicit toe axis must be perpendicular to up and fixes its sign. Horizontal PCA still corrects yaw around up, capped at ±30 degrees. Nearby footprint support edges (within five degrees of PCA) refine the bounding rectangle to remove arch/toe bias; this preserves exact cardinal alignment while correcting even small diagonal rotations. `--toe-flip` reverses the final direction, including an explicit override.
+
+The target geometry comes from `garmentimport.body.load_body` and the neutral body's weighted `foot_l`/`ball_l` vertices; missing or invalid body assets fail instead of substituting guessed dimensions. Uniform scale is `(foot length + inner margin + wall allowance) / source toe-axis length`, so meter and centimeter sources follow the same calculation. The source maps to +Y up and +Z toe, with positive determinant, sole minimum at `y=0`, heel 5 mm behind the target heel, and lateral bounds centered on the left foot (+X). Right shoes cannot be converted into left shoes by a positive-determinant transform: `--side right` is rejected, as are confidently detected right shoes in automatic mode. Verify side warnings when overriding toe direction; import the authored left shoe and use the importer's `--mirror-pair` for its partner.
+
+The output contains only `pose` and `matrix`, compatible with `garment_import.py --category shoes --transform alignment.json`. Apply it as `points @ M[:3,:3].T + M[:3,3]`. The adjacent `alignment.report.json` (or `<output-stem>.report.json`) records axes, yaw correction in degrees, uniform scale, source dimensions in source units, target dimensions in meters, confidence scores, diagnostics, and warnings. `--report PATH` writes an additional report copy. Automatic sole, toe, and side decisions are geometric heuristics; inspect symmetric shoes, uneven soles, high boots, and multi-object selections.
+
+Focused regression command (cwd `tools/asset-pipeline`; the scratch path is relative to that directory):
+
+```powershell
+.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider --basetemp .cache/pt-codex tests/test_shoe_align.py
+```
+
+
 ## Body parts (Wave 3d)
 
 `build.py` also writes `apps/web/public/assets/parts/` (`index.json` = `{ version: 1, parts: BodyPartDef[], defaults:
