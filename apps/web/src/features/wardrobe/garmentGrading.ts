@@ -219,11 +219,10 @@ export interface ChartFitInput {
 export function fitToChart(input: ChartFitInput, rest: Float32Array, graded: Float32Array): void {
   const { def, item, binding, body, sections, achievedCm, planes } = input;
   bindGarment(binding, def.scaleRefs, body, rest);
+  const rings = planes ? buildGradeRings(item, def, bodyCmFromSolve(achievedCm), planes) : [];
   if (garmentSlot(def) === 'outer') {
-    // Outer garments skip girth grading to avoid tearing stacked parts (buttons, flaps, plackets); the fit report still evaluates girth against the chart.
-    graded.set(rest);
+    gradeGarment(rest, binding, body, rings, graded, sections, { outer: true });
   } else {
-    const rings = planes ? buildGradeRings(item, def, bodyCmFromSolve(achievedCm), planes) : [];
     gradeGarment(rest, binding, body, rings, graded, sections);
   }
   const options: LengthGradeOptions = { tuckedHem: input.tuckedHem ?? false };
