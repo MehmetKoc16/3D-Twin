@@ -195,8 +195,8 @@ export class WardrobeRig {
   }
 
   /**
-   * Inner garments an item is layered over: trousers over shoes and over a tucked top; an untucked top over trousers
-   * of a lower layer number.
+   * Inner garments an item is layered over: trousers over a tucked top (shoes are flared via ctx.shoes); an untucked
+   * top over trousers of a lower layer number.
    */
   private lowersOf(category: GarmentSlot, instance: GarmentInstance): Surface[] {
     if (category === 'outer') {
@@ -206,9 +206,8 @@ export class WardrobeRig {
       });
     }
     if (category === 'bottom') {
-      const shoes = this.instances.get('shoes');
       const tucked = this.tuckedTop();
-      return [...(shoes ? [shoes.surface()] : []), ...(tucked ? [tucked.surface()] : [])];
+      return tucked ? [tucked.surface()] : [];
     }
     if (category === 'top') {
       if (this.tuckedTop()) return [];
@@ -250,6 +249,7 @@ export class WardrobeRig {
       planes: this.planes,
       heatmap: this.heatmap,
       lowers: this.lowersOf(category, instance),
+      shoes: category === 'bottom' ? this.instances.get('shoes')?.surface() : undefined,
       normalOffsetM: offsets.get(category),
       tuckedHem: tucked !== undefined && category === 'top',
     });
@@ -289,10 +289,12 @@ export class WardrobeRig {
         if (outer.coverageEpoch !== epoch) coverageReady = true;
       });
     }
+    const shoes = this.instances.get('shoes');
     const top = this.instances.get('top');
     const bottom = this.instances.get('bottom');
     const outerSurface = this.instances.get('outer')?.surface();
     // Always start from each complete index; removing an outer layer restores the inner garment.
+    shoes?.hideUnder(bottom ? [bottom.surface()] : null);
     top?.hideUnder([
       ...(tucked && bottom ? [bottom.surface()] : []),
       ...(outerSurface ? [outerSurface] : []),

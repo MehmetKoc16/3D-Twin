@@ -30,6 +30,7 @@ import {
 import { computeWeldedNormals } from '../avatar/meshMath';
 import { clipCoverageToHem, clipDeleteVerts, coveredBodyVertices } from './bodyHide';
 import { pushInside, pushOutside, type Surface } from './garmentCollide';
+import { flareOverShoes } from './garmentFlare';
 import { boundBodyPoints, fitToChart, type BodyPlanes } from './garmentGrading';
 import type { TemplateRuntime } from './templateLoader';
 
@@ -46,6 +47,8 @@ export interface GarmentUpdateContext {
   heatmap: boolean;
   /** Inner garments this one is worn over (shoes under trousers, trousers under a jumper). */
   lowers: readonly Surface[];
+  /** Optional shoe surface worn under trousers: flared radially over the shoes instead of pushOutside. */
+  shoes?: Surface;
   /** A tucked top worn with a bottom: the chart's hem length is not applied (the hem stays inside the trousers). */
   tuckedHem?: boolean;
   /** Absolute normal expansion, ordered above all inner garments by the rig. */
@@ -290,6 +293,9 @@ export class GarmentInstance {
       this.coveredHemShift = hemShift;
       this.coverageEpoch++;
     }
+    if (garmentSlot(def) === 'bottom' && ctx.shoes) {
+      flareOverShoes(graded, runtime.vertexCount, ctx.shoes);
+    }
     if (ctx.lowers.length > 0) pushOutside(graded, runtime.vertexCount, ctx.lowers);
   }
 
@@ -338,9 +344,13 @@ export class GarmentInstance {
 
   /**
    * Drops the triangles of this (inner) garment that lie inside the footprint of the outer garment, so that trousers
-   * do not poke through a jumper hem between its sparse vertices. `null` restores every triangle.
+   * do not poke through a jumper hem between its sparse vertices, or shoe ankles do not poke through a trouser cuff.
+   * `null` restores every triangle.
    */
-  hideUnder(outer: Surface | readonly Surface[] | null): void {
+  hideUnder(
+    outer: Surface | readonly Surface[] | null,
+    options?: { bandM?: number; slack?: number },
+  ): void {
     if (garmentSlot(this.runtime.def) === 'outer') {
       if (!this.hiddenByOuter) return;
       this.indexArray.set(this.runtime.index);
@@ -359,6 +369,8 @@ export class GarmentInstance {
       this.hiddenByOuter = false;
       return;
     }
+    const bandM = options?.bandM ?? 0.02;
+    const slack = options?.slack ?? 0;
     const covered = new Uint8Array(this.runtime.vertexCount);
     for (const surface of surfaces) {
       const mask = coveredBodyVertices(
@@ -366,7 +378,7 @@ export class GarmentInstance {
         this.runtime.vertexCount,
         surface.positions,
         surface.index,
-        { bandM: 0.02, slack: 0 },
+        { bandM, slack },
       );
       for (let v = 0; v < covered.length; v++) covered[v] = covered[v]! | mask[v]!;
     }
