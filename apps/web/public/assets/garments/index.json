@@ -427,6 +427,129 @@
       "layer": 3,
       "baseColor": "#444961",
       "deleteVerts": "mh-denim-jacket.delete.bin"
+    },
+    {
+      "id": "sf-sneakers-lowpoly",
+      "kind": "sneakers",
+      "category": "shoes",
+      "label": {
+        "tr": "Kanvas spor ayakkab\u0131",
+        "en": "Canvas sneakers"
+      },
+      "license": "CC-BY-4.0",
+      "attribution": "\"Sneakers Low Poly\" by Mesh Artech, https://sketchfab.com/3d-models/sneakers-low-poly-b8ade0cd40c449ff8870958c7460cebd, CC-BY-4.0. Changes: sock removed, mirrored pair, converted and re-bound. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "https://sketchfab.com/3d-models/sneakers-low-poly-b8ade0cd40c449ff8870958c7460cebd sha256:050c0c76126a4a5c1a7e2c597d9708616945e9ad04236ca41019590f45914fbe",
+      "mesh": "sf-sneakers-lowpoly.glb",
+      "binding": "sf-sneakers-lowpoly.bind.bin",
+      "scaleRefs": {
+        "x": [
+          2519,
+          9752,
+          1.0516400020569563
+        ],
+        "y": [
+          7041,
+          942,
+          1.6593766714213416
+        ],
+        "z": [
+          4615,
+          3223,
+          0.4300433255266398
+        ]
+      },
+      "nativeMeasures": {
+        "footLength": 23.9
+      },
+      "defaultEase": {
+        "footLength": 0.5
+      },
+      "layer": 1,
+      "baseColor": "#a69c8f",
+      "deleteVerts": "sf-sneakers-lowpoly.delete.bin",
+      "rigidAttachments": "sf-sneakers-lowpoly.rigid.json"
+    },
+    {
+      "id": "sf-converse-style",
+      "kind": "sneakers",
+      "category": "shoes",
+      "label": {
+        "tr": "Bilekli kanvas ayakkab\u0131",
+        "en": "High-top canvas sneakers"
+      },
+      "license": "CC-BY-4.0",
+      "attribution": "\"Generic Converse style Sneakers\" by theunclerulez, https://sketchfab.com/3d-models/generic-converse-style-sneakers-f7858a5612504c4193ca4c61125d6244, CC-BY-4.0. Changes: logo removed, mirrored pair, converted and re-bound. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "https://sketchfab.com/3d-models/generic-converse-style-sneakers-f7858a5612504c4193ca4c61125d6244 sha256:370692f101a8c723c1cd92d9a423aa068c2a0ba7be61abbc4dc8e0c3691b95b3",
+      "mesh": "sf-converse-style.glb",
+      "binding": "sf-converse-style.bind.bin",
+      "scaleRefs": {
+        "x": [
+          2519,
+          9752,
+          1.0516400020569563
+        ],
+        "y": [
+          7041,
+          942,
+          1.6593766714213416
+        ],
+        "z": [
+          4615,
+          3223,
+          0.4300433255266398
+        ]
+      },
+      "nativeMeasures": {
+        "footLength": 23.9
+      },
+      "defaultEase": {
+        "footLength": 0.5
+      },
+      "layer": 1,
+      "baseColor": "#9a8181",
+      "deleteVerts": "sf-converse-style.delete.bin",
+      "rigidAttachments": "sf-converse-style.rigid.json"
+    },
+    {
+      "id": "sf-dad-sneaker",
+      "kind": "sneakers",
+      "category": "shoes",
+      "label": {
+        "tr": "Kal\u0131n tabanl\u0131 beyaz spor ayakkab\u0131",
+        "en": "Chunky white sneakers"
+      },
+      "license": "CC-BY-4.0",
+      "attribution": "\"Clunky White Dad Sneaker Shoe Scan\" by lzou, https://sketchfab.com/3d-models/clunky-white-dad-sneaker-shoe-scan-5630902088d14774aabb7d0bc9a2d672, CC-BY-4.0. Changes: mirrored pair, converted and re-bound. Changes: aligned, proxy reposed where needed, clearance fitted, triangle bound, UV islands simplified where needed, PBR maps baked/downscaled, converted to glTF.",
+      "source": "https://sketchfab.com/3d-models/clunky-white-dad-sneaker-shoe-scan-5630902088d14774aabb7d0bc9a2d672 sha256:b31c560c8cfabee94a82e5eca60698956275b2000a99465037b189691f05cae5",
+      "mesh": "sf-dad-sneaker.glb",
+      "binding": "sf-dad-sneaker.bind.bin",
+      "scaleRefs": {
+        "x": [
+          2519,
+          9752,
+          1.0516400020569563
+        ],
+        "y": [
+          7041,
+          942,
+          1.6593766714213416
+        ],
+        "z": [
+          4615,
+          3223,
+          0.4300433255266398
+        ]
+      },
+      "nativeMeasures": {
+        "footLength": 23.9
+      },
+      "defaultEase": {
+        "footLength": 0.5
+      },
+      "layer": 1,
+      "baseColor": "#7f7e7c",
+      "deleteVerts": "sf-dad-sneaker.delete.bin",
+      "rigidAttachments": "sf-dad-sneaker.rigid.json"
     }
   ]
 }

@@ -72,6 +72,21 @@ candidates that are not in `index.json` are not shipped assets and are credited 
   reconstructed on the neutral body using authored MHCLO bindings, subdivided once, clearance fitted, sole/heel
   attached rigidly to foot and ball bones, texture baked/downscaled to 1024 px with UV-edge padding, converted to
   the wardrobe glTF format. Replaces the retired Shopify/Khronos shoe after visual defect review.
+- **"Sneakers Low Poly"** (`sf-sneakers-lowpoly`) by **Mesh Artech**
+  ([Sketchfab](https://sketchfab.com/3d-models/sneakers-low-poly-b8ade0cd40c449ff8870958c7460cebd)), licensed
+  **CC BY 4.0** (<https://creativecommons.org/licenses/by/4.0/>). Modified: sock and right-shoe geometry removed, the
+  left shoe aligned to the body's foot and mirrored into a pair, sole/heel attached rigidly to foot and ball bones,
+  texture baked to 1024 px, converted to the wardrobe glTF format.
+- **"Generic "Converse style" Sneakers"** (`sf-converse-style`) by **theunclerulez**
+  ([Sketchfab](https://sketchfab.com/3d-models/generic-converse-style-sneakers-f7858a5612504c4193ca4c61125d6244)),
+  licensed **CC BY 4.0** (<https://creativecommons.org/licenses/by/4.0/>). Modified: the star logo patches removed
+  from the colour, roughness and normal textures, one shoe aligned to the body's foot and mirrored into a pair, sole
+  attached rigidly, texture baked to 1024 px, converted to the wardrobe glTF format. Not affiliated with Converse.
+- **"Clunky White Dad Sneaker Shoe Scan"** (`sf-dad-sneaker`) by **lzou**
+  ([Sketchfab](https://sketchfab.com/3d-models/clunky-white-dad-sneaker-shoe-scan-5630902088d14774aabb7d0bc9a2d672)),
+  licensed **CC BY 4.0** (<https://creativecommons.org/licenses/by/4.0/>). Modified: rescaled from centimetres,
+  aligned to the body's foot and mirrored into a pair, sole attached rigidly, texture baked to 1024 px, converted to
+  the wardrobe glTF format.
 - **"Denim Jacket"** (`mh-denim-jacket`) by **punkduck**, MakeHuman community assets
   (<http://www.makehumancommunity.org/clothes/denim_jacket.html>), licensed **CC BY 3.0**
   (<https://creativecommons.org/licenses/by/3.0/>; the `.mhclo` header states "CC BY 3.0"). Modified: converted and
@@ -157,7 +172,7 @@ The shape adapter replaces Hunyuan postprocessing rather than importing/installi
 
 Checked against tracked public assets, asset-pipeline configuration/catalogues, vendored shader notices and the local
 non-personal source/model cache manifests. All shipped garment templates (seven original MakeHuman ones, five more
-MakeHuman ones and Comfortable sneakers) and the listed body parts have entries above; every CC-BY garment retains its
+MakeHuman ones, Comfortable sneakers and three Sketchfab sneakers) and the listed body parts have entries above; every CC-BY garment retains its
 author, source link, exact licence version and adaptation description. The original `culturalibre_sneakers` source
 says CC BY without a version; the exported catalogue assumes 4.0. That assumption is recorded, not independent
 verification of an upstream version.
