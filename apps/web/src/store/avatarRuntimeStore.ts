@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Bone, Skeleton } from 'three';
+import type { Bone, Skeleton, SkinnedMesh } from 'three';
 
 /**
  * Runtime handles of the loaded avatar.
@@ -7,6 +7,8 @@ import type { Bone, Skeleton } from 'three';
  */
 export interface AvatarRuntimeState {
   skeleton: Skeleton | null;
+  /** SkinnedMesh of the avatar when loaded. */
+  mesh: SkinnedMesh | null;
   /** Bones by rig.json name. Empty until the avatar has loaded. */
   bones: ReadonlyMap<string, Bone>;
   /** Incremented every time the skeleton rest pose is rebuilt after a body-shape change. */
@@ -20,14 +22,27 @@ export interface AvatarRuntimeState {
 
 export const useAvatarRuntimeStore = create<AvatarRuntimeState>((set) => ({
   skeleton: null,
+  mesh: null,
   bones: new Map(),
   restVersion: 0,
   faceTextureRevision: 0,
   setFaceTextureRevision: (faceTextureRevision) => set({ faceTextureRevision }),
-  setSkeleton: (skeleton) =>
+  setSkeleton: (skeleton) => {
+    let mesh: SkinnedMesh | null = null;
+    const root = skeleton?.bones[0];
+    const parent = root?.parent;
+    if (parent) {
+      parent.traverse((child) => {
+        if (!mesh && (child as SkinnedMesh).isSkinnedMesh) {
+          mesh = child as SkinnedMesh;
+        }
+      });
+    }
     set({
       skeleton,
+      mesh,
       bones: new Map(skeleton ? skeleton.bones.map((bone) => [bone.name, bone]) : []),
-    }),
+    });
+  },
   bumpRestVersion: () => set((state) => ({ restVersion: state.restVersion + 1 })),
 }));

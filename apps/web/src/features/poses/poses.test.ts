@@ -12,7 +12,13 @@ import {
   type RigDef,
 } from '@dt/avatar-core';
 import { primitive, parseGlb } from '../wardrobe/realAssets.testkit';
-import { blendQuaternion, easeInOut, parsePoseDef } from './poseEngine';
+import {
+  adaptHandsOnHipsPose,
+  blendQuaternion,
+  computeHipHalfWidth,
+  easeInOut,
+  parsePoseDef,
+} from './poseEngine';
 
 const readAsset = <T>(asset: string): T =>
   JSON.parse(
@@ -293,6 +299,9 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
     parseGlb(readFileSync(new URL('../../../public/assets/body/base.glb', import.meta.url))),
   );
   const { position, joints, weights } = mesh;
+  if (!joints || !weights) {
+    throw new Error('base.glb has no skin');
+  }
   const vertexCount = position.length / 3;
 
   function skinPose(
@@ -366,40 +375,42 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
     return count;
   }
 
+  const morphFile = readFileSync(
+    new URL('../../../public/assets/body/morphs.bin', import.meta.url),
+  );
+  const morphBytes = morphFile.buffer.slice(
+    morphFile.byteOffset,
+    morphFile.byteOffset + morphFile.byteLength,
+  );
+  const combined = buildBasePositions(position, manifest);
+  const neutral = new Float32Array(combined.length);
+  applyMorphs(combined, morphBytes, manifest, macroWeights(manifest, {}), neutral);
+  const neutralPoint = (ref: JointRef) => {
+    if (ref.strategy !== 'VERTEX') throw new Error('Expected a joint point');
+    return new Vector3(
+      neutral[3 * ref.vert]!,
+      neutral[3 * ref.vert + 1]!,
+      neutral[3 * ref.vert + 2]!,
+    );
+  };
+  const vertex = (positions: ArrayLike<number>, i: number) =>
+    new Vector3(positions[3 * i]!, positions[3 * i + 1]!, positions[3 * i + 2]!);
+  const dominantBones = Array.from({ length: vertexCount }, (_, i) => {
+    let strongest = 0;
+    for (let k = 1; k < 4; k++) {
+      if (weights[4 * i + k]! > weights[4 * i + strongest]!) strongest = k;
+    }
+    return rig.bones[joints[4 * i + strongest]!]!.name;
+  });
+  const thighBoneDef = rig.bones.find((b) => b.name === 'thigh_l')!;
+  const neutralHip = neutralPoint(thighBoneDef.head);
+  const neutralHipHalfWidth = computeHipHalfWidth(neutral, neutralHip);
+
   it.each(['l', 'r'])('rests the %s hand on the hip surface without penetration', (side) => {
     if (!joints || !weights) throw new Error('base.glb has no skin');
     const value = pose('hands-on-hips');
-    // The neutral body (macro defaults) is wider at the hips than the raw base mesh: test the pose on that, with the
-    // joint points moved by the same morphs.
-    const morphFile = readFileSync(
-      new URL('../../../public/assets/body/morphs.bin', import.meta.url),
-    );
-    const morphBytes = morphFile.buffer.slice(
-      morphFile.byteOffset,
-      morphFile.byteOffset + morphFile.byteLength,
-    );
-    const combined = buildBasePositions(position, manifest);
-    const neutral = new Float32Array(combined.length);
-    applyMorphs(combined, morphBytes, manifest, macroWeights(manifest, {}), neutral);
-    const neutralPoint = (ref: JointRef) => {
-      if (ref.strategy !== 'VERTEX') throw new Error('Expected a joint point');
-      return new Vector3(
-        neutral[3 * ref.vert]!,
-        neutral[3 * ref.vert + 1]!,
-        neutral[3 * ref.vert + 2]!,
-      );
-    };
     const state = fk(value, neutralPoint);
     const posed = skinPose(value, neutralPoint, neutral);
-    const vertex = (positions: ArrayLike<number>, i: number) =>
-      new Vector3(positions[3 * i]!, positions[3 * i + 1]!, positions[3 * i + 2]!);
-    const dominantBones = Array.from({ length: vertexCount }, (_, i) => {
-      let strongest = 0;
-      for (let k = 1; k < 4; k++) {
-        if (weights[4 * i + k]! > weights[4 * i + strongest]!) strongest = k;
-      }
-      return rig.bones[joints[4 * i + strongest]!]!.name;
-    });
     const handIds = dominantBones.flatMap((name, i) =>
       /^(hand|thumb|index|middle|ring|pinky)_/.test(name) && name.endsWith(`_${side}`) ? [i] : [],
     );
@@ -562,6 +573,284 @@ describe('wrists under linear blend skinning on the real mannequin', () => {
         );
       });
     }
+  });
+
+  const testShapes = [
+    { name: 'thin male', gender: 1.0, weight: 0.0 },
+    { name: 'average male', gender: 1.0, weight: 0.5 },
+    { name: 'heavy male', gender: 1.0, weight: 1.0 },
+    { name: 'thin female', gender: 0.0, weight: 0.0 },
+    { name: 'average female', gender: 0.0, weight: 0.5 },
+    { name: 'heavy female', gender: 0.0, weight: 1.0 },
+  ] as const;
+
+  describe('hands-on-hips runtime adaptation across body shapes', () => {
+    // WHY / NEDEN: Static wrist targets penetrate wide female hips (-1.71 cm on heavy female) and float on thin males (+4.63 cm).
+    // Runtime adaptation must ensure 0 triangle intersections and keep clearance strictly within 0.5-2.0 cm (never exceeding 3 cm).
+    it.each(testShapes)(
+      'rests hands on hips with 0 triangle penetrations and clearance in 0.5-2.0 cm on $name',
+      ({ name, gender, weight }) => {
+        const bodyPositions = new Float32Array(combined.length);
+        applyMorphs(
+          combined,
+          morphBytes,
+          manifest,
+          macroWeights(manifest, { gender, weight }),
+          bodyPositions,
+        );
+        const bodyPoint = (ref: JointRef) => {
+          if (ref.strategy !== 'VERTEX') throw new Error('Expected a joint point');
+          return new Vector3(
+            bodyPositions[3 * ref.vert]!,
+            bodyPositions[3 * ref.vert + 1]!,
+            bodyPositions[3 * ref.vert + 2]!,
+          );
+        };
+
+        const basePose = pose('hands-on-hips');
+        const adapted = adaptHandsOnHipsPose(basePose, {
+          positions: bodyPositions,
+          pointOf: bodyPoint,
+          neutralHipHalfWidth,
+        });
+
+        const state = fk(adapted, bodyPoint);
+        const posed = skinPose(adapted, bodyPoint, bodyPositions);
+
+        // Body triangles (pelvis, spine, thigh)
+        const bodyTriangles: Triangle[] = [];
+        for (let t = 0; t < mesh.indices.length; t += 3) {
+          const a = mesh.indices[t]!;
+          const b = mesh.indices[t + 1]!;
+          const c = mesh.indices[t + 2]!;
+          if ([a, b, c].every((i) => /^(pelvis|spine_|thigh_)/.test(dominantBones[i]!))) {
+            bodyTriangles.push(new Triangle(vertex(posed, a), vertex(posed, b), vertex(posed, c)));
+          }
+        }
+
+        const signedDistance = (p: Vector3) => {
+          let nearest = Infinity;
+          let signed = Infinity;
+          const closest = new Vector3();
+          const normal = new Vector3();
+          for (const triangle of bodyTriangles) {
+            triangle.closestPointToPoint(p, closest);
+            const distance = p.distanceTo(closest);
+            if (distance < nearest) {
+              nearest = distance;
+              signed =
+                p.clone().sub(closest).dot(triangle.getNormal(normal)) < 0 ? -distance : distance;
+            }
+          }
+          return signed;
+        };
+
+        for (const side of ['l', 'r'] as const) {
+          const handIds = dominantBones.flatMap((boneName, i) =>
+            /^(hand|thumb|index|middle|ring|pinky)_/.test(boneName) && boneName.endsWith(`_${side}`)
+              ? [i]
+              : [],
+          );
+          const uniqueHand = [
+            ...new Map(handIds.map((i) => [vertex(position, i).toArray().join(','), i])).values(),
+          ];
+          const centroid = uniqueHand
+            .reduce((sum, i) => sum.add(vertex(posed, i)), new Vector3())
+            .divideScalar(uniqueHand.length);
+          const hip = state.joint(`thigh_${side}`);
+
+          expect(Math.abs(centroid.y - hip.y), `${name} ${side} hip height`).toBeLessThan(0.15);
+          expect(
+            centroid.x * (side === 'l' ? 1 : -1),
+            `${name} ${side} same-side hip`,
+          ).toBeGreaterThan(Math.abs(hip.x));
+
+          const centroidDistance = signedDistance(centroid);
+          expect(centroidDistance, `${name} ${side} hand centroid outside body`).toBeGreaterThan(0);
+          expect(centroidDistance, `${name} ${side} hand centroid to hip surface`).toBeLessThan(
+            0.07,
+          );
+
+          const clearances = uniqueHand.map((i) => signedDistance(vertex(posed, i)));
+          const minClearance = Math.min(...clearances);
+
+          // 1. el avucu/serçe kenarı kalça yüzeyine 0.5–2 cm mesafede dursun
+          expect(
+            minClearance,
+            `${name} ${side} minimum clearance >= 0.5 cm`,
+          ).toBeGreaterThanOrEqual(0.005);
+          expect(minClearance, `${name} ${side} minimum clearance <= 2.0 cm`).toBeLessThanOrEqual(
+            0.02,
+          );
+          // 2. en yakın el-gövde mesafesi 3 cm'yi geçmesin (el havada kalmasın)
+          expect(minClearance, `${name} ${side} not in air (< 3 cm)`).toBeLessThan(0.03);
+
+          // 3. hiçbir gövde şeklinde içeri girmesin (0 el-gövde üçgen kesişimi)
+          const handSet = new Set(handIds);
+          const handTriangles: Triangle[] = [];
+          for (let t = 0; t < mesh.indices.length; t += 3) {
+            const a = mesh.indices[t]!;
+            const b = mesh.indices[t + 1]!;
+            const c = mesh.indices[t + 2]!;
+            if (handSet.has(a) && handSet.has(b) && handSet.has(c)) {
+              handTriangles.push(
+                new Triangle(vertex(posed, a), vertex(posed, b), vertex(posed, c)),
+              );
+            }
+          }
+          expect(
+            countIntersectingPairs(handTriangles, bodyTriangles),
+            `${name} ${side} hand/body triangle pairs`,
+          ).toBe(0);
+        }
+      },
+    );
+
+    // WHY / NEDEN: Left and right arm/hand rotations and joint positions must be exact mirror reflections across X.
+    it.each(testShapes)(
+      'mirrors every adapted rotation and joint position on $name',
+      ({ name, gender, weight }) => {
+        const bodyPositions = new Float32Array(combined.length);
+        applyMorphs(
+          combined,
+          morphBytes,
+          manifest,
+          macroWeights(manifest, { gender, weight }),
+          bodyPositions,
+        );
+        const bodyPoint = (ref: JointRef) => {
+          if (ref.strategy !== 'VERTEX') throw new Error('Expected a joint point');
+          return new Vector3(
+            bodyPositions[3 * ref.vert]!,
+            bodyPositions[3 * ref.vert + 1]!,
+            bodyPositions[3 * ref.vert + 2]!,
+          );
+        };
+
+        const basePose = pose('hands-on-hips');
+        const adapted = adaptHandsOnHipsPose(basePose, {
+          positions: bodyPositions,
+          pointOf: bodyPoint,
+          neutralHipHalfWidth,
+        });
+        const state = fk(adapted, bodyPoint);
+
+        for (const bone of rig.bones.filter(({ name: boneName }) => boneName.endsWith('_l'))) {
+          const rightName = bone.name.replace(/_l$/, '_r');
+          const left = adapted.bones[bone.name] ?? [0, 0, 0, 1];
+          const right = adapted.bones[rightName] ?? [0, 0, 0, 1];
+          expect(
+            new Quaternion(...right)
+              .normalize()
+              .angleTo(new Quaternion(left[0], -left[1], -left[2], left[3]).normalize()),
+            `${name} rotation ${bone.name}`,
+          ).toBeLessThan(1e-5);
+          const mirrored = state.joint(bone.name).clone();
+          mirrored.x *= -1;
+          expect(
+            state.joint(rightName).distanceTo(mirrored),
+            `${name} joint ${bone.name}`,
+          ).toBeLessThan(1e-5);
+        }
+      },
+    );
+
+    // WHY / NEDEN: Rig has no twist bones: hand and lowerarm roll must stay under 30 degrees to prevent candy-wrapper wrist pinch.
+    it.each(testShapes)(
+      'keeps hand and lowerarm roll under 30 degrees on $name',
+      ({ name, gender, weight }) => {
+        const bodyPositions = new Float32Array(combined.length);
+        applyMorphs(
+          combined,
+          morphBytes,
+          manifest,
+          macroWeights(manifest, { gender, weight }),
+          bodyPositions,
+        );
+        const bodyPoint = (ref: JointRef) => {
+          if (ref.strategy !== 'VERTEX') throw new Error('Expected a joint point');
+          return new Vector3(
+            bodyPositions[3 * ref.vert]!,
+            bodyPositions[3 * ref.vert + 1]!,
+            bodyPositions[3 * ref.vert + 2]!,
+          );
+        };
+
+        const basePose = pose('hands-on-hips');
+        const adapted = adaptHandsOnHipsPose(basePose, {
+          positions: bodyPositions,
+          pointOf: bodyPoint,
+          neutralHipHalfWidth,
+        });
+
+        for (const side of ['l', 'r'] as const) {
+          const lower = boneByName.get(`lowerarm_${side}`)!;
+          const axis = bodyPoint(lower.tail).sub(bodyPoint(lower.head)).normalize();
+          for (const bone of [`hand_${side}`, `lowerarm_${side}`]) {
+            const q = adapted.bones[bone];
+            const roll = degrees(twistAbout(q ? new Quaternion(...q) : new Quaternion(), axis));
+            expect(Math.abs(roll), `${name} ${side} ${bone} roll`).toBeLessThan(30);
+          }
+        }
+      },
+    );
+
+    // WHY / NEDEN: Linear blend skinning wrist cross-section must remain open (>= 95%) without pinching on any body shape.
+    it.each(testShapes)(
+      'keeps wrist and forearm cross-section slabs open (>= 95%) on $name',
+      ({ name, gender, weight }) => {
+        const bodyPositions = new Float32Array(combined.length);
+        applyMorphs(
+          combined,
+          morphBytes,
+          manifest,
+          macroWeights(manifest, { gender, weight }),
+          bodyPositions,
+        );
+        const bodyPoint = (ref: JointRef) => {
+          if (ref.strategy !== 'VERTEX') throw new Error('Expected a joint point');
+          return new Vector3(
+            bodyPositions[3 * ref.vert]!,
+            bodyPositions[3 * ref.vert + 1]!,
+            bodyPositions[3 * ref.vert + 2]!,
+          );
+        };
+
+        const basePose = pose('hands-on-hips');
+        const adapted = adaptHandsOnHipsPose(basePose, {
+          positions: bodyPositions,
+          pointOf: bodyPoint,
+          neutralHipHalfWidth,
+        });
+        const posed = skinPose(adapted, bodyPoint, bodyPositions);
+        const state = fk(adapted, bodyPoint);
+
+        for (const side of ['l', 'r'] as const) {
+          const rings = slabs(side);
+          const headPoint = (boneName: string) => bodyPoint(boneByName.get(boneName)!.head);
+          const restArea = rings.map((ring, k) => {
+            const axis = ringAxis(
+              slabCenters[k]!,
+              headPoint(`lowerarm_${side}`),
+              headPoint(`hand_${side}`),
+              headPoint(`middle_01_${side}`),
+            );
+            return hullArea(bodyPositions, ring, axis);
+          });
+
+          rings.forEach((ring, k) => {
+            const axis = ringAxis(
+              slabCenters[k]!,
+              state.joint(`lowerarm_${side}`),
+              state.joint(`hand_${side}`),
+              state.joint(`middle_01_${side}`),
+            );
+            const ratio = hullArea(posed, ring, axis) / restArea[k]!;
+            expect(ratio, `${name} ${side} slab ${k}`).toBeGreaterThanOrEqual(0.95);
+          });
+        }
+      },
+    );
   });
 });
 

@@ -26,6 +26,26 @@ alongside `<Avatar />`; `<Avatar />` must register the live skeleton in
 `useAvatarRuntimeStore` and temporarily set identity rotations while calculating
 new inverse bind matrices during each rest rebuild.
 
+## Runtime adaptation (hands-on-hips)
+
+Static wrist targets (`wristX = 0.19 m`) sink into wide female hips (up to -1.71 cm penetration on heavy female)
+and float on slender male hips (+4.63 cm clearance). `adaptHandsOnHipsPose` adapts the pose dynamically at runtime:
+
+1. **Mesh surface scan (`computeHipHalfWidth`):** Measures the lateral half-width of the torso/pelvis surface
+   in the contact zone around target wrist height (`hip.y + 0.17 m`) and forward depth (`hip.z + 0.065 m`).
+   Mesh surface vertices are scanned rather than skeletal joint points because joint heads (`thigh_l`) remain deep
+   inside the pelvic bone and shift minimally, whereas soft tissue adds up to ~3.5 cm of lateral width on female/heavy
+   shapes. Both left (+X) and right (-X) vertices are tested to ensure symmetric half-width calculation.
+2. **Wrist target calibration:** Sets `wristX = 0.19 + (hipHalfWidth - neutralHipHalfWidth)`, clamped to `[0.14, 0.26] m`.
+   On the neutral mannequin (`neutralHipHalfWidth = 0.157 m`), delta is 0, preserving the baseline ~1.7 cm clearance and the
+   realistic twin's 1.24 cm clearance. Across all body shapes (male/female, thin/average/heavy), hand clearance remains strictly
+   within 0.5–2.0 cm with zero triangle intersections.
+3. **Outward two-bone IK & roll balancing:** Re-solves the arm chain (shoulder, outward elbow, wrist) and aligns the palm
+   normal to `[-1, -0.2, 0]` with `balanceForearmRoll` twist sharing, ensuring roll stays bounded under 30 degrees and the
+   linear blend skinning wrist cross-section remains >= 95% open.
+4. **Performance:** Pose adaptation runs once on pose selection or when `restVersion` bumps (after body slider adjustments),
+   avoiding any heavy vertex iteration or matrix calculations in `useFrame`.
+
 To add a pose, add its id to `poseSpecs.mjs`, implement its intent in
 `generate-poses.mjs`, add it to `poseStore` and `PoseBar`, add both translation
 keys, regenerate JSON, and add a forward-kinematics assertion.

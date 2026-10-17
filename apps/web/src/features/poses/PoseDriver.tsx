@@ -4,7 +4,7 @@ import type { PoseDef } from '@dt/avatar-core';
 import { Quaternion } from 'three';
 import { usePoseStore } from '../../store/poseStore';
 import { useAvatarRuntimeStore } from '../../store/avatarRuntimeStore';
-import { blendQuaternion, easeInOut, parsePoseDef } from './poseEngine';
+import { adaptHandsOnHipsPose, blendQuaternion, easeInOut, parsePoseDef } from './poseEngine';
 
 const durationSeconds = 0.35;
 const identity = new Quaternion();
@@ -38,20 +38,37 @@ interface Transition {
 /** Mounted inside Canvas; writes the current pose even when the rest skeleton is rebuilt. */
 export function PoseDriver(): null {
   const poseId = usePoseStore((state) => state.poseId);
+  const restVersion = useAvatarRuntimeStore((state) => state.restVersion);
   const transition = useRef<Transition | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void loadPose(poseId)
-      .then((pose) => {
+      .then((rawPose) => {
         if (cancelled) return;
+        const runtime = useAvatarRuntimeStore.getState();
+        let targetPose = rawPose;
+        if (poseId === 'hands-on-hips') {
+          const mesh = runtime.mesh;
+          const positions = mesh?.geometry.getAttribute('position')?.array as
+            ArrayLike<number> | undefined;
+          if (mesh && positions && runtime.bones.size > 0) {
+            targetPose = adaptHandsOnHipsPose(rawPose, {
+              positions,
+              bones: runtime.bones,
+            });
+          }
+        }
+
         const from = new Map<string, Quaternion>();
-        for (const [name, bone] of useAvatarRuntimeStore.getState().bones) {
+        for (const [name, bone] of runtime.bones) {
           from.set(name, bone.quaternion.clone());
         }
         transition.current = {
           from,
-          to: new Map(Object.entries(pose.bones).map(([name, q]) => [name, new Quaternion(...q)])),
+          to: new Map(
+            Object.entries(targetPose.bones).map(([name, q]) => [name, new Quaternion(...q)]),
+          ),
           elapsed: 0,
           complete: false,
         };
@@ -62,7 +79,7 @@ export function PoseDriver(): null {
     return () => {
       cancelled = true;
     };
-  }, [poseId]);
+  }, [poseId, restVersion]);
 
   useFrame((_, delta) => {
     const current = transition.current;

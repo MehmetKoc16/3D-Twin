@@ -28,8 +28,8 @@ export const poseSpecs = [
       // Wrist target relative to the thigh joint: the hand rests on the iliac crest / waist, not on the hip joint level
       // (the hip-level target sank the palm into the thigh and pelvis). The palm normal is world -X (toward the body)
       // tilted down by 0.2 so the palm follows the slope of the hip. Calibrated on the neutral mannequin (about 1.7 cm
-      // clearance), the private twin (about 1.2 cm) and slimmer / heavier MakeHuman shapes; a static pose cannot follow
-      // very wide female hips.
+      // clearance) and the private twin (about 1.2 cm) as the neutral baseline. At runtime, PoseDriver dynamically adapts
+      // wristX based on body hip half-width (adaptHandsOnHipsPose) so hands neither sink nor float across body shapes.
       wristX: 0.19,
       wristAboveHipM: 0.17,
       wristForwardM: 0.065,

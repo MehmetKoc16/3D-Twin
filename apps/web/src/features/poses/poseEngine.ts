@@ -1,6 +1,8 @@
 import type { PoseDef } from '@dt/avatar-core';
 import { Quaternion } from 'three';
 
+export * from './handsOnHipsAdapt';
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
