@@ -181,4 +181,41 @@ describe('gradeGarment outer mode', () => {
 
     expect(Array.from(explicitNonOuterGraded)).toEqual(Array.from(defaultGraded));
   });
+
+  it('keeps sparse body slices from rotating the opening displacement or clamping stacked fabric', () => {
+    const sparse = Float32Array.from([
+      ...body,
+      // Only front samples in the next 1 cm slice: its unsmoothed centroid lies on the skin.
+      -0.02,
+      1.02,
+      0.2,
+      0.02,
+      1.02,
+      0.2,
+    ]);
+    const edgeRest = new Float32Array([0.02, 1, 0.204, 0.02, 1.02, 0.204, 0.02, 1.02, 0.207]);
+    const edgeBinding: GarmentBinding = {
+      count: 3,
+      indices: new Uint32Array([16, 16, 16, 65, 65, 65, 65, 65, 65]),
+      weights: new Float32Array([1, 0, 0, 1, 0, 0, 1, 0, 0]),
+      offsets: new Float32Array(9),
+    };
+    const result = new Float32Array(9);
+    gradeGarmentOuter(
+      edgeRest,
+      edgeBinding,
+      sparse,
+      [{ planeY: 1, deltaCircumferenceM: -0.12 }],
+      result,
+    );
+    for (let v = 0; v < 3; v++)
+      expect(edgeRest[v * 3 + 2]! - result[v * 3 + 2]!).toBeGreaterThan(0.015);
+    expect(
+      Math.hypot(
+        result[0]! - edgeRest[0]! - result[3]! + edgeRest[3]!,
+        result[2]! - edgeRest[2]! - result[5]! + edgeRest[5]!,
+      ),
+    ).toBeLessThan(0.003);
+    expect(result[8]! - result[5]!).toBeCloseTo(0.003, 3);
+  });
 });

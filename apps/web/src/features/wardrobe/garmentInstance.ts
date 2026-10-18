@@ -314,6 +314,7 @@ export class GarmentInstance {
       pushOutside(graded, runtime.vertexCount, ctx.lowers, {
         orientation: isOuter ? 'surface' : 'triangle',
         marginM: isOuter ? OUTER_PUSH_MARGIN_M : undefined,
+        frontDepthOnly: isOuter,
       });
     }
   }

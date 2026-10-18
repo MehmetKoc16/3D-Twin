@@ -19,6 +19,86 @@ function innerSheet(flipWinding = false): Surface {
 const upper = (z: number, x = 0.5, y = 0.5): Float32Array => Float32Array.from([x, y, z]);
 
 describe('pushOutside', () => {
+  function frontContact(x: number, nz: number): Surface {
+    const nx = Math.sqrt(1 - nz * nz);
+    const positions = [x - 0.04, 0.46, 0.04 * nx / nz, x + 0.04, 0.46, -0.04 * nx / nz, x, 0.54, 0];
+    return {
+      positions,
+      index: [0, 1, 2],
+      bound: positions.map((p, i) => p - (i % 3 === 0 ? nx : i % 3 === 2 ? nz : 0) * 0.01),
+    };
+  }
+
+  it('keeps side contacts on their normal even when their normals face forward', () => {
+    for (const x of [-0.15, 0.15]) {
+      const surface = frontContact(x, 0.8);
+      const normal = upper(-0.01, x);
+      const localized = normal.slice();
+      pushOutside(normal, 1, [surface]);
+      pushOutside(localized, 1, [surface], { frontDepthOnly: true });
+      expect(Array.from(localized)).toEqual(Array.from(normal));
+      expect(localized[0]! - x).toBeGreaterThan(0.005);
+    }
+  });
+
+  it('changes contact direction continuously through angular and opening-band boundaries', () => {
+    const displacement = (x: number, nz: number): number[] => {
+      const p = upper(-0.01, x);
+      const rest = p.slice();
+      pushOutside(p, 1, [frontContact(x, nz)], { frontDepthOnly: true, passes: 1 });
+      return Array.from(p, (value, k) => value - rest[k]!);
+    };
+    for (const boundary of [0.5, 0.7]) {
+      const a = displacement(0, boundary - 0.0001);
+      const b = displacement(0, boundary + 0.0001);
+      expect(Math.hypot(...a.map((value, k) => value - b[k]!))).toBeLessThan(0.00005);
+    }
+    for (const boundary of [0.06, 0.08, 0.1]) {
+      const a = displacement(boundary - 0.0001, 0.8);
+      const b = displacement(boundary + 0.0001, 0.8);
+      expect(Math.hypot(...a.map((value, k) => value - b[k]!))).toBeLessThan(0.00005);
+    }
+  });
+
+  it('bounds direction amplification while converging to the outer clearance', () => {
+    for (const nz of [0.51, 0.6, 0.65, 0.7, 0.8, 0.95]) {
+      const p = upper(-0.01, 0);
+      const surface = frontContact(0, nz);
+      const options = { frontDepthOnly: true, marginM: OUTER_PUSH_MARGIN_M };
+      pushOutside(p, 1, [surface], { ...options, passes: 1 });
+      const need = OUTER_PUSH_MARGIN_M + 0.01 * nz;
+      expect(Math.hypot(p[0]!, p[1]! - 0.5, p[2]! + 0.01)).toBeLessThanOrEqual(1.25 * need + 1e-7);
+      pushOutside(p, 1, [surface], options);
+      const clearance = p[0]! * Math.sqrt(1 - nz * nz) + p[2]! * nz;
+      expect(clearance).toBeGreaterThan(OUTER_PUSH_MARGIN_M - 0.0001);
+    }
+  });
+
+  it('preserves an opening in X/Y while clearing alternating slanted front contacts', () => {
+    const surface = (slope: number, y: number): Surface => {
+      const positions = [-0.05, y, -0.05 * slope, 0.05, y, 0.05 * slope, 0, y + 0.02, 0];
+      return {
+        positions,
+        index: [0, 1, 2],
+        bound: positions.map((p, i) => (i % 3 === 2 ? p - 0.01 : p)),
+      };
+    };
+    const surfaces = [surface(0.6, 1), surface(-0.6, 1.04)];
+    const rest = new Float32Array([0, 1.005, -0.01, 0, 1.045, -0.01, 0, 1.005, -0.007]);
+    const normalPush = rest.slice();
+    const depthPush = rest.slice();
+    const options = { orientation: 'surface' as const, marginM: OUTER_PUSH_MARGIN_M };
+    pushOutside(normalPush, 3, surfaces, options);
+    // Opposite triangle slopes create a visible zigzag in a straight opening.
+    expect(Math.abs(normalPush[0]! - normalPush[3]!)).toBeGreaterThan(0.01);
+    pushOutside(depthPush, 3, surfaces, { ...options, frontDepthOnly: true });
+    for (let v = 0; v < 3; v++) {
+      expect(depthPush[v * 3]).toBe(rest[v * 3]);
+      expect(depthPush[v * 3 + 1]).toBe(rest[v * 3 + 1]);
+      expect(depthPush[v * 3 + 2]! / Math.hypot(1, 0.6)).toBeCloseTo(OUTER_PUSH_MARGIN_M, 6);
+    }
+  });
+
   it('pushes an outer vertex that sits inside the inner garment out to the margin', () => {
     const p = upper(-0.006);
     expect(pushOutside(p, 1, [innerSheet()])).toBe(1);

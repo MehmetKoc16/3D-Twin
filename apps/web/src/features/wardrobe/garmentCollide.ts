@@ -24,6 +24,8 @@ export interface PushOptions {
    * 'surface' votes globally / per connected component (opt-in for outer garments).
    */
   orientation?: 'triangle' | 'surface';
+  /** Preserve the front opening with a local, smoothly blended +Z contact direction. */
+  frontDepthOnly?: boolean;
 }
 
 /**
@@ -38,6 +40,11 @@ export const OUTER_PUSH_MARGIN_M = 0.012;
 const SLACK = 0.2;
 /** A vertex is only moved when it needs more than this (metres): float noise at exactly the margin is not a push. */
 const MIN_PUSH = 1e-4;
+
+function smoothstep(value: number): number {
+  const t = Math.max(0, Math.min(1, value));
+  return t * t * (3 - 2 * t);
+}
 
 /**
  * Computes consistently oriented outward triangle normals for a garment surface.
@@ -295,6 +302,15 @@ export function pushOutside(
   const shiftZ = new Float32Array(vertexCount);
   const best = new Float32Array(vertexCount);
   const everMoved = new Uint8Array(vertexCount);
+  // Freeze the opening band before any passes: contacts must not change direction
+  // just because an earlier pass moved the vertex across a band boundary.
+  const openingWeights = options.frontDepthOnly ? new Float32Array(vertexCount) : null;
+  if (openingWeights) {
+    for (let v = 0; v < vertexCount; v++) {
+      // Full protection within 8 cm of the midline, fading to normal contact by 10 cm.
+      openingWeights[v] = smoothstep((0.1 - Math.abs(positions[v * 3]!)) / 0.02);
+    }
+  }
 
   interface Prepared {
     surface: Surface;
@@ -381,11 +397,19 @@ export function pushOutside(
           const w = (d11 * p2 - d12 * p1) / det;
           if (u < -SLACK || w < -SLACK || u + w > 1 + SLACK) continue;
           const need = margin - d;
-          if (need > best[v]!) {
-            best[v] = need;
-            shiftX[v] = nx * need;
-            shiftY[v] = ny * need;
-            shiftZ[v] = nz * need;
+          const blend = (openingWeights?.[v] ?? 0) * smoothstep((nz - 0.5) / 0.2);
+          const directionX = (1 - blend) * nx;
+          const directionY = (1 - blend) * ny;
+          const directionZ = (1 - blend) * nz + blend;
+          // Solve the same normal clearance along the blended direction. Limit amplification
+          // to 25%; grazing/side contacts retain the normal direction instead of dividing by nz.
+          const scale = need * Math.min(1.25, 1 / (1 - blend + blend * nz));
+          const distance = blend > 0 ? scale * Math.hypot(directionX, directionY, directionZ) : need;
+          if (distance > best[v]!) {
+            best[v] = distance;
+            shiftX[v] = directionX * scale;
+            shiftY[v] = directionY * scale;
+            shiftZ[v] = directionZ * scale;
           }
         }
       }

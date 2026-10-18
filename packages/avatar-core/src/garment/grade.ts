@@ -8,7 +8,7 @@ export interface GradeRing {
 
 export interface GradeGarmentOptions {
   outer?: boolean;
-  /** Minimum clearance from the body in meters. Default 0 for outer, 0.002 for non-outer. */
+  /** Optional outer grading clearance in meters. Unclamped by default; layering resolves collisions. */
   minClearance?: number;
   /** Neighborhood search radius in meters for Laplacian smoothing (default 0.025 = 2.5 cm). */
   radius?: number;
@@ -99,12 +99,26 @@ export function gradeGarment(
     return;
   }
 
-  // Outer slot: compute per-vertex shift with 0 mm lower bound (no 2 mm clamp), then smooth over
-  // welded connections and spatial neighborhood via multi-iteration Laplacian smoothing.
-  const minClearance = options?.minClearance ?? 0;
+  // Outer slot: preserve chart narrowing and stacked parts without a per-vertex body clamp,
+  // then smooth the displacement over welds and spatial neighbours.
+  const minClearance = options?.minClearance ?? -Infinity;
   const dispX = new Float32Array(count);
   const dispY = new Float32Array(count);
   const dispZ = new Float32Array(count);
+
+  // A single 1 cm slice can contain only the front of a sparse body mesh, making its
+  // centroid jump from the torso centre to the skin between adjacent garment rows.
+  // Pool a +/-5 cm band before finding components; retain the limb separation.
+  const pooledBody = new Float32Array(bodyPositions.length * 11);
+  for (let sample = 0; sample < 11; sample++) {
+    const offset = sample * bodyPositions.length;
+    for (let p = 0; p < bodyPositions.length; p += 3) {
+      pooledBody[offset + p] = bodyPositions[p]!;
+      pooledBody[offset + p + 1] = bodyPositions[p + 1]! + (sample - 5) * 0.01;
+      pooledBody[offset + p + 2] = bodyPositions[p + 2]!;
+    }
+  }
+  const outerSections = new GarmentSections(pooledBody);
 
   for (let v = 0; v < count; v++) {
     const o = v * 3;
@@ -118,15 +132,18 @@ export function gradeGarment(
       by += w * bodyPositions[p + 1]!;
       bz += w * bodyPositions[p + 2]!;
     }
-    const { x: cx, z: cz } = sections.centroidAt(by, bx, bz);
-    let dx = bx - cx,
-      dz = bz - cz;
-    let radius = Math.hypot(dx, dz);
-    if (radius < 1e-9) {
-      dx = restPositions[o]! - cx;
+    const y = restPositions[o + 1]!;
+    // Interpolate the pooled centres and use garment coordinates, so binding-triangle
+    // changes cannot introduce steps along an otherwise smooth opening edge.
+    const lowY = Math.floor(y * 100) / 100;
+    const low = outerSections.centroidAt(lowY, restPositions[o]!, restPositions[o + 2]!);
+    const high = outerSections.centroidAt(lowY + 0.01, restPositions[o]!, restPositions[o + 2]!);
+    const t = (y - lowY) * 100;
+    const cx = low.x + t * (high.x - low.x);
+    const cz = low.z + t * (high.z - low.z);
+    let dx = restPositions[o]! - cx,
       dz = restPositions[o + 2]! - cz;
-      radius = Math.hypot(dx, dz);
-    }
+    let radius = Math.hypot(dx, dz);
     if (radius < 1e-9) {
       dx = 1;
       dz = 0;
