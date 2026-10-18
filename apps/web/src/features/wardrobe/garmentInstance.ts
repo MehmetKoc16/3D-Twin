@@ -296,7 +296,11 @@ export class GarmentInstance {
     if (garmentSlot(def) === 'bottom' && ctx.shoes) {
       flareOverShoes(graded, runtime.vertexCount, ctx.shoes);
     }
-    if (ctx.lowers.length > 0) pushOutside(graded, runtime.vertexCount, ctx.lowers);
+    if (ctx.lowers.length > 0) {
+      pushOutside(graded, runtime.vertexCount, ctx.lowers, {
+        orientation: garmentSlot(def) === 'outer' ? 'surface' : 'triangle',
+      });
+    }
   }
 
   /** Second half of `update`: optionally tucks the hem into the outer layer, then uploads positions and normals. */

@@ -19,12 +19,249 @@ export interface PushOptions {
    * of a curved inner surface (a waistband, a hem); further passes settle those. Stops early when nothing moves.
    */
   passes?: number;
+  /**
+   * Normal orientation strategy: 'triangle' votes per-triangle on outward direction (default),
+   * 'surface' votes globally / per connected component (opt-in for outer garments).
+   */
+  orientation?: 'triangle' | 'surface';
 }
 
 /** Barycentric slack of the footprint test (fraction of a triangle). */
 const SLACK = 0.2;
 /** A vertex is only moved when it needs more than this (metres): float noise at exactly the margin is not a push. */
 const MIN_PUSH = 1e-4;
+
+/**
+ * Computes consistently oriented outward triangle normals for a garment surface.
+ * Rather than voting per-triangle on `position - bound` (which is noisy on tight garments),
+ * this computes area-weighted vertex normals from mesh winding, evaluates orientation
+ * with a weighted majority vote over connected components (and fallback to the global vote),
+ * and flips triangle normals to agree with their vertices' oriented outward direction.
+ */
+export function orientSurfaceNormals(
+  positions: ArrayLike<number>,
+  index: ArrayLike<number>,
+  bound: ArrayLike<number>,
+): Float32Array {
+  const triangleCount = Math.floor(index.length / 3);
+  const vertexCount = Math.min(
+    Math.floor(positions.length / 3),
+    Math.floor(bound.length / 3),
+  );
+  const normals = new Float32Array(triangleCount * 3);
+  if (triangleCount === 0 || vertexCount === 0) return normals;
+
+  // 1. Accumulate unnormalized face normals into vertices (area-weighted, since |cross| = 2 * area).
+  const vertexNormals = new Float32Array(vertexCount * 3);
+  for (let t = 0; t < triangleCount; t++) {
+    const i0 = index[t * 3]!;
+    const i1 = index[t * 3 + 1]!;
+    const i2 = index[t * 3 + 2]!;
+    if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount) continue;
+    const e1x = positions[i1 * 3]! - positions[i0 * 3]!;
+    const e1y = positions[i1 * 3 + 1]! - positions[i0 * 3 + 1]!;
+    const e1z = positions[i1 * 3 + 2]! - positions[i0 * 3 + 2]!;
+    const e2x = positions[i2 * 3]! - positions[i0 * 3]!;
+    const e2y = positions[i2 * 3 + 1]! - positions[i0 * 3 + 1]!;
+    const e2z = positions[i2 * 3 + 2]! - positions[i0 * 3 + 2]!;
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-12) continue;
+    normals[t * 3] = nx / len;
+    normals[t * 3 + 1] = ny / len;
+    normals[t * 3 + 2] = nz / len;
+
+    vertexNormals[i0 * 3] = vertexNormals[i0 * 3]! + nx;
+    vertexNormals[i0 * 3 + 1] = vertexNormals[i0 * 3 + 1]! + ny;
+    vertexNormals[i0 * 3 + 2] = vertexNormals[i0 * 3 + 2]! + nz;
+    vertexNormals[i1 * 3] = vertexNormals[i1 * 3]! + nx;
+    vertexNormals[i1 * 3 + 1] = vertexNormals[i1 * 3 + 1]! + ny;
+    vertexNormals[i1 * 3 + 2] = vertexNormals[i1 * 3 + 2]! + nz;
+    vertexNormals[i2 * 3] = vertexNormals[i2 * 3]! + nx;
+    vertexNormals[i2 * 3 + 1] = vertexNormals[i2 * 3 + 1]! + ny;
+    vertexNormals[i2 * 3 + 2] = vertexNormals[i2 * 3 + 2]! + nz;
+  }
+
+  // 2. Normalize vertex normals and compute per-vertex outward vote weighted by clearance.
+  for (let v = 0; v < vertexCount; v++) {
+    const vx = vertexNormals[v * 3]!;
+    const vy = vertexNormals[v * 3 + 1]!;
+    const vz = vertexNormals[v * 3 + 2]!;
+    const len = Math.hypot(vx, vy, vz);
+    if (len > 1e-12) {
+      vertexNormals[v * 3] = vx / len;
+      vertexNormals[v * 3 + 1] = vy / len;
+      vertexNormals[v * 3 + 2] = vz / len;
+    }
+  }
+
+  const vertexVotes = new Float32Array(vertexCount);
+  const vertexWeights = new Float32Array(vertexCount);
+  let globalVote = 0;
+  for (let v = 0; v < vertexCount; v++) {
+    const dx = positions[v * 3]! - bound[v * 3]!;
+    const dy = positions[v * 3 + 1]! - bound[v * 3 + 1]!;
+    const dz = positions[v * 3 + 2]! - bound[v * 3 + 2]!;
+    const dist = Math.hypot(dx, dy, dz);
+    const dot =
+      vertexNormals[v * 3]! * dx +
+      vertexNormals[v * 3 + 1]! * dy +
+      vertexNormals[v * 3 + 2]! * dz;
+    // Weighted by clearance so tight/noisy vertices count little.
+    const vote = dot * dist;
+    vertexVotes[v] = vote;
+    vertexWeights[v] = dist;
+    globalVote += vote;
+  }
+
+  // 3. Group vertices into connected components using Disjoint Set Union (DSU).
+  const parent = new Int32Array(vertexCount);
+  for (let v = 0; v < vertexCount; v++) parent[v] = v;
+  const find = (v: number): number => {
+    let root = v;
+    while (root !== parent[root]!) root = parent[root]!;
+    let curr = v;
+    while (curr !== root) {
+      const next = parent[curr]!;
+      parent[curr] = root;
+      curr = next;
+    }
+    return root;
+  };
+  for (let t = 0; t < triangleCount; t++) {
+    const i0 = index[t * 3]!;
+    const i1 = index[t * 3 + 1]!;
+    const i2 = index[t * 3 + 2]!;
+    if (i0 < vertexCount && i1 < vertexCount) {
+      const r0 = find(i0);
+      const r1 = find(i1);
+      if (r0 !== r1) parent[r0] = r1;
+    }
+    if (i1 < vertexCount && i2 < vertexCount) {
+      const r1 = find(i1);
+      const r2 = find(i2);
+      if (r1 !== r2) parent[r1] = r2;
+    }
+  }
+
+  // 4. Sum votes per connected component.
+  const compVotes = new Map<number, number>();
+  const compWeights = new Map<number, number>();
+  for (let v = 0; v < vertexCount; v++) {
+    const root = find(v);
+    compVotes.set(root, (compVotes.get(root) ?? 0) + vertexVotes[v]!);
+    compWeights.set(root, (compWeights.get(root) ?? 0) + vertexWeights[v]!);
+  }
+
+  // 5. Flip triangle normals to agree with their vertices' oriented outward normals.
+  const globalSign = globalVote < 0 ? -1 : 1;
+  for (let t = 0; t < triangleCount; t++) {
+    let nx = normals[t * 3]!;
+    let ny = normals[t * 3 + 1]!;
+    let nz = normals[t * 3 + 2]!;
+    if (nx === 0 && ny === 0 && nz === 0) continue;
+    const i0 = index[t * 3]!;
+    const i1 = index[t * 3 + 1]!;
+    const i2 = index[t * 3 + 2]!;
+    const root = i0 < vertexCount ? find(i0) : -1;
+    const cv = root >= 0 ? compVotes.get(root) : undefined;
+    const cw = root >= 0 ? compWeights.get(root) : undefined;
+    const sign =
+      cv !== undefined && cw !== undefined && cw > 1e-12 && Math.abs(cv) > 1e-12
+        ? cv < 0
+          ? -1
+          : 1
+        : globalSign;
+
+    let vx = 0;
+    let vy = 0;
+    let vz = 0;
+    if (i0 < vertexCount) {
+      vx += vertexNormals[i0 * 3]!;
+      vy += vertexNormals[i0 * 3 + 1]!;
+      vz += vertexNormals[i0 * 3 + 2]!;
+    }
+    if (i1 < vertexCount) {
+      vx += vertexNormals[i1 * 3]!;
+      vy += vertexNormals[i1 * 3 + 1]!;
+      vz += vertexNormals[i1 * 3 + 2]!;
+    }
+    if (i2 < vertexCount) {
+      vx += vertexNormals[i2 * 3]!;
+      vy += vertexNormals[i2 * 3 + 1]!;
+      vz += vertexNormals[i2 * 3 + 2]!;
+    }
+    const align = nx * vx + ny * vy + nz * vz;
+    const shouldFlip = Math.abs(align) > 1e-12 ? align * sign < 0 : sign < 0;
+    if (shouldFlip) {
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+    normals[t * 3] = nx;
+    normals[t * 3 + 1] = ny;
+    normals[t * 3 + 2] = nz;
+  }
+
+  return normals;
+}
+
+/**
+ * Computes per-triangle outward normals by voting locally on `position - bound`.
+ * Fast and robust on partial / clipped meshes (e.g. waistband boundary in tuck tests),
+ * used by default for non-outer garments.
+ */
+export function triangleSurfaceNormals(
+  positions: ArrayLike<number>,
+  index: ArrayLike<number>,
+  bound: ArrayLike<number>,
+): Float32Array {
+  const triangleCount = Math.floor(index.length / 3);
+  const vertexCount = Math.min(
+    Math.floor(positions.length / 3),
+    Math.floor(bound.length / 3),
+  );
+  const normals = new Float32Array(triangleCount * 3);
+  for (let t = 0; t < triangleCount; t++) {
+    const i0 = index[t * 3]!;
+    const i1 = index[t * 3 + 1]!;
+    const i2 = index[t * 3 + 2]!;
+    if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount) continue;
+    const e1x = positions[i1 * 3]! - positions[i0 * 3]!;
+    const e1y = positions[i1 * 3 + 1]! - positions[i0 * 3 + 1]!;
+    const e1z = positions[i1 * 3 + 2]! - positions[i0 * 3 + 2]!;
+    const e2x = positions[i2 * 3]! - positions[i0 * 3]!;
+    const e2y = positions[i2 * 3 + 1]! - positions[i0 * 3 + 1]!;
+    const e2z = positions[i2 * 3 + 2]! - positions[i0 * 3 + 2]!;
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-12) continue;
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    let ox = 0;
+    let oy = 0;
+    let oz = 0;
+    for (const v of [i0, i1, i2]) {
+      ox += positions[v * 3]! - bound[v * 3]!;
+      oy += positions[v * 3 + 1]! - bound[v * 3 + 1]!;
+      oz += positions[v * 3 + 2]! - bound[v * 3 + 2]!;
+    }
+    if (ox * nx + oy * ny + oz * nz < 0) {
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+    normals[t * 3] = nx;
+    normals[t * 3 + 1] = ny;
+    normals[t * 3 + 2] = nz;
+  }
+  return normals;
+}
 
 /**
  * Moves every vertex of `positions` that lies inside the footprint of an inner surface, less than `marginM` in front
@@ -41,6 +278,7 @@ export function pushOutside(
   const band = options.bandM ?? 0.03;
   const margin = options.marginM ?? 0.006;
   const cell = options.cellM ?? 0.03;
+  const orientation = options.orientation ?? 'triangle';
   const key = (ix: number, iy: number, iz: number): number =>
     ((ix + 1024) * 2048 + (iy + 1024)) * 2048 + (iz + 1024);
   const passes = Math.max(1, options.passes ?? 5);
@@ -59,43 +297,19 @@ export function pushOutside(
   for (const surface of surfaces) {
     const { positions: sp, index, bound } = surface;
     const triangleCount = Math.floor(index.length / 3);
-    const normals = new Float32Array(triangleCount * 3);
+    const normals =
+      orientation === 'surface'
+        ? orientSurfaceNormals(sp, index, bound)
+        : triangleSurfaceNormals(sp, index, bound);
     const grid = new Map<number, number[]>();
     for (let t = 0; t < triangleCount; t++) {
+      const nx = normals[t * 3]!;
+      const ny = normals[t * 3 + 1]!;
+      const nz = normals[t * 3 + 2]!;
+      if (nx === 0 && ny === 0 && nz === 0) continue;
       const i0 = index[t * 3]!;
       const i1 = index[t * 3 + 1]!;
       const i2 = index[t * 3 + 2]!;
-      const e1x = sp[i1 * 3]! - sp[i0 * 3]!;
-      const e1y = sp[i1 * 3 + 1]! - sp[i0 * 3 + 1]!;
-      const e1z = sp[i1 * 3 + 2]! - sp[i0 * 3 + 2]!;
-      const e2x = sp[i2 * 3]! - sp[i0 * 3]!;
-      const e2y = sp[i2 * 3 + 1]! - sp[i0 * 3 + 1]!;
-      const e2z = sp[i2 * 3 + 2]! - sp[i0 * 3 + 2]!;
-      let nx = e1y * e2z - e1z * e2y;
-      let ny = e1z * e2x - e1x * e2z;
-      let nz = e1x * e2y - e1y * e2x;
-      const length = Math.hypot(nx, ny, nz);
-      if (length < 1e-12) continue;
-      nx /= length;
-      ny /= length;
-      nz /= length;
-      // orient away from the body: the fabric lies outside of its bound body points
-      let outX = 0;
-      let outY = 0;
-      let outZ = 0;
-      for (const i of [i0, i1, i2]) {
-        outX += sp[i * 3]! - bound[i * 3]!;
-        outY += sp[i * 3 + 1]! - bound[i * 3 + 1]!;
-        outZ += sp[i * 3 + 2]! - bound[i * 3 + 2]!;
-      }
-      if (nx * outX + ny * outY + nz * outZ < 0) {
-        nx = -nx;
-        ny = -ny;
-        nz = -nz;
-      }
-      normals[t * 3] = nx;
-      normals[t * 3 + 1] = ny;
-      normals[t * 3 + 2] = nz;
       const lo = [0, 0, 0];
       const hi = [0, 0, 0];
       for (let k = 0; k < 3; k++) {
