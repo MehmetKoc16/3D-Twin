@@ -19,6 +19,7 @@ import { restAlignment, translatePositions, type RestAlignment } from './twinBin
 import type { TwinModel } from './twinModel';
 import { resolveSkinTone } from './twinSkinTone';
 import { TwinOpeningRepair } from './twinOpeningRepair';
+import { bridgeGarmentGaps } from './twinGapBridge';
 import { TwinAccessories } from './twinAccessories';
 import { TwinHair } from './twinHair';
 import type { HairRendererLike } from '../../vendor/threejs-hair-shader/hair-shader.js';
@@ -246,6 +247,7 @@ export class TwinRig {
     }
     if (this.alignment) {
       const positions = this.rest;
+      const coverages: Uint8Array[] = [];
       for (const garment of surfaces) {
         const covered = coveredBodyVertices(
           positions,
@@ -257,8 +259,11 @@ export class TwinRig {
           },
         );
         for (let v = 0; v < hidden.length; v++) hidden[v] = hidden[v]! | covered[v]!;
+        coverages.push(covered);
         any = true;
       }
+      // the row of skin between two nearly touching garments (shoe collar / trouser hem) belongs to neither footprint
+      bridgeGarmentGaps(this.model.index, coverages, hidden);
     }
     this.openingRepair.update(this.rest, this.model.index, hidden, this.alignment ? surfaces : []);
     this.pushWeights = pushInWeights(this.rest, hidden);
