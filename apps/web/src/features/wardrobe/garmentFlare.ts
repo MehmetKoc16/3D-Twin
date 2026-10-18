@@ -4,7 +4,7 @@ import type { Surface } from './garmentCollide';
 export interface FlareOptions {
   /** Clearance margin outside shoe vertices, metres (default 0.005 m = 5 mm). */
   marginM?: number;
-  /** Maximum radial outward flare distance beyond the trouser's natural radius, metres (default 0.025 m = 2.5 cm). */
+  /** Maximum radial outward flare distance beyond the trouser's natural radius, metres (default 0.015 m = 1.5 cm). */
   maxFlareM?: number;
   /** Height slab size for binning shoe vertices, metres (default 0.01 m = 1 cm). */
   slabHeightM?: number;
@@ -12,10 +12,12 @@ export interface FlareOptions {
   sectorCount?: number;
   /** Distance below the trouser hem bottom to include shoe vertices, metres (default 0.03 m). */
   shoeMarginBelowHemM?: number;
-  /** Vertical fade distance above the shoe top where flare fades to 0 via smoothstep, metres (default 0.05 m = 5 cm). */
+  /** Vertical fade distance above the shoe top where flare fades to 0 via smoothstep, metres (default 0.12 m = 12 cm). */
   fadeBandM?: number;
   /** Height of the hem ring used to compute the leg axis centroid, metres (default 0.10 m = 10 cm). */
   hemBandM?: number;
+  /** Minimum vertical penetration into the trouser tube for a shoe to trigger radial flare, metres (default 0.008 m = 8 mm). */
+  minShoeReachM?: number;
 }
 
 /** Configuration options for hiding shoe vertices that sit above the trouser hem line. */
@@ -38,6 +40,12 @@ const DEFAULT_HEM_HIDE_REACH_M = 0.06;
 const DEFAULT_HEM_HIDE_EPSILON_M = 0.003;
 /** Maximum single-sector upward jump above its immediate neighbours before treating a sector's min-Y as a missed-ring spike, metres (1 cm). */
 const HEM_SECTOR_SPIKE_M = 0.01;
+/** Minimum vertical penetration into the trouser tube for a shoe to trigger radial flare, metres (8 mm). */
+const DEFAULT_MIN_SHOE_REACH_M = 0.008;
+/** Default vertical fade distance above the shoe top where flare fades to 0 via smoothstep, metres (12 cm). */
+const DEFAULT_FADE_BAND_M = 0.12;
+/** Default maximum radial outward flare distance beyond the trouser's natural radius, metres (1.5 cm). */
+const DEFAULT_MAX_FLARE_M = 0.015;
 
 interface LegPartition {
   shoeIndices: number[];
@@ -378,19 +386,59 @@ function fillEmptyTrouserBins(
 }
 
 /**
+ * Computes the minimum trouser hem bottom Y per angular sector around the leg axis,
+ * filling empty sectors and bridging isolated sector spikes.
+ */
+function computeSectorHemBottomY(
+  trouserPositions: ArrayLike<number>,
+  tIndices: readonly number[],
+  axisX: number,
+  axisZ: number,
+  sectorCount: number,
+): Float32Array {
+  const hemBottomY = new Float32Array(sectorCount);
+  hemBottomY.fill(Infinity);
+  const yPopulated = new Uint8Array(sectorCount);
+
+  for (const v of tIndices) {
+    const dx = trouserPositions[v * 3]! - axisX;
+    const dz = trouserPositions[v * 3 + 2]! - axisZ;
+    const sector = sectorIndex(dx, dz, sectorCount);
+    const y = trouserPositions[v * 3 + 1]!;
+    yPopulated[sector] = 1;
+    if (y < hemBottomY[sector]!) hemBottomY[sector] = y;
+  }
+  fillEmptySectors(hemBottomY, yPopulated, sectorCount);
+
+  // Bridge isolated sector spikes where a sector missed the bottom hem ring and only caught a higher ring.
+  const ySnap = hemBottomY.slice();
+  for (let k = 0; k < sectorCount; k++) {
+    const left = ySnap[(k - 1 + sectorCount) % sectorCount]!;
+    const right = ySnap[(k + 1) % sectorCount]!;
+    const neighborAvg = 0.5 * (left + right);
+    if (ySnap[k]! > neighborAvg + HEM_SECTOR_SPIKE_M) {
+      hemBottomY[k] = neighborAvg;
+    }
+  }
+
+  return hemBottomY;
+}
+
+/**
  * Flares trouser hems radially outward over bulky shoes or sneakers so the fabric drapes smoothly
- * as a clean flared tube instead of creating jagged spikes or wide bell shapes.
+ * as a gentle cone instead of creating a horizontal lip or wide bell shape.
  *
  * Per leg (split into left/right by the midline between shoe centroids, or single leg if unseparated):
  * 1. Computes the vertical leg axis through the XZ centroid of the hem ring (lowest ~10 cm).
  * 2. Measures the trouser's own natural radius `r_trouser(slab, sector)` before moving anything,
  *    filling empty bins from neighbouring sectors and slabs.
- * 3. Bins shoe vertices into `(slab, sector)` only when `r <= r_trouser(slab, sector) + maxFlareM`,
- *    ignoring distant parts of the shoe (toe box, sole rim).
- * 4. Propagates maximum radial clearance downwards so the tube never narrows going down.
- * 5. Smooths the displacement profile around the ring (circular max-filter + blur) to prevent spikes.
- * 6. Displaces trouser vertices radially in XZ away from the leg axis (clamped to `maxFlareM`),
- *    fading to 0 above the shoe top.
+ * 3. Identifies sectors where the shoe reaches at least `minShoeReachM` (8 mm) into the trouser tube.
+ *    If the shoe reaches less than 8 mm in a sector, it produces no push there.
+ * 4. Bins shoe vertices that lie within `r_trouser(slab, sector) + maxFlareM`, ignoring distant parts (toe box, sole rim).
+ * 5. Propagates maximum radial clearance downwards per sector so the tube never narrows going down.
+ * 6. Smooths the displacement profile around the ring with a light circular blur (no whole-ring unification).
+ * 7. Displaces trouser vertices radially in XZ away from the leg axis (capped at `maxFlareM`),
+ *    applied as a long vertical ramp: full push at the contact height, smoothly decreasing to 0 over 12 cm above it.
  *
  * @param positions Graded trouser vertex positions (3 floats per vertex, modified in-place).
  * @param vertexCount Number of trouser vertices.
@@ -413,9 +461,9 @@ export function flareOverShoes(
   const slabHeight = options.slabHeightM ?? 0.01;
   const sectorCount = options.sectorCount ?? 32;
   const marginM = options.marginM ?? 0.005;
-  const maxFlareM = options.maxFlareM ?? 0.025;
-  const fadeBandM = options.fadeBandM ?? 0.05;
-  const maxFilterRadius = 2;
+  const maxFlareM = options.maxFlareM ?? DEFAULT_MAX_FLARE_M;
+  const fadeBandM = options.fadeBandM ?? DEFAULT_FADE_BAND_M;
+  const minShoeReachM = options.minShoeReachM ?? DEFAULT_MIN_SHOE_REACH_M;
 
   for (const leg of legs) {
     const {
@@ -448,9 +496,17 @@ export function flareOverShoes(
     }
     fillEmptyTrouserBins(rTrouser, maxSlab, sectorCount);
 
-    // 2. Bin shoe vertices that lie within r_trouser(slab, sector) + maxFlareM.
-    const rShoe = new Float32Array(slabCount * sectorCount);
-    let contributingShoeMaxY = -Infinity;
+    // 2. Measure local hem bottom Y per sector and shoe penetration into the tube per sector.
+    const sectorHemBottomY = computeSectorHemBottomY(
+      positions,
+      tIndices,
+      axisX,
+      axisZ,
+      sectorCount,
+    );
+
+    const sectorShoeMaxY = new Float32Array(sectorCount);
+    sectorShoeMaxY.fill(-Infinity);
 
     for (const v of sIndices) {
       const x = shoe.positions[v * 3]!;
@@ -465,13 +521,48 @@ export function flareOverShoes(
       else if (slab > maxSlab) slab = maxSlab;
       const idx = slab * sectorCount + sector;
       if (r > rTrouser[idx]! + maxFlareM) continue;
+      if (y > sectorShoeMaxY[sector]!) sectorShoeMaxY[sector] = y;
+    }
+
+    // 3. Bin shoe vertices only in sectors where the shoe reaches at least minShoeReachM (8 mm) into the tube.
+    const rShoe = new Float32Array(slabCount * sectorCount);
+    let contributingShoeMaxY = -Infinity;
+
+    for (const v of sIndices) {
+      const x = shoe.positions[v * 3]!;
+      const y = shoe.positions[v * 3 + 1]!;
+      const z = shoe.positions[v * 3 + 2]!;
+      const dx = x - axisX;
+      const dz = z - axisZ;
+      const r = Math.hypot(dx, dz);
+      const sector = sectorIndex(dx, dz, sectorCount);
+
+      const reach = sectorShoeMaxY[sector]! - sectorHemBottomY[sector]!;
+      if (reach < minShoeReachM) continue;
+
+      let slab = Math.floor((y - hemBottomY) / slabHeight);
+      if (slab < 0) slab = 0;
+      else if (slab > maxSlab) slab = maxSlab;
+      const idx = slab * sectorCount + sector;
+      if (r > rTrouser[idx]! + maxFlareM) continue;
       if (r > rShoe[idx]!) rShoe[idx] = r;
       if (y > contributingShoeMaxY) contributingShoeMaxY = y;
     }
 
     if (contributingShoeMaxY < legTrouserMinY) continue;
 
-    // 3. Downward propagation: a ring must never narrow as it drapes down to the hem.
+    // Contact height per sector for the ramp transition.
+    const contactY = new Float32Array(sectorCount);
+    const contactPopulated = new Uint8Array(sectorCount);
+    for (let k = 0; k < sectorCount; k++) {
+      if (sectorShoeMaxY[k]! > -Infinity) {
+        contactY[k] = sectorShoeMaxY[k]!;
+        contactPopulated[k] = 1;
+      }
+    }
+    fillEmptySectors(contactY, contactPopulated, sectorCount);
+
+    // 4. Downward propagation: a ring must never narrow as it drapes down to the hem.
     for (let s = maxSlab - 1; s >= 0; s--) {
       const currOffset = s * sectorCount;
       const aboveOffset = (s + 1) * sectorCount;
@@ -483,59 +574,50 @@ export function flareOverShoes(
       }
     }
 
-    // 4. Smoothing per slab: circular max-filter + blur over sectors to keep the tube clean.
-    const rRequired = new Float32Array(slabCount * sectorCount);
-    const effectiveShoe = new Float32Array(sectorCount);
+    // 5. Compute push per slab and apply a light circular blur (no whole-ring unification).
+    const slabPush = new Float32Array(slabCount * sectorCount);
+    const rawPush = new Float32Array(sectorCount);
+
     for (let s = 0; s <= maxSlab; s++) {
       const slabOffset = s * sectorCount;
-      let slabMax = 0;
-      let anyNeedsFlare = false;
+      let anyPush = false;
+
       for (let k = 0; k < sectorCount; k++) {
-        const val = rShoe[slabOffset + k]!;
-        if (val > slabMax) slabMax = val;
-        if (val > 0 && val + marginM > rTrouser[slabOffset + k]!) {
-          anyNeedsFlare = true;
+        const shoeR = rShoe[slabOffset + k]!;
+        const trouserR = rTrouser[slabOffset + k]!;
+        if (shoeR > 0 && shoeR + marginM > trouserR) {
+          const push = Math.min(maxFlareM, shoeR + marginM - trouserR);
+          rawPush[k] = push;
+          anyPush = true;
+        } else {
+          rawPush[k] = 0;
         }
       }
-      if (slabMax === 0 || !anyNeedsFlare) continue;
 
-      for (let k = 0; k < sectorCount; k++) {
-        const floorR = Math.max(0, rTrouser[slabOffset + k]! - marginM);
-        effectiveShoe[k] = Math.max(rShoe[slabOffset + k]!, floorR);
-      }
+      if (!anyPush) continue;
 
-      const maxFiltered = new Float32Array(sectorCount);
+      // 5-tap circular blur ([1, 2, 4, 2, 1] / 10): keeps the push localized to sectors needing it.
       for (let k = 0; k < sectorCount; k++) {
-        let maxR = effectiveShoe[k]!;
-        for (let w = -maxFilterRadius; w <= maxFilterRadius; w++) {
-          const neighbor = (k + w + sectorCount) % sectorCount;
-          const val = effectiveShoe[neighbor]!;
-          if (val > maxR) maxR = val;
-        }
-        maxFiltered[k] = maxR;
-      }
-
-      for (let k = 0; k < sectorCount; k++) {
-        const km2 = maxFiltered[(k - 2 + sectorCount) % sectorCount]!;
-        const km1 = maxFiltered[(k - 1 + sectorCount) % sectorCount]!;
-        const k0 = maxFiltered[k]!;
-        const kp1 = maxFiltered[(k + 1) % sectorCount]!;
-        const kp2 = maxFiltered[(k + 2) % sectorCount]!;
+        const km2 = rawPush[(k - 2 + sectorCount) % sectorCount]!;
+        const km1 = rawPush[(k - 1 + sectorCount) % sectorCount]!;
+        const k0 = rawPush[k]!;
+        const kp1 = rawPush[(k + 1) % sectorCount]!;
+        const kp2 = rawPush[(k + 2) % sectorCount]!;
         const blurred = (km2 + 2 * km1 + 4 * k0 + 2 * kp1 + kp2) / 10;
-        const raw = effectiveShoe[k]!;
-        const smoothed = Math.max(blurred, raw);
-        const unified = 0.85 * smoothed + 0.15 * slabMax;
-        const finalR = Math.max(unified, raw);
-        rRequired[slabOffset + k] = finalR + marginM;
+        slabPush[slabOffset + k] = Math.min(maxFlareM, Math.max(k0, blurred));
       }
     }
 
-    const cutoffY = contributingShoeMaxY + fadeBandM;
+    let maxCutoffY = -Infinity;
+    for (let k = 0; k < sectorCount; k++) {
+      const cutoff = contactY[k]! + fadeBandM;
+      if (cutoff > maxCutoffY) maxCutoffY = cutoff;
+    }
 
-    // 5. Displace vertices radially in XZ away from the leg axis, clamped to maxFlareM.
+    // 6. Displace vertices radially in XZ away from the leg axis, clamped to maxFlareM.
     for (const v of tIndices) {
       const y = positions[v * 3 + 1]!;
-      if (y >= cutoffY) continue;
+      if (y >= maxCutoffY) continue;
 
       const x = positions[v * 3]!;
       const z = positions[v * 3 + 2]!;
@@ -545,13 +627,17 @@ export function flareOverShoes(
       if (r < 1e-6) continue;
 
       const sector = sectorIndex(dx, dz, sectorCount);
+      const cY = contactY[sector]!;
+      if (y >= cY + fadeBandM) continue;
 
-      const slab = Math.min(maxSlab, Math.max(0, Math.floor((y - hemBottomY) / slabHeight)));
-      const required = rRequired[slab * sectorCount + sector]!;
-      let push = Math.min(maxFlareM, Math.max(0, required - r));
-
-      if (y > contributingShoeMaxY) {
-        const t = (y - contributingShoeMaxY) / fadeBandM;
+      let push: number;
+      if (y <= cY) {
+        const slab = Math.min(maxSlab, Math.max(0, Math.floor((y - hemBottomY) / slabHeight)));
+        push = slabPush[slab * sectorCount + sector]!;
+      } else {
+        const cSlab = Math.min(maxSlab, Math.max(0, Math.floor((cY - hemBottomY) / slabHeight)));
+        push = slabPush[cSlab * sectorCount + sector]!;
+        const t = (y - cY) / fadeBandM;
         const fade = 1 - t * t * (3 - 2 * t);
         push *= fade;
       }
@@ -608,31 +694,14 @@ export function shoeVerticesAboveHem(
   for (const leg of legs) {
     const { shoeIndices: sIndices, trouserIndices: tIndices, axisX, axisZ } = leg;
 
-    // 1. Compute local hem bottom Y per angular sector around the leg axis, then fill empty sectors.
-    const hemBottomY = new Float32Array(sectorCount);
-    hemBottomY.fill(Infinity);
-    const yPopulated = new Uint8Array(sectorCount);
-
-    for (const v of tIndices) {
-      const dx = trouserPositions[v * 3]! - axisX;
-      const dz = trouserPositions[v * 3 + 2]! - axisZ;
-      const sector = sectorIndex(dx, dz, sectorCount);
-      const y = trouserPositions[v * 3 + 1]!;
-      yPopulated[sector] = 1;
-      if (y < hemBottomY[sector]!) hemBottomY[sector] = y;
-    }
-    fillEmptySectors(hemBottomY, yPopulated, sectorCount);
-
-    // Bridge isolated sector spikes where a sector missed the bottom hem ring and only caught a higher ring.
-    const ySnap = hemBottomY.slice();
-    for (let k = 0; k < sectorCount; k++) {
-      const left = ySnap[(k - 1 + sectorCount) % sectorCount]!;
-      const right = ySnap[(k + 1) % sectorCount]!;
-      const neighborAvg = 0.5 * (left + right);
-      if (ySnap[k]! > neighborAvg + HEM_SECTOR_SPIKE_M) {
-        hemBottomY[k] = neighborAvg;
-      }
-    }
+    // 1. Compute local hem bottom Y per angular sector around the leg axis.
+    const hemBottomY = computeSectorHemBottomY(
+      trouserPositions,
+      tIndices,
+      axisX,
+      axisZ,
+      sectorCount,
+    );
 
     // 2. Compute trouser radius near the hem in each sector, then fill empty sectors.
     const hemRadius = new Float32Array(sectorCount);
