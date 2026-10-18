@@ -14,7 +14,7 @@ import type { AvatarAssets } from '../avatar/avatarAssets';
 import type { SolveEnvelope } from '../../workers/avatarClient';
 import { combinedHiddenMask, filterBodyIndex, protectedBodyVertices } from './bodyHide';
 import type { Surface } from './garmentCollide';
-import { shoeVerticesAboveHem } from './garmentFlare';
+import { shoeTrianglesAboveHem } from './garmentFlare';
 import { GarmentInstance, type GarmentUpdateContext } from './garmentInstance';
 import { isTuckedTop } from './garmentStyle';
 import { bodyPlanes, type BodyPlanes } from './garmentGrading';
@@ -298,12 +298,12 @@ export class WardrobeRig {
     if (shoes) {
       if (bottom) {
         const bottomSurface = bottom.surface();
-        const extraMask = shoeVerticesAboveHem(
+        const extraTriangleMask = shoeTrianglesAboveHem(
           shoes.surface(),
           bottomSurface.positions,
           bottom.runtime.vertexCount,
         );
-        shoes.hideUnder([bottomSurface], { extraMask });
+        shoes.hideUnder([bottomSurface], { extraTriangleMask });
       } else {
         shoes.hideUnder(null);
       }

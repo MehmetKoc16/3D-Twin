@@ -624,4 +624,203 @@ describe('WardrobeRig outer slot', () => {
       shoeRuntime.material.dispose();
     }
   });
+
+  it('hides a shoe triangle crossing the hem line with 2 of 3 vertices above while keeping one with centroid below and 1 vertex above, and restores full index without bottom', async () => {
+    // Trouser cuff cylinder: radius 0.06 m, Y from 0.10 m (hem) to 0.25 m
+    const cuffRadius = 0.06;
+    const cuffYBottom = 0.1;
+    const cuffYTop = 0.25;
+    const segments = 8;
+    const cuffPositions: number[] = [];
+    const cuffIndices: number[] = [];
+    for (let i = 0; i < segments; i++) {
+      const angle = (2 * Math.PI * i) / segments;
+      cuffPositions.push(cuffRadius * Math.cos(angle), cuffYBottom, cuffRadius * Math.sin(angle));
+    }
+    for (let i = 0; i < segments; i++) {
+      const angle = (2 * Math.PI * i) / segments;
+      cuffPositions.push(cuffRadius * Math.cos(angle), cuffYTop, cuffRadius * Math.sin(angle));
+    }
+    for (let i = 0; i < segments; i++) {
+      const next = (i + 1) % segments;
+      cuffIndices.push(i, next, next + segments, i, next + segments, i + segments);
+    }
+    const trouserPositions = Float32Array.from(cuffPositions);
+    const trouserIndices = Uint32Array.from(cuffIndices);
+
+    // Shoe:
+    // Triangle 0 [0, 1, 2]: crossing hem line with 2 vertices above (y = 0.12, 0.11, 0.06) -> hidden
+    // Triangle 1 [3, 4, 5]: crossing hem line with 1 vertex above and centroid below (y = 0.11, 0.06, 0.06; centroid = 0.0767 < 0.10) -> kept
+    // Triangle 2 [6, 7, 8]: toe-box triangle below hem (y = 0.02) -> kept
+    const shoePositions = Float32Array.from([
+      // Triangle 0 (crossing, 2 above)
+      0.0, 0.12, 0.05,
+      0.02, 0.11, 0.05,
+      0.01, 0.06, 0.05,
+      // Triangle 1 (crossing, 1 above, centroid below)
+      0.0, 0.11, 0.05,
+      0.02, 0.06, 0.05,
+      -0.02, 0.06, 0.05,
+      // Triangle 2 (toe, below hem)
+      0.0, 0.02, 0.10,
+      0.02, 0.02, 0.12,
+      -0.02, 0.02, 0.12,
+    ]);
+    const shoeIndices = Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+
+    const testBody = Float32Array.from([
+      0, 0, 0, 0, 1.0, 0, 0, 1.1, 0, 0.2, 1.5, 0.1, 0.3, 1.5, 0.1, 0.2, 1.6, 0.1,
+    ]);
+    const testIndices = Uint32Array.from([0, 1, 2, 3, 4, 5]);
+
+    const trouserDef: GarmentTemplateDef = {
+      id: 'trouser-edge',
+      category: 'bottom',
+      kind: 'pants',
+      layer: 1,
+      label: { tr: 'trouser-edge', en: 'trouser-edge' },
+      mesh: 'test.glb',
+      license: 'CC0-1.0',
+      nativeMeasures: {},
+      defaultEase: {},
+      baseColor: '#444444',
+    };
+    const shoeDef: GarmentTemplateDef = {
+      id: 'sneaker-edge',
+      category: 'shoes',
+      kind: 'sneakers',
+      layer: 1,
+      label: { tr: 'sneaker-edge', en: 'sneaker-edge' },
+      mesh: 'test.glb',
+      license: 'CC0-1.0',
+      nativeMeasures: {},
+      defaultEase: {},
+      baseColor: '#ffffff',
+    };
+
+    function makeRuntime(
+      def: GarmentTemplateDef,
+      positions: Float32Array,
+      indices: Uint32Array,
+    ): TemplateRuntime {
+      const vertexCount = positions.length / 3;
+      return {
+        def,
+        vertexCount,
+        index: indices,
+        uv: new Float32Array(vertexCount * 2),
+        neutralPositions: positions,
+        binding: {
+          count: vertexCount,
+          indices: new Uint32Array(vertexCount * 3),
+          weights: Float32Array.from({ length: vertexCount * 3 }, (_, i) => (i % 3 === 0 ? 1 : 0)),
+          offsets: positions.slice(),
+        },
+        skinIndices: new Uint16Array(vertexCount * 4),
+        skinWeights: Float32Array.from({ length: vertexCount * 4 }, (_, i) => (i % 4 === 0 ? 1 : 0)),
+        weld: buildWeldMap(positions),
+        deleteVerts: new Uint32Array(0),
+        rigidAttachments: null,
+        material: new MeshStandardMaterial(),
+      };
+    }
+
+    const trouserRuntime = makeRuntime(trouserDef, trouserPositions, trouserIndices);
+    const shoeRuntime = makeRuntime(shoeDef, shoePositions, shoeIndices);
+    const runtimes = new Map<string, TemplateRuntime>([
+      [trouserDef.id, trouserRuntime],
+      [shoeDef.id, shoeRuntime],
+    ]);
+
+    vi.mocked(loadTemplateRuntime).mockImplementation(async (def) => runtimes.get(def.id)!);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ version: 1, measures: [] }) })),
+    );
+
+    useWardrobeStore.setState({
+      templates: [trouserDef, shoeDef],
+      catalogStatus: 'ready',
+      hydrated: true,
+      heatmap: false,
+      items: [
+        {
+          id: 'trousers',
+          name: 'trousers',
+          templateId: trouserDef.id,
+          color: trouserDef.baseColor,
+          sizes: ['M'],
+          selectedSize: 'M',
+          chart: {},
+        },
+        {
+          id: 'shoes',
+          name: 'shoes',
+          templateId: shoeDef.id,
+          color: shoeDef.baseColor,
+          sizes: ['M'],
+          selectedSize: 'M',
+          chart: {},
+        },
+      ],
+      worn: { bottom: 'trousers', shoes: 'shoes' },
+    });
+
+    const avatar = assets();
+    avatar.mesh.geometry.setAttribute('position', new BufferAttribute(testBody.slice(), 3));
+    avatar.mesh.geometry.setIndex(new BufferAttribute(testIndices, 1));
+    avatar.indices = testIndices;
+    avatar.weld = buildWeldMap(testBody);
+
+    const rig = new WardrobeRig(avatar);
+    const envelope: SolveEnvelope = {
+      params: { gender: 0.5, heightCm: 170, weightKg: 70, shoe: { system: 'EU', size: 42 } },
+      roundTripMs: 0,
+      result: {
+        positions: testBody,
+        joints: Float32Array.from([
+          0, 1, 0, 0, 1.1, 0, 0, 1.4, 0, 0, 1.5, 0, 0.3, 1.2, 0, 0.3, 1.3, 0, 0, 1.5, 0, 0, 1.6, 0,
+        ]),
+        groundOffsetY: 0,
+        achievedCm: {},
+        residualsCm: {},
+        unreachable: [],
+        estimatedMassKg: 70,
+        solveMs: 0,
+      },
+    };
+
+    try {
+      rig.onSolve(envelope);
+      await vi.waitFor(() => {
+        expect(avatar.scene.getObjectByName(`garment:${trouserDef.id}`)).toBeDefined();
+        expect(avatar.scene.getObjectByName(`garment:${shoeDef.id}`)).toBeDefined();
+      });
+
+      const shoeMesh = avatar.scene.getObjectByName(`garment:${shoeDef.id}`) as SkinnedMesh;
+      // Triangle 0 [0, 1, 2] (crossing with 2 vertices above) -> hidden
+      // Triangle 1 [3, 4, 5] (crossing with centroid below) -> kept
+      // Triangle 2 [6, 7, 8] (toe below hem) -> kept
+      expect(shoeMesh.geometry.drawRange.count).toBe(6);
+      const remainingIndices = Array.from(shoeMesh.geometry.getIndex()!.array.slice(0, 6));
+      expect(remainingIndices).toEqual([3, 4, 5, 6, 7, 8]);
+
+      // Remove bottom: full index restored
+      useWardrobeStore.getState().takeOff('bottom');
+      await vi.waitFor(() => {
+        expect(avatar.scene.getObjectByName(`garment:${trouserDef.id}`)).toBeUndefined();
+      });
+
+      expect(shoeMesh.geometry.drawRange.count).toBe(9);
+      const restoredIndices = Array.from(shoeMesh.geometry.getIndex()!.array.slice(0, 9));
+      expect(restoredIndices).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    } finally {
+      rig.dispose();
+      avatar.mesh.geometry.dispose();
+      avatar.material.dispose();
+      avatar.skeleton.dispose();
+      trouserRuntime.material.dispose();
+      shoeRuntime.material.dispose();
+    }
+  });
 });

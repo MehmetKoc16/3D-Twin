@@ -666,33 +666,38 @@ export function flareOverShoes(
  * @param options Optional tuning parameters.
  * @returns One byte (`0` or `1`) per shoe vertex: `1` when the vertex should be treated as covered/hidden.
  */
-export function shoeVerticesAboveHem(
-  shoe: Surface,
+interface LegHemProfile {
+  axisX: number;
+  axisZ: number;
+  hemBottomY: Float32Array;
+  hemRadius: Float32Array;
+  shoeIndices: number[];
+}
+
+/**
+ * Constructs per-leg hem profiles (axis, local hem bottom Y per sector, and local hem radius per sector)
+ * for trousers over shoes.
+ */
+function buildLegHems(
   trouserPositions: ArrayLike<number>,
   trouserVertexCount: number,
-  options: ShoeAboveHemOptions = {},
-): Uint8Array {
-  const shoeVertexCount = Math.floor(shoe.positions.length / 3);
-  const hidden = new Uint8Array(shoeVertexCount);
-  if (trouserVertexCount < MIN_LEG_VERTICES || shoeVertexCount === 0) return hidden;
-
-  const reachM = options.reachM ?? DEFAULT_HEM_HIDE_REACH_M;
-  const epsilonM = options.epsilonM ?? DEFAULT_HEM_HIDE_EPSILON_M;
-  const sectorCount = options.sectorCount ?? 32;
-  const hemBandM = options.hemBandM ?? 0.10;
+  shoePositions: ArrayLike<number>,
+  hemBandM: number,
+  sectorCount: number,
+): LegHemProfile[] {
   const shoeMarginBelowHemM = 0.03;
-
   const legs = partitionLegs(
     trouserPositions,
     trouserVertexCount,
-    shoe.positions,
+    shoePositions,
     hemBandM,
     shoeMarginBelowHemM,
   );
-  if (legs.length === 0) return hidden;
+  if (legs.length === 0) return [];
 
+  const profiles: LegHemProfile[] = [];
   for (const leg of legs) {
-    const { shoeIndices: sIndices, trouserIndices: tIndices, axisX, axisZ } = leg;
+    const { shoeIndices, trouserIndices: tIndices, axisX, axisZ } = leg;
 
     // 1. Compute local hem bottom Y per angular sector around the leg axis.
     const hemBottomY = computeSectorHemBottomY(
@@ -719,8 +724,39 @@ export function shoeVerticesAboveHem(
     }
     fillEmptySectors(hemRadius, rPopulated, sectorCount);
 
-    // 3. Hide shoe vertices above the local hem bottom Y (+ epsilon) and within hemRadius + reachM.
-    for (const v of sIndices) {
+    profiles.push({ axisX, axisZ, hemBottomY, hemRadius, shoeIndices });
+  }
+
+  return profiles;
+}
+
+export function shoeVerticesAboveHem(
+  shoe: Surface,
+  trouserPositions: ArrayLike<number>,
+  trouserVertexCount: number,
+  options: ShoeAboveHemOptions = {},
+): Uint8Array {
+  const shoeVertexCount = Math.floor(shoe.positions.length / 3);
+  const hidden = new Uint8Array(shoeVertexCount);
+  if (trouserVertexCount < MIN_LEG_VERTICES || shoeVertexCount === 0) return hidden;
+
+  const reachM = options.reachM ?? DEFAULT_HEM_HIDE_REACH_M;
+  const epsilonM = options.epsilonM ?? DEFAULT_HEM_HIDE_EPSILON_M;
+  const sectorCount = options.sectorCount ?? 32;
+  const hemBandM = options.hemBandM ?? 0.10;
+
+  const legHems = buildLegHems(
+    trouserPositions,
+    trouserVertexCount,
+    shoe.positions,
+    hemBandM,
+    sectorCount,
+  );
+  if (legHems.length === 0) return hidden;
+
+  for (const leg of legHems) {
+    const { shoeIndices, axisX, axisZ, hemBottomY, hemRadius } = leg;
+    for (const v of shoeIndices) {
       const x = shoe.positions[v * 3]!;
       const y = shoe.positions[v * 3 + 1]!;
       const z = shoe.positions[v * 3 + 2]!;
@@ -735,4 +771,125 @@ export function shoeVerticesAboveHem(
   }
 
   return hidden;
+}
+
+/**
+ * Identifies shoe triangles that sit above or cross the local trouser hem line and within radial reach of the leg cuff,
+ * deciding per triangle so that triangles crossing the hem line do not leave jagged shards sticking out at the hem edge.
+ *
+ * A shoe triangle is hidden when:
+ * 1. At least 2 of its 3 vertices are masked as above the hem and within reach, OR
+ * 2. Its centroid is above the local hem bottom (+ epsilon) of its sector and within reach.
+ *
+ * @param shoe Graded shoe surface with index.
+ * @param trouserPositions Graded trouser vertex positions (3 floats per vertex).
+ * @param trouserVertexCount Number of trouser vertices.
+ * @param options Optional tuning parameters.
+ * @returns One byte (`0` or `1`) per shoe triangle: `1` when the triangle should be treated as covered/hidden.
+ */
+export function shoeTrianglesAboveHem(
+  shoe: Surface,
+  trouserPositions: ArrayLike<number>,
+  trouserVertexCount: number,
+  options: ShoeAboveHemOptions = {},
+): Uint8Array {
+  const triangleCount = Math.floor(shoe.index.length / 3);
+  const hiddenTriangles = new Uint8Array(triangleCount);
+  if (trouserVertexCount < MIN_LEG_VERTICES || triangleCount === 0) return hiddenTriangles;
+
+  const reachM = options.reachM ?? DEFAULT_HEM_HIDE_REACH_M;
+  const epsilonM = options.epsilonM ?? DEFAULT_HEM_HIDE_EPSILON_M;
+  const sectorCount = options.sectorCount ?? 32;
+  const hemBandM = options.hemBandM ?? 0.10;
+
+  const legHems = buildLegHems(
+    trouserPositions,
+    trouserVertexCount,
+    shoe.positions,
+    hemBandM,
+    sectorCount,
+  );
+  if (legHems.length === 0) return hiddenTriangles;
+
+  // 1. Compute vertex mask using the already built leg hems.
+  const shoeVertexCount = Math.floor(shoe.positions.length / 3);
+  const vertexMask = new Uint8Array(shoeVertexCount);
+  for (const leg of legHems) {
+    const { shoeIndices, axisX, axisZ, hemBottomY, hemRadius } = leg;
+    for (const v of shoeIndices) {
+      const x = shoe.positions[v * 3]!;
+      const y = shoe.positions[v * 3 + 1]!;
+      const z = shoe.positions[v * 3 + 2]!;
+      const dx = x - axisX;
+      const dz = z - axisZ;
+      const r = Math.hypot(dx, dz);
+      const sector = sectorIndex(dx, dz, sectorCount);
+      if (y > hemBottomY[sector]! + epsilonM && r <= hemRadius[sector]! + reachM) {
+        vertexMask[v] = 1;
+      }
+    }
+  }
+
+  // 2. Decide per triangle.
+  for (let t = 0; t < triangleCount; t++) {
+    const a = shoe.index[t * 3]!;
+    const b = shoe.index[t * 3 + 1]!;
+    const c = shoe.index[t * 3 + 2]!;
+
+    const maskA = vertexMask[a] ?? 0;
+    const maskB = vertexMask[b] ?? 0;
+    const maskC = vertexMask[c] ?? 0;
+
+    // Condition 1: at least 2 of its 3 vertices are masked.
+    if (maskA + maskB + maskC >= 2) {
+      hiddenTriangles[t] = 1;
+      continue;
+    }
+
+    if (
+      a * 3 + 2 >= shoe.positions.length ||
+      b * 3 + 2 >= shoe.positions.length ||
+      c * 3 + 2 >= shoe.positions.length
+    ) {
+      continue;
+    }
+
+    // Condition 2: centroid is above the local hem bottom (+ epsilon) of its sector and within reach.
+    const ax = shoe.positions[a * 3]!;
+    const ay = shoe.positions[a * 3 + 1]!;
+    const az = shoe.positions[a * 3 + 2]!;
+    const bx = shoe.positions[b * 3]!;
+    const by = shoe.positions[b * 3 + 1]!;
+    const bz = shoe.positions[b * 3 + 2]!;
+    const cx = shoe.positions[c * 3]!;
+    const cy = shoe.positions[c * 3 + 1]!;
+    const cz = shoe.positions[c * 3 + 2]!;
+
+    const cX = (ax + bx + cx) / 3;
+    const cY = (ay + by + cy) / 3;
+    const cZ = (az + bz + cz) / 3;
+
+    let bestLeg = legHems[0]!;
+    if (legHems.length > 1) {
+      let bestDistSq = (cX - bestLeg.axisX) ** 2 + (cZ - bestLeg.axisZ) ** 2;
+      for (let i = 1; i < legHems.length; i++) {
+        const leg = legHems[i]!;
+        const distSq = (cX - leg.axisX) ** 2 + (cZ - leg.axisZ) ** 2;
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq;
+          bestLeg = leg;
+        }
+      }
+    }
+
+    const dx = cX - bestLeg.axisX;
+    const dz = cZ - bestLeg.axisZ;
+    const r = Math.hypot(dx, dz);
+    const sector = sectorIndex(dx, dz, sectorCount);
+    if (cY > bestLeg.hemBottomY[sector]! + epsilonM && r <= bestLeg.hemRadius[sector]! + reachM) {
+      hiddenTriangles[t] = 1;
+    }
+  }
+
+  return hiddenTriangles;
 }

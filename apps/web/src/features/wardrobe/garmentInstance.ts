@@ -368,7 +368,12 @@ export class GarmentInstance {
    */
   hideUnder(
     outer: Surface | readonly Surface[] | null,
-    options?: { bandM?: number; slack?: number; extraMask?: ArrayLike<number> },
+    options?: {
+      bandM?: number;
+      slack?: number;
+      extraMask?: ArrayLike<number>;
+      extraTriangleMask?: ArrayLike<number>;
+    },
   ): void {
     if (garmentSlot(this.runtime.def) === 'outer') {
       if (!this.hiddenByOuter) return;
@@ -381,7 +386,8 @@ export class GarmentInstance {
     const surfaces: readonly Surface[] =
       outer === null ? [] : 'positions' in outer ? [outer] : outer;
     const extraMask = options?.extraMask;
-    if (surfaces.length === 0 && !extraMask) {
+    const extraTriangleMask = options?.extraTriangleMask;
+    if (surfaces.length === 0 && !extraMask && !extraTriangleMask) {
       if (!this.hiddenByOuter) return;
       this.indexArray.set(this.runtime.index);
       this.geometry.setDrawRange(0, this.runtime.index.length);
@@ -414,6 +420,8 @@ export class GarmentInstance {
       const a = source[t]!;
       const b = source[t + 1]!;
       const c = source[t + 2]!;
+      const triIdx = t / 3;
+      if (extraTriangleMask && extraTriangleMask[triIdx]) continue;
       if (covered[a] === 1 && covered[b] === 1 && covered[c] === 1) continue;
       this.indexArray[kept++] = a;
       this.indexArray[kept++] = b;

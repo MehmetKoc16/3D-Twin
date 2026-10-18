@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Surface } from './garmentCollide';
-import { flareOverShoes, shoeVerticesAboveHem } from './garmentFlare';
+import { flareOverShoes, shoeTrianglesAboveHem, shoeVerticesAboveHem } from './garmentFlare';
 
 interface CylinderOptions {
   radius: number;
@@ -25,11 +25,11 @@ function makeCylinder(options: CylinderOptions): Float32Array {
   return new Float32Array(positions);
 }
 
-function makeSurface(positions: Float32Array): Surface {
+function makeSurface(positions: Float32Array, index?: Uint32Array): Surface {
   const vertexCount = Math.floor(positions.length / 3);
   return {
     positions,
-    index: new Uint32Array(0),
+    index: index ?? new Uint32Array(0),
     bound: new Float32Array(vertexCount * 3),
   };
 }
@@ -738,5 +738,84 @@ describe('garmentFlare', () => {
 
     const hidden = shoeVerticesAboveHem(shoe, new Float32Array(0), 0);
     expect(Array.from(hidden)).toEqual([0, 0, 0]);
+  });
+
+  it('hides a shoe triangle crossing the hem line with 2 of 3 vertices above while keeping one with centroid below and 1 vertex above', () => {
+    // Why: Triangles crossing the hem line must be hidden if 2 of 3 vertices are above the hem, but kept if only 1 vertex is above and its centroid is below the hem line.
+    const trouser = makeCylinder({
+      radius: 0.05,
+      yMin: 0.06,
+      yMax: 0.25,
+      rings: 9,
+      segmentsPerRing: 32,
+    });
+    const trouserVertexCount = trouser.length / 3;
+
+    // Shoe with 3 triangles:
+    // Triangle 0 (indices 0, 1, 2): crossing hem with 2 of 3 vertices above (y = 0.10, 0.09, 0.04) -> hidden
+    // Triangle 1 (indices 3, 4, 5): crossing hem with 1 of 3 vertices above, centroid below (y = 0.08, 0.04, 0.04; centroid = 0.0533 < 0.06) -> kept
+    // Triangle 2 (indices 6, 7, 8): toe-box triangle below hem (y = 0.03, 0.02, 0.02) -> kept
+    const shoe = makeSurface(
+      new Float32Array([
+        // Triangle 0:
+        0, 0.10, 0.07, // 0: above hem
+        0.02, 0.09, 0.07, // 1: above hem
+        0.01, 0.04, 0.07, // 2: below hem
+        // Triangle 1:
+        0, 0.08, 0.07, // 3: above hem
+        0.02, 0.04, 0.07, // 4: below hem
+        0.01, 0.04, 0.07, // 5: below hem
+        // Triangle 2:
+        0, 0.03, 0.10, // 6: toe below hem
+        0.02, 0.02, 0.12, // 7: toe below hem
+        -0.02, 0.02, 0.12, // 8: toe below hem
+      ]),
+      Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8]),
+    );
+
+    const hidden = shoeTrianglesAboveHem(shoe, trouser, trouserVertexCount);
+    expect(Array.from(hidden)).toEqual([1, 0, 0]);
+  });
+
+  it('hides a shoe triangle whose centroid is above the hem line even if only 1 vertex is above', () => {
+    // Why: When a spike vertex pulls the triangle's centroid above the hem line, the triangle must be hidden.
+    const trouser = makeCylinder({
+      radius: 0.05,
+      yMin: 0.06,
+      yMax: 0.25,
+      rings: 9,
+      segmentsPerRing: 32,
+    });
+    const trouserVertexCount = trouser.length / 3;
+
+    // Triangle with v0 high above hem (y = 0.15) and v1, v2 slightly below hem (y = 0.05, 0.05)
+    // Centroid Y = (0.15 + 0.05 + 0.05) / 3 = 0.0833 > 0.06 + 0.003
+    const shoe = makeSurface(
+      new Float32Array([
+        0, 0.15, 0.07,
+        0.02, 0.05, 0.07,
+        -0.02, 0.05, 0.07,
+      ]),
+      Uint32Array.from([0, 1, 2]),
+    );
+
+    const hidden = shoeTrianglesAboveHem(shoe, trouser, trouserVertexCount);
+    expect(Array.from(hidden)).toEqual([1]);
+  });
+
+  it('returns all zeros from shoeTrianglesAboveHem when there are no trouser vertices or empty shoe indices', () => {
+    // Why: Without trouser geometry or without shoe triangles, no triangles should be flagged as hidden.
+    const shoe = makeSurface(
+      new Float32Array([
+        0, 0.10, 0.07,
+        0.02, 0.09, 0.07,
+        0.01, 0.04, 0.07,
+      ]),
+      Uint32Array.from([0, 1, 2]),
+    );
+
+    expect(Array.from(shoeTrianglesAboveHem(shoe, new Float32Array(0), 0))).toEqual([0]);
+    const emptyShoe = makeSurface(new Float32Array(0), new Uint32Array(0));
+    expect(shoeTrianglesAboveHem(emptyShoe, new Float32Array(30), 10).length).toBe(0);
   });
 });
