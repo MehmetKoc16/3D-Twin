@@ -14,6 +14,7 @@ import type { AvatarAssets } from '../avatar/avatarAssets';
 import type { SolveEnvelope } from '../../workers/avatarClient';
 import { combinedHiddenMask, filterBodyIndex, protectedBodyVertices } from './bodyHide';
 import type { Surface } from './garmentCollide';
+import { shoeVerticesAboveHem } from './garmentFlare';
 import { GarmentInstance, type GarmentUpdateContext } from './garmentInstance';
 import { isTuckedTop } from './garmentStyle';
 import { bodyPlanes, type BodyPlanes } from './garmentGrading';
@@ -294,7 +295,19 @@ export class WardrobeRig {
     const bottom = this.instances.get('bottom');
     const outerSurface = this.instances.get('outer')?.surface();
     // Always start from each complete index; removing an outer layer restores the inner garment.
-    shoes?.hideUnder(bottom ? [bottom.surface()] : null);
+    if (shoes) {
+      if (bottom) {
+        const bottomSurface = bottom.surface();
+        const extraMask = shoeVerticesAboveHem(
+          shoes.surface(),
+          bottomSurface.positions,
+          bottom.runtime.vertexCount,
+        );
+        shoes.hideUnder([bottomSurface], { extraMask });
+      } else {
+        shoes.hideUnder(null);
+      }
+    }
     top?.hideUnder([
       ...(tucked && bottom ? [bottom.surface()] : []),
       ...(outerSurface ? [outerSurface] : []),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Surface } from './garmentCollide';
-import { flareOverShoes } from './garmentFlare';
+import { flareOverShoes, shoeVerticesAboveHem } from './garmentFlare';
 
 interface CylinderOptions {
   radius: number;
@@ -481,5 +481,73 @@ describe('garmentFlare', () => {
       const maxDelta = Math.max(...deltas);
       expect(maxDelta - minDelta).toBeLessThan(0.01);
     }
+  });
+
+  it('hides a shoe tongue vertex above the hem within reach while keeping toe and sole vertices below the hem visible', () => {
+    // Why: Shoe tongues and lace loops sticking out up to reachM in front of the cuff above the hem line must be hidden, while the toe box and sole below the hem remain visible.
+    const trouser = makeCylinder({
+      radius: 0.05,
+      yMin: 0.06,
+      yMax: 0.25,
+      rings: 9,
+      segmentsPerRing: 32,
+    });
+    const trouserVertexCount = trouser.length / 3;
+
+    const shoe = makeSurface(
+      new Float32Array([
+        0, 0.10, 0.09, // 0: tongue 9 cm in front of axis at y = 0.10 (above hem at 0.06) -> hidden
+        0, 0.03, 0.12, // 1: toe 12 cm in front of axis at y = 0.03 (below hem at 0.06) -> visible
+        0, 0.0, 0.05, // 2: sole at y = 0.0 -> visible
+      ]),
+    );
+
+    const hidden = shoeVerticesAboveHem(shoe, trouser, trouserVertexCount);
+    expect(Array.from(hidden)).toEqual([1, 0, 0]);
+  });
+
+  it('evaluates shoe hiding against the per-sector local hem height on a sloped hem higher at the back than at the front', () => {
+    // Why: A sloped trouser hem has different bottom heights per angular sector, so each shoe vertex must be tested against its own sector's local hem bottom Y.
+    const segments = 32;
+    const rings = 9;
+    const radius = 0.05;
+    const yMax = 0.25;
+    const slopedPositions: number[] = [];
+    for (let r = 0; r < rings; r++) {
+      for (let s = 0; s < segments; s++) {
+        const angle = (2 * Math.PI * s) / segments;
+        // Front (+Z, sin = 1) has hem bottom at y = 0.05; back (-Z, sin = -1) has hem bottom at y = 0.09.
+        const localMinY = 0.07 - 0.02 * Math.sin(angle);
+        const y = localMinY + ((yMax - localMinY) * r) / (rings - 1);
+        slopedPositions.push(radius * Math.cos(angle), y, radius * Math.sin(angle));
+      }
+    }
+    const trouser = new Float32Array(slopedPositions);
+    const trouserVertexCount = trouser.length / 3;
+
+    const shoe = makeSurface(
+      new Float32Array([
+        0, 0.11, -0.07, // 0: back vertex at y = 0.11 (above back hem line at 0.09) -> hidden
+        0, 0.04, 0.07, // 1: front vertex at y = 0.04 (below front hem line at 0.05) -> visible
+        0, 0.07, -0.07, // 2: back vertex at y = 0.07 (above front hem 0.05, but below back hem 0.09) -> visible
+      ]),
+    );
+
+    const hidden = shoeVerticesAboveHem(shoe, trouser, trouserVertexCount);
+    expect(Array.from(hidden)).toEqual([1, 0, 0]);
+  });
+
+  it('returns all zeros from shoeVerticesAboveHem when there are no trouser vertices', () => {
+    // Why: Without trouser geometry, no shoe vertices are covered by a trouser hem.
+    const shoe = makeSurface(
+      new Float32Array([
+        0, 0.10, 0.09,
+        0, 0.03, 0.12,
+        0, 0.0, 0.05,
+      ]),
+    );
+
+    const hidden = shoeVerticesAboveHem(shoe, new Float32Array(0), 0);
+    expect(Array.from(hidden)).toEqual([0, 0, 0]);
   });
 });

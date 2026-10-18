@@ -18,8 +18,293 @@ export interface FlareOptions {
   hemBandM?: number;
 }
 
+/** Configuration options for hiding shoe vertices that sit above the trouser hem line. */
+export interface ShoeAboveHemOptions {
+  /** Radial reach beyond the trouser hem radius within which shoe vertices above the hem are hidden, metres (default 0.06 m = 6 cm). */
+  reachM?: number;
+  /** Vertical clearance above the local hem bottom Y before hiding begins, metres (default 0.003 m = 3 mm). */
+  epsilonM?: number;
+  /** Number of angular sectors around the leg axis (default 32). */
+  sectorCount?: number;
+  /** Height of the hem ring used to compute the leg axis centroid and hem radius, metres (default 0.10 m = 10 cm). */
+  hemBandM?: number;
+}
+
 /** Minimum trouser vertex count per leg required to form a cylindrical tube around a leg axis. */
 const MIN_LEG_VERTICES = 8;
+/** Default radial reach beyond the trouser hem radius for hiding shoe tongue / lace vertices above the hem, metres (6 cm). */
+const DEFAULT_HEM_HIDE_REACH_M = 0.06;
+/** Default vertical clearance above the local hem bottom Y before a shoe vertex is hidden, metres (3 mm). */
+const DEFAULT_HEM_HIDE_EPSILON_M = 0.003;
+/** Maximum single-sector upward jump above its immediate neighbours before treating a sector's min-Y as a missed-ring spike, metres (1 cm). */
+const HEM_SECTOR_SPIKE_M = 0.01;
+
+interface LegPartition {
+  shoeIndices: number[];
+  trouserIndices: number[];
+  trouserMinY: number;
+  shoeMinY: number;
+  shoeMaxY: number;
+  axisX: number;
+  axisZ: number;
+}
+
+/** Maps a radial offset `(dx, dz)` from the leg axis to an angular sector in `[0, sectorCount)`. */
+function sectorIndex(dx: number, dz: number, sectorCount: number): number {
+  let angle = Math.atan2(dz, dx);
+  if (angle < 0) angle += 2 * Math.PI;
+  return Math.floor((angle / (2 * Math.PI)) * sectorCount) % sectorCount;
+}
+
+/**
+ * Fills unpopulated sectors (`populated[k] === 0`) in a 1D circular ring array by linear angular interpolation
+ * between the nearest populated sectors on either side.
+ */
+function fillEmptySectors(
+  values: Float32Array,
+  populated: Uint8Array,
+  sectorCount: number,
+): void {
+  let anyPopulated = false;
+  for (let k = 0; k < sectorCount; k++) {
+    if (populated[k] === 1) {
+      anyPopulated = true;
+      break;
+    }
+  }
+  if (!anyPopulated) return;
+
+  const snap = values.slice();
+  for (let k = 0; k < sectorCount; k++) {
+    if (populated[k] === 1) continue;
+    let dLeft = 1;
+    while (dLeft < sectorCount && populated[(k - dLeft + sectorCount) % sectorCount] === 0) {
+      dLeft++;
+    }
+    let dRight = 1;
+    while (dRight < sectorCount && populated[(k + dRight) % sectorCount] === 0) {
+      dRight++;
+    }
+    const leftVal = snap[(k - dLeft + sectorCount) % sectorCount]!;
+    const rightVal = snap[(k + dRight) % sectorCount]!;
+    const t = dLeft / (dLeft + dRight);
+    values[k] = leftVal + t * (rightVal - leftVal);
+  }
+}
+
+/**
+ * Splits trouser and relevant shoe vertices into per-leg partitions (1 or 2 legs via 2-means XZ clustering on the
+ * shoes when both trouser span and shoe separation indicate two legs) and computes each leg's hem-band XZ axis.
+ */
+function partitionLegs(
+  trouserPositions: ArrayLike<number>,
+  trouserVertexCount: number,
+  shoePositions: ArrayLike<number>,
+  hemBandM: number,
+  shoeMarginBelowHemM: number,
+): LegPartition[] {
+  const safeTrouserCount = Math.min(trouserVertexCount, Math.floor(trouserPositions.length / 3));
+  if (safeTrouserCount < MIN_LEG_VERTICES || shoePositions.length < 3) return [];
+
+  let trouserMinY = Infinity;
+  for (let i = 0; i < safeTrouserCount; i++) {
+    const y = trouserPositions[i * 3 + 1]!;
+    if (y < trouserMinY) trouserMinY = y;
+  }
+  if (!Number.isFinite(trouserMinY)) return [];
+
+  const shoeCutoffY = trouserMinY - shoeMarginBelowHemM;
+  const shoeVertexCount = Math.floor(shoePositions.length / 3);
+
+  const relevantShoeIndices: number[] = [];
+  let shoeOverallMaxY = -Infinity;
+  for (let v = 0; v < shoeVertexCount; v++) {
+    const y = shoePositions[v * 3 + 1]!;
+    if (y >= shoeCutoffY) {
+      relevantShoeIndices.push(v);
+      if (y > shoeOverallMaxY) shoeOverallMaxY = y;
+    }
+  }
+
+  // If no shoe vertices exist above the cutoff, or none reach above the trouser hem, no leg interaction occurs.
+  if (relevantShoeIndices.length === 0 || shoeOverallMaxY < trouserMinY) {
+    return [];
+  }
+
+  let minTx = Infinity;
+  let maxTx = -Infinity;
+  let minTz = Infinity;
+  let maxTz = -Infinity;
+  for (let v = 0; v < safeTrouserCount; v++) {
+    const y = trouserPositions[v * 3 + 1]!;
+    if (y <= trouserMinY + hemBandM) {
+      const x = trouserPositions[v * 3]!;
+      const z = trouserPositions[v * 3 + 2]!;
+      if (x < minTx) minTx = x;
+      if (x > maxTx) maxTx = x;
+      if (z < minTz) minTz = z;
+      if (z > maxTz) maxTz = z;
+    }
+  }
+  const trouserSpan = Math.max(maxTx - minTx, maxTz - minTz);
+
+  // 2-means clustering in XZ to identify separate left and right shoes.
+  let sumSx = 0;
+  let sumSz = 0;
+  for (const v of relevantShoeIndices) {
+    sumSx += shoePositions[v * 3]!;
+    sumSz += shoePositions[v * 3 + 2]!;
+  }
+  const meanSx = sumSx / relevantShoeIndices.length;
+  const meanSz = sumSz / relevantShoeIndices.length;
+
+  let bestD2 = -1;
+  let seed0 = relevantShoeIndices[0]!;
+  for (const v of relevantShoeIndices) {
+    const dx = shoePositions[v * 3]! - meanSx;
+    const dz = shoePositions[v * 3 + 2]! - meanSz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > bestD2) {
+      bestD2 = d2;
+      seed0 = v;
+    }
+  }
+
+  bestD2 = -1;
+  let seed1 = relevantShoeIndices[0]!;
+  const s0x = shoePositions[seed0 * 3]!;
+  const s0z = shoePositions[seed0 * 3 + 2]!;
+  for (const v of relevantShoeIndices) {
+    const dx = shoePositions[v * 3]! - s0x;
+    const dz = shoePositions[v * 3 + 2]! - s0z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > bestD2) {
+      bestD2 = d2;
+      seed1 = v;
+    }
+  }
+
+  let c0x = shoePositions[seed0 * 3]!;
+  let c0z = shoePositions[seed0 * 3 + 2]!;
+  let c1x = shoePositions[seed1 * 3]!;
+  let c1z = shoePositions[seed1 * 3 + 2]!;
+
+  for (let iter = 0; iter < 5; iter++) {
+    let count0 = 0;
+    let count1 = 0;
+    let sum0x = 0;
+    let sum0z = 0;
+    let sum1x = 0;
+    let sum1z = 0;
+    for (const v of relevantShoeIndices) {
+      const x = shoePositions[v * 3]!;
+      const z = shoePositions[v * 3 + 2]!;
+      const d0 = (x - c0x) ** 2 + (z - c0z) ** 2;
+      const d1 = (x - c1x) ** 2 + (z - c1z) ** 2;
+      if (d0 <= d1) {
+        count0++;
+        sum0x += x;
+        sum0z += z;
+      } else {
+        count1++;
+        sum1x += x;
+        sum1z += z;
+      }
+    }
+    if (count0 > 0) {
+      c0x = sum0x / count0;
+      c0z = sum0z / count0;
+    }
+    if (count1 > 0) {
+      c1x = sum1x / count1;
+      c1z = sum1z / count1;
+    }
+  }
+
+  const shoeDist = Math.hypot(c1x - c0x, c1z - c0z);
+  const isTwoLegs = trouserSpan > 0.18 && shoeDist > 0.12;
+
+  const legShoeIndices: number[][] = [];
+  const legTrouserIndices: number[][] = [];
+
+  if (isTwoLegs) {
+    legShoeIndices.push([], []);
+    legTrouserIndices.push([], []);
+    const midX = (c0x + c1x) / 2;
+    const midZ = (c0z + c1z) / 2;
+    const dirX = c1x - c0x;
+    const dirZ = c1z - c0z;
+
+    for (const v of relevantShoeIndices) {
+      const x = shoePositions[v * 3]!;
+      const z = shoePositions[v * 3 + 2]!;
+      const side = (x - midX) * dirX + (z - midZ) * dirZ;
+      legShoeIndices[side < 0 ? 0 : 1]!.push(v);
+    }
+
+    for (let v = 0; v < safeTrouserCount; v++) {
+      const x = trouserPositions[v * 3]!;
+      const z = trouserPositions[v * 3 + 2]!;
+      const side = (x - midX) * dirX + (z - midZ) * dirZ;
+      legTrouserIndices[side < 0 ? 0 : 1]!.push(v);
+    }
+  } else {
+    legShoeIndices.push(relevantShoeIndices);
+    const allTrouser: number[] = new Array(safeTrouserCount);
+    for (let i = 0; i < safeTrouserCount; i++) allTrouser[i] = i;
+    legTrouserIndices.push(allTrouser);
+  }
+
+  const legs: LegPartition[] = [];
+  for (let leg = 0; leg < legShoeIndices.length; leg++) {
+    const sIndices = legShoeIndices[leg]!;
+    const tIndices = legTrouserIndices[leg]!;
+    if (sIndices.length === 0 || tIndices.length < MIN_LEG_VERTICES) continue;
+
+    let legTrouserMinY = Infinity;
+    for (const v of tIndices) {
+      const y = trouserPositions[v * 3 + 1]!;
+      if (y < legTrouserMinY) legTrouserMinY = y;
+    }
+    if (!Number.isFinite(legTrouserMinY)) continue;
+
+    let legShoeMinY = Infinity;
+    let legShoeMaxY = -Infinity;
+    for (const v of sIndices) {
+      const y = shoePositions[v * 3 + 1]!;
+      if (y < legShoeMinY) legShoeMinY = y;
+      if (y > legShoeMaxY) legShoeMaxY = y;
+    }
+    if (legShoeMaxY < legTrouserMinY) continue;
+
+    // Leg axis: vertical line through the XZ centroid of this leg's hem ring.
+    let sumAx = 0;
+    let sumAz = 0;
+    let hemCount = 0;
+    for (const v of tIndices) {
+      const y = trouserPositions[v * 3 + 1]!;
+      if (y <= legTrouserMinY + hemBandM) {
+        sumAx += trouserPositions[v * 3]!;
+        sumAz += trouserPositions[v * 3 + 2]!;
+        hemCount++;
+      }
+    }
+    const axisX = hemCount > 0 ? sumAx / hemCount : 0;
+    const axisZ = hemCount > 0 ? sumAz / hemCount : 0;
+
+    legs.push({
+      shoeIndices: sIndices,
+      trouserIndices: tIndices,
+      trouserMinY: legTrouserMinY,
+      shoeMinY: legShoeMinY,
+      shoeMaxY: legShoeMaxY,
+      axisX,
+      axisZ,
+    });
+  }
+
+  return legs;
+}
 
 /**
  * Fills empty (zero) bins in a `slabCount x sectorCount` trouser radius grid from neighbouring sectors and slabs:
@@ -119,158 +404,10 @@ export function flareOverShoes(
   shoe: Surface,
   options: FlareOptions = {},
 ): number {
-  if (vertexCount < MIN_LEG_VERTICES || shoe.positions.length < 3) return 0;
-
-  let trouserMinY = Infinity;
-  for (let i = 0; i < vertexCount; i++) {
-    const y = positions[i * 3 + 1]!;
-    if (y < trouserMinY) trouserMinY = y;
-  }
-  if (!Number.isFinite(trouserMinY)) return 0;
-
   const shoeMarginBelowHem = options.shoeMarginBelowHemM ?? 0.03;
-  const shoeCutoffY = trouserMinY - shoeMarginBelowHem;
-  const shoeVertexCount = Math.floor(shoe.positions.length / 3);
-
-  const relevantShoeIndices: number[] = [];
-  let shoeOverallMaxY = -Infinity;
-  for (let v = 0; v < shoeVertexCount; v++) {
-    const y = shoe.positions[v * 3 + 1]!;
-    if (y >= shoeCutoffY) {
-      relevantShoeIndices.push(v);
-      if (y > shoeOverallMaxY) shoeOverallMaxY = y;
-    }
-  }
-
-  // If no shoe vertices exist above the cutoff, or none reach above the trouser hem, no flare is needed.
-  if (relevantShoeIndices.length === 0 || shoeOverallMaxY < trouserMinY) {
-    return 0;
-  }
-
   const hemBandM = options.hemBandM ?? 0.10;
-  let minTx = Infinity;
-  let maxTx = -Infinity;
-  let minTz = Infinity;
-  let maxTz = -Infinity;
-  for (let v = 0; v < vertexCount; v++) {
-    const y = positions[v * 3 + 1]!;
-    if (y <= trouserMinY + hemBandM) {
-      const x = positions[v * 3]!;
-      const z = positions[v * 3 + 2]!;
-      if (x < minTx) minTx = x;
-      if (x > maxTx) maxTx = x;
-      if (z < minTz) minTz = z;
-      if (z > maxTz) maxTz = z;
-    }
-  }
-  const trouserSpan = Math.max(maxTx - minTx, maxTz - minTz);
-
-  // 2-means clustering in XZ to identify separate left and right shoes.
-  let sumSx = 0;
-  let sumSz = 0;
-  for (const v of relevantShoeIndices) {
-    sumSx += shoe.positions[v * 3]!;
-    sumSz += shoe.positions[v * 3 + 2]!;
-  }
-  const meanSx = sumSx / relevantShoeIndices.length;
-  const meanSz = sumSz / relevantShoeIndices.length;
-
-  let bestD2 = -1;
-  let seed0 = relevantShoeIndices[0]!;
-  for (const v of relevantShoeIndices) {
-    const dx = shoe.positions[v * 3]! - meanSx;
-    const dz = shoe.positions[v * 3 + 2]! - meanSz;
-    const d2 = dx * dx + dz * dz;
-    if (d2 > bestD2) {
-      bestD2 = d2;
-      seed0 = v;
-    }
-  }
-
-  bestD2 = -1;
-  let seed1 = relevantShoeIndices[0]!;
-  const s0x = shoe.positions[seed0 * 3]!;
-  const s0z = shoe.positions[seed0 * 3 + 2]!;
-  for (const v of relevantShoeIndices) {
-    const dx = shoe.positions[v * 3]! - s0x;
-    const dz = shoe.positions[v * 3 + 2]! - s0z;
-    const d2 = dx * dx + dz * dz;
-    if (d2 > bestD2) {
-      bestD2 = d2;
-      seed1 = v;
-    }
-  }
-
-  let c0x = shoe.positions[seed0 * 3]!;
-  let c0z = shoe.positions[seed0 * 3 + 2]!;
-  let c1x = shoe.positions[seed1 * 3]!;
-  let c1z = shoe.positions[seed1 * 3 + 2]!;
-
-  for (let iter = 0; iter < 5; iter++) {
-    let count0 = 0;
-    let count1 = 0;
-    let sum0x = 0;
-    let sum0z = 0;
-    let sum1x = 0;
-    let sum1z = 0;
-    for (const v of relevantShoeIndices) {
-      const x = shoe.positions[v * 3]!;
-      const z = shoe.positions[v * 3 + 2]!;
-      const d0 = (x - c0x) ** 2 + (z - c0z) ** 2;
-      const d1 = (x - c1x) ** 2 + (z - c1z) ** 2;
-      if (d0 <= d1) {
-        count0++;
-        sum0x += x;
-        sum0z += z;
-      } else {
-        count1++;
-        sum1x += x;
-        sum1z += z;
-      }
-    }
-    if (count0 > 0) {
-      c0x = sum0x / count0;
-      c0z = sum0z / count0;
-    }
-    if (count1 > 0) {
-      c1x = sum1x / count1;
-      c1z = sum1z / count1;
-    }
-  }
-
-  const shoeDist = Math.hypot(c1x - c0x, c1z - c0z);
-  const isTwoLegs = trouserSpan > 0.18 && shoeDist > 0.12;
-
-  const legShoeIndices: number[][] = [];
-  const legTrouserIndices: number[][] = [];
-
-  if (isTwoLegs) {
-    legShoeIndices.push([], []);
-    legTrouserIndices.push([], []);
-    const midX = (c0x + c1x) / 2;
-    const midZ = (c0z + c1z) / 2;
-    const dirX = c1x - c0x;
-    const dirZ = c1z - c0z;
-
-    for (const v of relevantShoeIndices) {
-      const x = shoe.positions[v * 3]!;
-      const z = shoe.positions[v * 3 + 2]!;
-      const side = (x - midX) * dirX + (z - midZ) * dirZ;
-      legShoeIndices[side < 0 ? 0 : 1]!.push(v);
-    }
-
-    for (let v = 0; v < vertexCount; v++) {
-      const x = positions[v * 3]!;
-      const z = positions[v * 3 + 2]!;
-      const side = (x - midX) * dirX + (z - midZ) * dirZ;
-      legTrouserIndices[side < 0 ? 0 : 1]!.push(v);
-    }
-  } else {
-    legShoeIndices.push(relevantShoeIndices);
-    const allTrouser: number[] = new Array(vertexCount);
-    for (let i = 0; i < vertexCount; i++) allTrouser[i] = i;
-    legTrouserIndices.push(allTrouser);
-  }
+  const legs = partitionLegs(positions, vertexCount, shoe.positions, hemBandM, shoeMarginBelowHem);
+  if (legs.length === 0) return 0;
 
   let movedCount = 0;
   const slabHeight = options.slabHeightM ?? 0.01;
@@ -280,41 +417,17 @@ export function flareOverShoes(
   const fadeBandM = options.fadeBandM ?? 0.05;
   const maxFilterRadius = 2;
 
-  for (let leg = 0; leg < legShoeIndices.length; leg++) {
-    const sIndices = legShoeIndices[leg]!;
-    const tIndices = legTrouserIndices[leg]!;
-    if (sIndices.length === 0 || tIndices.length < MIN_LEG_VERTICES) continue;
-
-    let legTrouserMinY = Infinity;
-    for (const v of tIndices) {
-      const y = positions[v * 3 + 1]!;
-      if (y < legTrouserMinY) legTrouserMinY = y;
-    }
-    if (!Number.isFinite(legTrouserMinY)) continue;
-
-    let legShoeMinY = Infinity;
-    let legShoeMaxY = -Infinity;
-    for (const v of sIndices) {
-      const y = shoe.positions[v * 3 + 1]!;
-      if (y < legShoeMinY) legShoeMinY = y;
-      if (y > legShoeMaxY) legShoeMaxY = y;
-    }
-    if (legShoeMaxY < legTrouserMinY || legShoeMinY > legTrouserMinY + hemBandM) continue;
-
-    // Leg axis: vertical line through the XZ centroid of this leg's hem ring.
-    let sumAx = 0;
-    let sumAz = 0;
-    let hemCount = 0;
-    for (const v of tIndices) {
-      const y = positions[v * 3 + 1]!;
-      if (y <= legTrouserMinY + hemBandM) {
-        sumAx += positions[v * 3]!;
-        sumAz += positions[v * 3 + 2]!;
-        hemCount++;
-      }
-    }
-    const axisX = hemCount > 0 ? sumAx / hemCount : 0;
-    const axisZ = hemCount > 0 ? sumAz / hemCount : 0;
+  for (const leg of legs) {
+    const {
+      shoeIndices: sIndices,
+      trouserIndices: tIndices,
+      trouserMinY: legTrouserMinY,
+      shoeMinY: legShoeMinY,
+      shoeMaxY: legShoeMaxY,
+      axisX,
+      axisZ,
+    } = leg;
+    if (legShoeMinY > legTrouserMinY + hemBandM) continue;
 
     const hemBottomY = legTrouserMinY;
     const maxSlab = Math.max(0, Math.floor((legShoeMaxY - hemBottomY) / slabHeight));
@@ -329,9 +442,7 @@ export function flareOverShoes(
       const dx = positions[v * 3]! - axisX;
       const dz = positions[v * 3 + 2]! - axisZ;
       const r = Math.hypot(dx, dz);
-      let angle = Math.atan2(dz, dx);
-      if (angle < 0) angle += 2 * Math.PI;
-      const sector = Math.floor((angle / (2 * Math.PI)) * sectorCount) % sectorCount;
+      const sector = sectorIndex(dx, dz, sectorCount);
       const idx = rawSlab * sectorCount + sector;
       if (r > rTrouser[idx]!) rTrouser[idx] = r;
     }
@@ -348,9 +459,7 @@ export function flareOverShoes(
       const dx = x - axisX;
       const dz = z - axisZ;
       const r = Math.hypot(dx, dz);
-      let angle = Math.atan2(dz, dx);
-      if (angle < 0) angle += 2 * Math.PI;
-      const sector = Math.floor((angle / (2 * Math.PI)) * sectorCount) % sectorCount;
+      const sector = sectorIndex(dx, dz, sectorCount);
       let slab = Math.floor((y - hemBottomY) / slabHeight);
       if (slab < 0) slab = 0;
       else if (slab > maxSlab) slab = maxSlab;
@@ -435,9 +544,7 @@ export function flareOverShoes(
       const r = Math.hypot(dx, dz);
       if (r < 1e-6) continue;
 
-      let angle = Math.atan2(dz, dx);
-      if (angle < 0) angle += 2 * Math.PI;
-      const sector = Math.floor((angle / (2 * Math.PI)) * sectorCount) % sectorCount;
+      const sector = sectorIndex(dx, dz, sectorCount);
 
       const slab = Math.min(maxSlab, Math.max(0, Math.floor((y - hemBottomY) / slabHeight)));
       const required = rRequired[slab * sectorCount + sector]!;
@@ -460,4 +567,103 @@ export function flareOverShoes(
   }
 
   return movedCount;
+}
+
+/**
+ * Identifies shoe vertices that sit above the local trouser hem bottom line and within radial reach of the leg cuff,
+ * so shoe tongues, lace loops, and ankle collars sticking out beyond the flared fabric can be hidden while preserving
+ * the toe box and sole below the hem edge.
+ *
+ * @param shoe Graded shoe surface.
+ * @param trouserPositions Graded trouser vertex positions (3 floats per vertex).
+ * @param trouserVertexCount Number of trouser vertices.
+ * @param options Optional tuning parameters.
+ * @returns One byte (`0` or `1`) per shoe vertex: `1` when the vertex should be treated as covered/hidden.
+ */
+export function shoeVerticesAboveHem(
+  shoe: Surface,
+  trouserPositions: ArrayLike<number>,
+  trouserVertexCount: number,
+  options: ShoeAboveHemOptions = {},
+): Uint8Array {
+  const shoeVertexCount = Math.floor(shoe.positions.length / 3);
+  const hidden = new Uint8Array(shoeVertexCount);
+  if (trouserVertexCount < MIN_LEG_VERTICES || shoeVertexCount === 0) return hidden;
+
+  const reachM = options.reachM ?? DEFAULT_HEM_HIDE_REACH_M;
+  const epsilonM = options.epsilonM ?? DEFAULT_HEM_HIDE_EPSILON_M;
+  const sectorCount = options.sectorCount ?? 32;
+  const hemBandM = options.hemBandM ?? 0.10;
+  const shoeMarginBelowHemM = 0.03;
+
+  const legs = partitionLegs(
+    trouserPositions,
+    trouserVertexCount,
+    shoe.positions,
+    hemBandM,
+    shoeMarginBelowHemM,
+  );
+  if (legs.length === 0) return hidden;
+
+  for (const leg of legs) {
+    const { shoeIndices: sIndices, trouserIndices: tIndices, axisX, axisZ } = leg;
+
+    // 1. Compute local hem bottom Y per angular sector around the leg axis, then fill empty sectors.
+    const hemBottomY = new Float32Array(sectorCount);
+    hemBottomY.fill(Infinity);
+    const yPopulated = new Uint8Array(sectorCount);
+
+    for (const v of tIndices) {
+      const dx = trouserPositions[v * 3]! - axisX;
+      const dz = trouserPositions[v * 3 + 2]! - axisZ;
+      const sector = sectorIndex(dx, dz, sectorCount);
+      const y = trouserPositions[v * 3 + 1]!;
+      yPopulated[sector] = 1;
+      if (y < hemBottomY[sector]!) hemBottomY[sector] = y;
+    }
+    fillEmptySectors(hemBottomY, yPopulated, sectorCount);
+
+    // Bridge isolated sector spikes where a sector missed the bottom hem ring and only caught a higher ring.
+    const ySnap = hemBottomY.slice();
+    for (let k = 0; k < sectorCount; k++) {
+      const left = ySnap[(k - 1 + sectorCount) % sectorCount]!;
+      const right = ySnap[(k + 1) % sectorCount]!;
+      const neighborAvg = 0.5 * (left + right);
+      if (ySnap[k]! > neighborAvg + HEM_SECTOR_SPIKE_M) {
+        hemBottomY[k] = neighborAvg;
+      }
+    }
+
+    // 2. Compute trouser radius near the hem in each sector, then fill empty sectors.
+    const hemRadius = new Float32Array(sectorCount);
+    const rPopulated = new Uint8Array(sectorCount);
+    for (const v of tIndices) {
+      const dx = trouserPositions[v * 3]! - axisX;
+      const dz = trouserPositions[v * 3 + 2]! - axisZ;
+      const sector = sectorIndex(dx, dz, sectorCount);
+      const y = trouserPositions[v * 3 + 1]!;
+      if (y <= hemBottomY[sector]! + hemBandM) {
+        const r = Math.hypot(dx, dz);
+        rPopulated[sector] = 1;
+        if (r > hemRadius[sector]!) hemRadius[sector] = r;
+      }
+    }
+    fillEmptySectors(hemRadius, rPopulated, sectorCount);
+
+    // 3. Hide shoe vertices above the local hem bottom Y (+ epsilon) and within hemRadius + reachM.
+    for (const v of sIndices) {
+      const x = shoe.positions[v * 3]!;
+      const y = shoe.positions[v * 3 + 1]!;
+      const z = shoe.positions[v * 3 + 2]!;
+      const dx = x - axisX;
+      const dz = z - axisZ;
+      const r = Math.hypot(dx, dz);
+      const sector = sectorIndex(dx, dz, sectorCount);
+      if (y > hemBottomY[sector]! + epsilonM && r <= hemRadius[sector]! + reachM) {
+        hidden[v] = 1;
+      }
+    }
+  }
+
+  return hidden;
 }

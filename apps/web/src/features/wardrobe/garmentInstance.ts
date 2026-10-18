@@ -349,7 +349,7 @@ export class GarmentInstance {
    */
   hideUnder(
     outer: Surface | readonly Surface[] | null,
-    options?: { bandM?: number; slack?: number },
+    options?: { bandM?: number; slack?: number; extraMask?: ArrayLike<number> },
   ): void {
     if (garmentSlot(this.runtime.def) === 'outer') {
       if (!this.hiddenByOuter) return;
@@ -361,7 +361,8 @@ export class GarmentInstance {
     }
     const surfaces: readonly Surface[] =
       outer === null ? [] : 'positions' in outer ? [outer] : outer;
-    if (surfaces.length === 0) {
+    const extraMask = options?.extraMask;
+    if (surfaces.length === 0 && !extraMask) {
       if (!this.hiddenByOuter) return;
       this.indexArray.set(this.runtime.index);
       this.geometry.setDrawRange(0, this.runtime.index.length);
@@ -372,6 +373,12 @@ export class GarmentInstance {
     const bandM = options?.bandM ?? 0.02;
     const slack = options?.slack ?? 0;
     const covered = new Uint8Array(this.runtime.vertexCount);
+    if (extraMask) {
+      const len = Math.min(covered.length, extraMask.length);
+      for (let v = 0; v < len; v++) {
+        if (extraMask[v]) covered[v] = 1;
+      }
+    }
     for (const surface of surfaces) {
       const mask = coveredBodyVertices(
         this.graded,
