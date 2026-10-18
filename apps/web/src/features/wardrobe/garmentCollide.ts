@@ -26,6 +26,14 @@ export interface PushOptions {
   orientation?: 'triangle' | 'surface';
 }
 
+/**
+ * Clearance the outer layer (e.g. denim jacket) keeps outside of the inner garments it is worn over (metres).
+ * Outer garments need a larger clearance (12 mm vs default 6 mm) over inner garments (such as polo shirts)
+ * to prevent inner fabric patches from showing through near welt pockets and side seams, while keeping
+ * lighter outfits clean.
+ */
+export const OUTER_PUSH_MARGIN_M = 0.012;
+
 /** Barycentric slack of the footprint test (fraction of a triangle). */
 const SLACK = 0.2;
 /** A vertex is only moved when it needs more than this (metres): float noise at exactly the margin is not a push. */

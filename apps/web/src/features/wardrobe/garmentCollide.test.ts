@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   orientSurfaceNormals,
+  OUTER_PUSH_MARGIN_M,
   pushInside,
   pushOutside,
   triangleSurfaceNormals,
@@ -108,6 +109,55 @@ describe('pushOutside', () => {
     const p2 = Float32Array.from([0.7, 0.3, 0.001]);
     expect(pushOutside(p2, 1, [surface], { orientation: 'triangle' })).toBe(1);
     expect(p2[2]).toBeCloseTo(-0.006, 6);
+  });
+
+  it('pushes an outer sheet just inside an inner sheet to >= 12 mm outside with OUTER_PUSH_MARGIN_M, ~6 mm without', () => {
+    // 4-vertex outer sheet at z = -0.002 m (just inside the inner sheet at z = 0).
+    const sheetWithout = Float32Array.from([
+      0.2, 0.2, -0.002,
+      0.8, 0.2, -0.002,
+      0.8, 0.8, -0.002,
+      0.2, 0.8, -0.002,
+    ]);
+    expect(pushOutside(sheetWithout, 4, [innerSheet()])).toBe(4);
+    for (let i = 0; i < 4; i++) {
+      expect(sheetWithout[i * 3 + 2]!).toBeCloseTo(0.006, 6);
+    }
+
+    // Outer garment uses orientation: 'surface' and marginM: OUTER_PUSH_MARGIN_M (0.012 m).
+    const sheetWith = Float32Array.from([
+      0.2, 0.2, -0.002,
+      0.8, 0.2, -0.002,
+      0.8, 0.8, -0.002,
+      0.2, 0.8, -0.002,
+    ]);
+    expect(
+      pushOutside(sheetWith, 4, [innerSheet()], {
+        orientation: 'surface',
+        marginM: OUTER_PUSH_MARGIN_M,
+      }),
+    ).toBe(4);
+    for (let i = 0; i < 4; i++) {
+      expect(sheetWith[i * 3 + 2]!).toBeCloseTo(OUTER_PUSH_MARGIN_M, 6);
+      expect(sheetWith[i * 3 + 2]!).toBeGreaterThanOrEqual(0.012);
+    }
+  });
+
+  it('leaves non-outer vertices between 6 mm and 12 mm untouched while pushing outer vertices to >= 12 mm', () => {
+    // Vertex at z = 0.008 m: beyond default 6 mm margin, but inside outer 12 mm margin.
+    const nonOuter = upper(0.008);
+    expect(pushOutside(nonOuter, 1, [innerSheet()])).toBe(0);
+    expect(nonOuter[2]!).toBeCloseTo(0.008, 6);
+
+    const outer = upper(0.008);
+    expect(
+      pushOutside(outer, 1, [innerSheet()], {
+        orientation: 'surface',
+        marginM: OUTER_PUSH_MARGIN_M,
+      }),
+    ).toBe(1);
+    expect(outer[2]!).toBeCloseTo(OUTER_PUSH_MARGIN_M, 6);
+    expect(outer[2]!).toBeGreaterThanOrEqual(0.012);
   });
 });
 

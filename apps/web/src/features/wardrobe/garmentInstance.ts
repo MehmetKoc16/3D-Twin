@@ -29,7 +29,12 @@ import {
 } from '@dt/avatar-core';
 import { computeWeldedNormals } from '../avatar/meshMath';
 import { clipCoverageToHem, clipDeleteVerts, coveredBodyVertices } from './bodyHide';
-import { pushInside, pushOutside, type Surface } from './garmentCollide';
+import {
+  OUTER_PUSH_MARGIN_M,
+  pushInside,
+  pushOutside,
+  type Surface,
+} from './garmentCollide';
 import { flareOverShoes } from './garmentFlare';
 import { boundBodyPoints, fitToChart, type BodyPlanes } from './garmentGrading';
 import type { TemplateRuntime } from './templateLoader';
@@ -54,6 +59,14 @@ export interface GarmentUpdateContext {
   /** Absolute normal expansion, ordered above all inner garments by the rig. */
   normalOffsetM?: number;
 }
+
+/**
+ * Clearance the outer layer (e.g. denim jacket) keeps outside of the inner garments it is worn over (metres).
+ * Outer garments need a larger clearance (12 mm vs default 6 mm) over inner garments (such as polo shirts)
+ * to prevent inner fabric patches from showing through near welt pockets and side seams, while keeping
+ * lighter outfits clean.
+ */
+export { OUTER_PUSH_MARGIN_M };
 
 /**
  * Multiplier that turns the template's texture into the item colour: the texture carries the fabric detail around
@@ -297,8 +310,10 @@ export class GarmentInstance {
       flareOverShoes(graded, runtime.vertexCount, ctx.shoes);
     }
     if (ctx.lowers.length > 0) {
+      const isOuter = garmentSlot(def) === 'outer';
       pushOutside(graded, runtime.vertexCount, ctx.lowers, {
-        orientation: garmentSlot(def) === 'outer' ? 'surface' : 'triangle',
+        orientation: isOuter ? 'surface' : 'triangle',
+        marginM: isOuter ? OUTER_PUSH_MARGIN_M : undefined,
       });
     }
   }
