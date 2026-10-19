@@ -251,10 +251,7 @@ export class WardrobeRig {
       shoes: category === 'bottom' ? this.instances.get('shoes')?.surface() : undefined,
       normalOffsetM: offsets.get(category),
       tuckedHem: tucked !== undefined && category === 'top',
-      containInnerSleeves:
-        category === 'outer' &&
-        instance.template.id === 'mh-denim-jacket' &&
-        this.instances.get('top')?.template.id === 'mh-male-polo-shirt',
+      containInnerSleeves: category === 'outer' && this.instances.has('top'),
     });
     const guarded = (category: GarmentSlot, instance: GarmentInstance, run: () => void): void => {
       try {

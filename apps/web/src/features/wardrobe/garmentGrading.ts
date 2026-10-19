@@ -16,7 +16,7 @@ import {
   type Vec3,
 } from '@dt/avatar-core';
 import { GIRTH_MEASURES } from './chartModel';
-import { sleeveWeight, type SleeveArm } from './garmentCollide';
+import { shoulderBandWeight, sleeveWeight, type SleeveArm } from './garmentCollide';
 
 /** Pure garment update helpers (no three.js): planes and grade rings. */
 
@@ -246,7 +246,10 @@ export function fitToChart(input: ChartFitInput, rest: Float32Array, graded: Flo
         gradeGarment(rest, binding, body, rings, independent, sections, { outer: true });
       const arms = sleeveArms(input.joint);
       for (let o = 0; o < graded.length; o += 3) {
-        const blend = sleeveWeight(bound, o, arms);
+        const blend = Math.max(
+          sleeveWeight(bound, o, arms),
+          shoulderBandWeight(bound, o, arms),
+        );
         for (let k = 0; k < 3; k++) {
           graded[o + k] = graded[o + k]! + blend * (independent[o + k]! - graded[o + k]!);
         }

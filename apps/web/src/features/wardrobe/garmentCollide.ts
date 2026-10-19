@@ -75,6 +75,42 @@ export function sleeveWeight(
   return blend;
 }
 
+/** Distance below the mean shoulder joint where the shoulder ramp begins (metres): below the armpit, outer grading still respects inner garments. */
+export const SHOULDER_BAND_BELOW_M = 0.14;
+/** Vertical span over which the shoulder ramp transitions to full independent grading (metres): smooth blend across the armpit band. */
+export const SHOULDER_BAND_RAMP_M = 0.06;
+
+export interface ShoulderBandOptions {
+  /** Distance below the mean shoulder joint where the ramp begins, metres. */
+  belowShoulderM?: number;
+  /** Vertical span over which the ramp transitions to full weight, metres. */
+  rampM?: number;
+}
+
+/**
+ * Smooth height-based blend weight transitioning from layer-limited to independent grading across the shoulder/armpit.
+ * Above (mean shoulder joint height - belowShoulderM), smoothly over rampM, returns 1 so the outer garment does not bulge
+ * over inner layers at the shoulders. Below that band, returns 0. Returns 0 when no arms are provided.
+ */
+export function shoulderBandWeight(
+  bound: ArrayLike<number>,
+  o: number,
+  arms: readonly SleeveArm[],
+  options: ShoulderBandOptions = {},
+): number {
+  if (arms.length === 0) return 0;
+  const { belowShoulderM = SHOULDER_BAND_BELOW_M, rampM = SHOULDER_BAND_RAMP_M } = options;
+  let sumY = 0;
+  for (const arm of arms) {
+    sumY += arm.shoulder[1];
+  }
+  const shY = sumY / arms.length;
+  const by = bound[o + 1]!;
+  const startY = shY - belowShoulderM;
+  if (rampM <= 0) return by >= startY ? 1 : 0;
+  return smoothstep((by - startY) / rampM);
+}
+
 /**
  * Compress an inner short sleeve into the chart-fitted jacket before fitting the jacket over it.
  * Rays run perpendicular to the arm axis, with a floor outside the bound skin radius. The shoulder blend

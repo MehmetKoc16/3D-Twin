@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import type { Vec3 } from '@dt/avatar-core';
 import {
   orientSurfaceNormals,
   OUTER_PUSH_MARGIN_M,
   pushInside,
   pushOutside,
+  shoulderBandWeight,
+  SHOULDER_BAND_BELOW_M,
+  SHOULDER_BAND_RAMP_M,
   triangleSurfaceNormals,
   type Surface,
 } from './garmentCollide';
@@ -286,5 +290,64 @@ describe('pushInside', () => {
     expect(p[2]).toBeCloseTo(-0.006, 6);
     expect(p[5]).toBeCloseTo(-0.006, 6);
     expect(p[8]).toBeCloseTo(-0.05, 6); // already well behind
+  });
+});
+
+describe('shoulderBandWeight', () => {
+  const armL = { shoulder: [-0.2, 1.5, 0] as Vec3, elbow: [-0.4, 1.1, 0] as Vec3 };
+  const armR = { shoulder: [0.2, 1.5, 0] as Vec3, elbow: [0.4, 1.1, 0] as Vec3 };
+  const arms = [armL, armR];
+
+  it('is 0 at chest height (below shoulder - SHOULDER_BAND_BELOW_M)', () => {
+    const atRampStart = [0, 1.5 - SHOULDER_BAND_BELOW_M, 0];
+    expect(shoulderBandWeight(atRampStart, 0, arms)).toBe(0);
+    const chestBound = [0, 1.5 - 0.2, 0];
+    expect(shoulderBandWeight(chestBound, 0, arms)).toBe(0);
+  });
+
+  it('is 1 at shoulder height and ramp end (shoulder - SHOULDER_BAND_BELOW_M + SHOULDER_BAND_RAMP_M)', () => {
+    const atRampEnd = [0, 1.5 - SHOULDER_BAND_BELOW_M + SHOULDER_BAND_RAMP_M, 0];
+    expect(shoulderBandWeight(atRampEnd, 0, arms)).toBe(1);
+    const shoulderBound = [0, 1.5, 0];
+    expect(shoulderBandWeight(shoulderBound, 0, arms)).toBe(1);
+  });
+
+  it('is monotonic and smooth (no jump > 0.3 between points 1 cm apart) in between', () => {
+    let previousWeight = shoulderBandWeight([0, 1.5 - 0.2, 0], 0, arms);
+    for (let y = 1.5 - 0.2 + 0.01; y <= 1.5 + 0.05; y += 0.01) {
+      const currentWeight = shoulderBandWeight([0, y, 0], 0, arms);
+      expect(currentWeight).toBeGreaterThanOrEqual(previousWeight);
+      expect(currentWeight - previousWeight).toBeLessThanOrEqual(0.3);
+      previousWeight = currentWeight;
+    }
+  });
+
+  it('returns 0 with no arms', () => {
+    expect(shoulderBandWeight([0, 1.5, 0], 0, [])).toBe(0);
+  });
+
+  it('uses the mean of two shoulders', () => {
+    const asymmetricL = { shoulder: [-0.2, 1.4, 0] as Vec3, elbow: [-0.4, 1.0, 0] as Vec3 };
+    const asymmetricR = { shoulder: [0.2, 1.6, 0] as Vec3, elbow: [0.4, 1.2, 0] as Vec3 };
+    const asymmetricArms = [asymmetricL, asymmetricR]; // mean shoulder y = 1.5
+    // At chest height relative to mean shoulder (1.5 - SHOULDER_BAND_BELOW_M = 1.36): 0
+    expect(shoulderBandWeight([0, 1.5 - SHOULDER_BAND_BELOW_M, 0], 0, asymmetricArms)).toBe(0);
+    // At ramp end (1.5 - SHOULDER_BAND_BELOW_M + SHOULDER_BAND_RAMP_M = 1.42) and at mean shoulder height (1.50): 1
+    expect(
+      shoulderBandWeight(
+        [0, 1.5 - SHOULDER_BAND_BELOW_M + SHOULDER_BAND_RAMP_M, 0],
+        0,
+        asymmetricArms,
+      ),
+    ).toBe(1);
+    expect(shoulderBandWeight([0, 1.5, 0], 0, asymmetricArms)).toBe(1);
+    // At y = 1.40 (armL shoulder height): startY = 1.5 - SHOULDER_BAND_BELOW_M = 1.36.
+    // t = (1.40 - 1.36) / SHOULDER_BAND_RAMP_M = (1.40 - 1.36) / 0.06 = 4/6 = 2/3.
+    // smoothstep(2/3) = (4/9) * (3 - 4/3) = 20/27 ~= 0.7407.
+    // If only armL were used, at y = 1.40 it would have been at shoulder height (1.0).
+    const weightAt140 = shoulderBandWeight([0, 1.4, 0], 0, asymmetricArms);
+    expect(weightAt140).toBeGreaterThan(0);
+    expect(weightAt140).toBeLessThan(1);
+    expect(weightAt140).toBeCloseTo(20 / 27, 4);
   });
 });
