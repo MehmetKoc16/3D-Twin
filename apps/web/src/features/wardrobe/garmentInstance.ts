@@ -29,12 +29,7 @@ import {
 } from '@dt/avatar-core';
 import { computeWeldedNormals } from '../avatar/meshMath';
 import { clipCoverageToHem, clipDeleteVerts, coveredBodyVertices } from './bodyHide';
-import {
-  OUTER_PUSH_MARGIN_M,
-  pushInside,
-  pushOutside,
-  type Surface,
-} from './garmentCollide';
+import { OUTER_PUSH_MARGIN_M, pushInside, pushOutside, type Surface } from './garmentCollide';
 import { flareOverShoes } from './garmentFlare';
 import { boundBodyPoints, fitToChart, type BodyPlanes } from './garmentGrading';
 import type { TemplateRuntime } from './templateLoader';
@@ -54,6 +49,8 @@ export interface GarmentUpdateContext {
   lowers: readonly Surface[];
   /** Optional shoe surface worn under trousers: flared radially over the shoes instead of pushOutside. */
   shoes?: Surface;
+  /** Optional inner top surface worn under an outer garment (e.g. polo or t-shirt under a denim jacket). */
+  innerTop?: Surface;
   /** A tucked top worn with a bottom: the chart's hem length is not applied (the hem stays inside the trousers). */
   tuckedHem?: boolean;
   /** Absolute normal expansion, ordered above all inner garments by the rig. */
@@ -237,6 +234,28 @@ export class GarmentInstance {
       const index = this.mesh.skeleton.bones.findIndex((bone) => bone.name === name);
       return restJoint(index);
     };
+    const isOuter = garmentSlot(def) === 'outer';
+    let innerTop = ctx.innerTop;
+    if (!innerTop && isOuter && ctx.lowers.length > 0) {
+      // Find the inner top surface from lowers (e.g. polo shirt or t-shirt worn under jacket).
+      // A top has vertices in the upper torso / chest (y > jacketMaxY - 0.25).
+      let jacketMaxY = -Infinity;
+      for (let i = 1; i < runtime.vertexCount * 3; i += 3) {
+        const y = runtime.neutralPositions[i]!;
+        if (y > jacketMaxY) jacketMaxY = y;
+      }
+      for (const surface of ctx.lowers) {
+        let maxSy = -Infinity;
+        for (let i = 1; i < surface.positions.length; i += 3) {
+          const sy = surface.positions[i]!;
+          if (sy > maxSy) maxSy = sy;
+        }
+        if (maxSy > jacketMaxY - 0.25) {
+          innerTop = surface;
+          break;
+        }
+      }
+    }
     fitToChart(
       {
         def,
@@ -248,6 +267,7 @@ export class GarmentInstance {
         planes: ctx.planes,
         joint,
         tuckedHem: ctx.tuckedHem ?? false,
+        innerSurface: isOuter ? innerTop : undefined,
       },
       rest,
       graded,
@@ -276,7 +296,8 @@ export class GarmentInstance {
       if (rest[i]! < restMinY) restMinY = rest[i]!;
       if (graded[i]! < gradedMinY) gradedMinY = graded[i]!;
     }
-    const hemShift = Number.isFinite(gradedMinY) && Number.isFinite(restMinY) ? gradedMinY - restMinY : 0;
+    const hemShift =
+      Number.isFinite(gradedMinY) && Number.isFinite(restMinY) ? gradedMinY - restMinY : 0;
     if (
       tucked !== this.hemTucked ||
       this.coveredBody !== ctx.body ||

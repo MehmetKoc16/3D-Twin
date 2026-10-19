@@ -6,6 +6,16 @@ export interface GradeRing {
   deltaCircumferenceM: number;
 }
 
+export interface GradeInnerSurface {
+  /** Graded positions of the inner garment (3 floats per vertex). */
+  positions: ArrayLike<number>;
+  /** Optional triangle index buffer of the inner garment. */
+  index?: ArrayLike<number>;
+}
+
+/** Default outer grading clearance over an inner top garment (9 mm). */
+export const DEFAULT_OUTER_INNER_CLEARANCE_M = 0.009;
+
 export interface GradeGarmentOptions {
   outer?: boolean;
   /** Optional outer grading clearance in meters. Unclamped by default; layering resolves collisions. */
@@ -16,6 +26,10 @@ export interface GradeGarmentOptions {
   iterations?: number;
   /** Weld tolerance in meters for coincident vertices (default 0.001 = 1 mm). */
   weldTolerance?: number;
+  /** Inner garment surface (e.g. inner top) worn under this garment. */
+  innerSurface?: GradeInnerSurface | ArrayLike<number>;
+  /** Clearance to maintain outside the inner surface in meters (default 0.009 = 9 mm). */
+  innerClearance?: number;
 }
 
 /**
@@ -86,7 +100,8 @@ export function gradeGarment(
           const low = sorted[upper - 1]!;
           const high = sorted[upper]!;
           const t = high.planeY === low.planeY ? 1 : (by - low.planeY) / (high.planeY - low.planeY);
-          delta = low.deltaCircumferenceM + t * (high.deltaCircumferenceM - low.deltaCircumferenceM);
+          delta =
+            low.deltaCircumferenceM + t * (high.deltaCircumferenceM - low.deltaCircumferenceM);
         }
       }
       let shift = delta / (2 * Math.PI);
@@ -120,6 +135,163 @@ export function gradeGarment(
   }
   const outerSections = new GarmentSections(pooledBody);
 
+  const rawInner = options?.innerSurface;
+  const innerPositions: ArrayLike<number> | undefined =
+    rawInner && typeof rawInner === 'object' && 'positions' in rawInner
+      ? (rawInner as GradeInnerSurface).positions
+      : (rawInner as ArrayLike<number> | undefined);
+  const innerClearance = options?.innerClearance ?? DEFAULT_OUTER_INNER_CLEARANCE_M;
+
+  const hasInner = !!(innerPositions && innerPositions.length >= 3);
+  let jacketMinY = Infinity;
+  let jacketMaxY = -Infinity;
+  if (hasInner) {
+    for (let i = 1; i < count * 3; i += 3) {
+      const y = restPositions[i]!;
+      if (y < jacketMinY) jacketMinY = y;
+      if (y > jacketMaxY) jacketMaxY = y;
+    }
+  }
+
+  const SECTORS = 48;
+  const minSlab = hasInner ? Math.floor(jacketMinY * 100) - 1 : 0;
+  const maxSlab = hasInner ? Math.ceil(jacketMaxY * 100) + 1 : 0;
+  const numSlabs = hasInner ? Math.max(1, maxSlab - minSlab + 1) : 0;
+
+  /**
+   * Inner-top radii (distance from the pooled section centre) of one 1 cm slab and one body
+   * component, bucketed by angular sector. The radii are kept (not reduced to a per-sector
+   * maximum): a sleeve of the inner top shares the torso centre where the pooled body sections
+   * merge arm and torso, so a maximum would make every jacket vertex of that sector chase the
+   * sleeve tip. Each jacket vertex instead only sees radii near its own radius.
+   */
+  interface SlabComp {
+    cx: number;
+    cz: number;
+    /** Per angular sector: flat (radius, angle) pairs of the inner vertices. */
+    sectors: number[][];
+  }
+  const slabComponents: SlabComp[][] = hasInner ? Array.from({ length: numSlabs }, () => []) : [];
+
+  if (hasInner) {
+    const innerCount = Math.floor(innerPositions!.length / 3);
+    for (let i = 0; i < innerCount; i++) {
+      const iy = innerPositions![i * 3 + 1]!;
+      if (iy < jacketMinY - 0.02 || iy > jacketMaxY + 0.02) continue;
+      const s = Math.floor(iy * 100) - minSlab;
+      if (s < 0 || s >= numSlabs) continue;
+
+      const ix = innerPositions![i * 3]!;
+      const iz = innerPositions![i * 3 + 2]!;
+
+      const lowY = Math.floor(iy * 100) / 100;
+      const low = outerSections.centroidAt(lowY, ix, iz);
+      const high = outerSections.centroidAt(lowY + 0.01, ix, iz);
+      const t = (iy - lowY) * 100;
+      const icx = low.x + t * (high.x - low.x);
+      const icz = low.z + t * (high.z - low.z);
+
+      const idx = ix - icx;
+      const idz = iz - icz;
+      const iRadius = Math.hypot(idx, idz);
+      let iAngle = Math.atan2(idz, idx);
+      if (iAngle < 0) iAngle += 2 * Math.PI;
+      const sec = Math.floor((iAngle / (2 * Math.PI)) * SECTORS) % SECTORS;
+
+      const comps = slabComponents[s]!;
+      let comp: SlabComp | undefined;
+      for (let c = 0; c < comps.length; c++) {
+        const candidate = comps[c]!;
+        if (Math.hypot(candidate.cx - low.x, candidate.cz - low.z) < 0.05) {
+          comp = candidate;
+          break;
+        }
+      }
+      if (!comp) {
+        comp = {
+          cx: low.x,
+          cz: low.z,
+          sectors: Array.from({ length: SECTORS }, () => []),
+        };
+        comps.push(comp);
+      }
+      comp.sectors[sec]!.push(iRadius, iAngle);
+    }
+  }
+
+  // Inner radii further outside the jacket vertex than this are ignored (a sleeve tip, the far
+  // side of a sleeve...); the contribution fades out between the two distances so the limit has
+  // no steps. The jacket's rest surface already sits around the inner top, so this window only
+  // has to cover the inner top's thickness over the rest surface.
+  const INNER_NEAR_M = 0.03;
+  const INNER_FAR_M = 0.05;
+  const INNER_OFF_SHIFT_M = -0.1;
+  // Angular taper: the limit falls by this much per metre of arc between a jacket vertex and an
+  // inner vertex (a 2 cm local bulge fades out over 8 cm of arc) and is ignored beyond the reach.
+  const INNER_TAPER_PER_ARC_M = 0.25;
+  const INNER_ARC_REACH_M = 0.07;
+
+  /** Minimum radial shift keeping a jacket vertex of radius r outside the local inner top. */
+  function getInnerLimit(
+    slab: number,
+    angle: number,
+    lowX: number,
+    lowZ: number,
+    r: number,
+  ): number {
+    const sectorWidth = (2 * Math.PI) / SECTORS;
+    const sec = Math.floor(angle / sectorWidth) % SECTORS;
+    const reach = Math.min(
+      SECTORS / 2,
+      Math.ceil(INNER_ARC_REACH_M / Math.max(r * sectorWidth, 1e-3)) + 1,
+    );
+    let limit = -Infinity;
+    for (let ds = -1; ds <= 1; ds++) {
+      const s = slab + ds;
+      if (s < 0 || s >= numSlabs) continue;
+      const comps = slabComponents[s]!;
+      let bestDist = Infinity;
+      let matchedComp: SlabComp | undefined;
+      for (let c = 0; c < comps.length; c++) {
+        const candidate = comps[c]!;
+        const d = Math.hypot(candidate.cx - lowX, candidate.cz - lowZ);
+        if (d < 0.08 && d < bestDist) {
+          bestDist = d;
+          matchedComp = candidate;
+        }
+      }
+      if (!matchedComp) continue;
+      for (let dsec = -reach; dsec <= reach; dsec++) {
+        const entries = matchedComp.sectors[(sec + dsec + SECTORS) % SECTORS]!;
+        for (let k = 0; k < entries.length; k += 2) {
+          let da = Math.abs(entries[k + 1]! - angle);
+          if (da > Math.PI) da = 2 * Math.PI - da;
+          const arc = da * r;
+          if (arc > INNER_ARC_REACH_M) continue;
+          // The taper lowers the limit with angular distance, so a local bulge of the inner top
+          // widens the jacket gradually instead of in a step at the sector edge.
+          const excess = entries[k]! - r - INNER_TAPER_PER_ARC_M * arc;
+          let lim: number;
+          if (excess <= INNER_NEAR_M) lim = excess + innerClearance;
+          else if (excess >= INNER_FAR_M) continue;
+          else {
+            const fade = (excess - INNER_NEAR_M) / (INNER_FAR_M - INNER_NEAR_M);
+            lim =
+              INNER_NEAR_M +
+              innerClearance +
+              fade * (INNER_OFF_SHIFT_M - INNER_NEAR_M - innerClearance);
+          }
+          if (lim > limit) limit = lim;
+        }
+      }
+    }
+    return limit;
+  }
+
+  const innerLimits = hasInner ? new Float32Array(count) : null;
+  const dirX = new Float32Array(count);
+  const dirZ = new Float32Array(count);
+
   for (let v = 0; v < count; v++) {
     const o = v * 3;
     let bx = 0,
@@ -151,6 +323,9 @@ export function gradeGarment(
     }
     dx /= radius;
     dz /= radius;
+    dirX[v] = dx;
+    dirZ[v] = dz;
+
     let delta = 0;
     if (sorted.length) {
       let upper = 0;
@@ -158,15 +333,29 @@ export function gradeGarment(
       if (upper === 0) delta = sorted[0]!.deltaCircumferenceM;
       else if (upper === sorted.length) delta = sorted[sorted.length - 1]!.deltaCircumferenceM;
       else {
-        const low = sorted[upper - 1]!;
-        const high = sorted[upper]!;
-        const t = high.planeY === low.planeY ? 1 : (by - low.planeY) / (high.planeY - low.planeY);
-        delta = low.deltaCircumferenceM + t * (high.deltaCircumferenceM - low.deltaCircumferenceM);
+        const lowR = sorted[upper - 1]!;
+        const highR = sorted[upper]!;
+        const tr =
+          highR.planeY === lowR.planeY ? 1 : (by - lowR.planeY) / (highR.planeY - lowR.planeY);
+        delta =
+          lowR.deltaCircumferenceM + tr * (highR.deltaCircumferenceM - lowR.deltaCircumferenceM);
       }
     }
     let shift = delta / (2 * Math.PI);
     const clearance = (restPositions[o]! - bx) * dx + (restPositions[o + 2]! - bz) * dz;
     shift = Math.max(shift, minClearance - clearance);
+
+    if (hasInner && delta < 0) {
+      let angle = Math.atan2(dz, dx);
+      if (angle < 0) angle += 2 * Math.PI;
+      const s = Math.floor(y * 100) - minSlab;
+      const minShift = getInnerLimit(s, angle, low.x, low.z, radius);
+      innerLimits![v] = minShift;
+      if (minShift > shift) shift = minShift;
+    } else if (innerLimits) {
+      innerLimits[v] = -Infinity;
+    }
+
     dispX[v] = shift * dx;
     dispY[v] = 0;
     dispZ[v] = shift * dz;
@@ -250,6 +439,37 @@ export function gradeGarment(
               }
             }
           }
+        }
+      }
+    }
+  }
+
+  // For stacked parts within 2.5 cm, share the inner limit of the innermost layer
+  if (innerLimits) {
+    const propLimits = new Float32Array(innerLimits);
+    for (let i = 0; i < count; i++) {
+      const limI = innerLimits[i]!;
+      const neighbors = adj[i]!;
+      const diX = dirX[i]!;
+      const diZ = dirZ[i]!;
+      let maxLim = limI;
+      for (let k = 0; k < neighbors.length; k++) {
+        const j = neighbors[k]!;
+        const limJ = innerLimits[j]!;
+        if (limJ === -Infinity) continue;
+        const dot = diX * dirX[j]! + diZ * dirZ[j]!;
+        if (dot > 0.8 && limJ > maxLim) maxLim = limJ;
+      }
+      propLimits[i] = maxLim;
+    }
+    for (let i = 0; i < count; i++) {
+      innerLimits[i] = propLimits[i]!;
+      const lim = innerLimits[i]!;
+      if (lim !== -Infinity) {
+        const curShift = dispX[i]! * dirX[i]! + dispZ[i]! * dirZ[i]!;
+        if (curShift < lim) {
+          dispX[i] = lim * dirX[i]!;
+          dispZ[i] = lim * dirZ[i]!;
         }
       }
     }
@@ -368,6 +588,28 @@ export function gradeGarment(
     const tmpZ = curDz;
     curDz = nextDz;
     nextDz = tmpZ;
+  }
+
+  // Post-smoothing: enforce inner surface limit per weld group so smoothing cannot pull vertices back inside
+  if (innerLimits) {
+    for (const group of groupMap.values()) {
+      let maxDeficit = 0;
+      for (let k = 0; k < group.length; k++) {
+        const v = group[k]!;
+        const limit = innerLimits[v]!;
+        if (limit === -Infinity) continue;
+        const radialDisp = curDx[v]! * dirX[v]! + curDz[v]! * dirZ[v]!;
+        const deficit = limit - radialDisp;
+        if (deficit > maxDeficit) maxDeficit = deficit;
+      }
+      if (maxDeficit > 0) {
+        for (let k = 0; k < group.length; k++) {
+          const v = group[k]!;
+          curDx[v] = curDx[v]! + maxDeficit * dirX[v]!;
+          curDz[v] = curDz[v]! + maxDeficit * dirZ[v]!;
+        }
+      }
+    }
   }
 
   // Write out positions

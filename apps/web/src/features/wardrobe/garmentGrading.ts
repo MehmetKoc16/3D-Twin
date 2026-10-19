@@ -210,6 +210,8 @@ export interface ChartFitInput {
   planes: BodyPlanes | undefined;
   joint: (name: string) => Vec3 | undefined;
   tuckedHem?: boolean;
+  /** Optional inner top surface (or lowers) for outer grading. */
+  innerSurface?: { positions: ArrayLike<number>; index?: ArrayLike<number> };
 }
 
 /**
@@ -217,11 +219,14 @@ export interface ChartFitInput {
  * (per-limb sections) and the chart-length passes (`graded`). Both buffers hold 3 floats per garment vertex.
  */
 export function fitToChart(input: ChartFitInput, rest: Float32Array, graded: Float32Array): void {
-  const { def, item, binding, body, sections, achievedCm, planes } = input;
+  const { def, item, binding, body, sections, achievedCm, planes, innerSurface } = input;
   bindGarment(binding, def.scaleRefs, body, rest);
   const rings = planes ? buildGradeRings(item, def, bodyCmFromSolve(achievedCm), planes) : [];
   if (garmentSlot(def) === 'outer') {
-    gradeGarment(rest, binding, body, rings, graded, sections, { outer: true });
+    gradeGarment(rest, binding, body, rings, graded, sections, {
+      outer: true,
+      innerSurface,
+    });
   } else {
     gradeGarment(rest, binding, body, rings, graded, sections);
   }

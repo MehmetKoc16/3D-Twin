@@ -258,4 +258,34 @@ describe('fitToChart outer slot grading', () => {
     expect(outer.graded[3]).toBe(outer.rest[3]);
     expect(outer.graded[5]).toBe(outer.rest[5]);
   });
+
+  it('limits outer girth shrink when worn over an inner surface', () => {
+    const innerPositions = cylinderBody();
+    const rest = new Float32Array(6);
+    const graded = new Float32Array(6);
+    fitToChart(
+      {
+        def: jacket,
+        item,
+        binding,
+        body,
+        sections,
+        achievedCm: {},
+        planes,
+        joint: none,
+        innerSurface: { positions: innerPositions },
+      },
+      rest,
+      graded,
+    );
+    // Inner surface is at radius 0.20, default clearance is 0.009 -> min radius is 0.209
+    expect(graded[2]!).toBeGreaterThanOrEqual(0.208);
+    expect(graded[5]!).toBeGreaterThan(graded[2]!);
+    const dist = Math.hypot(
+      graded[3]! - graded[0]!,
+      graded[4]! - graded[1]!,
+      graded[5]! - graded[2]!,
+    );
+    expect(Math.abs(dist - 0.003)).toBeLessThanOrEqual(0.001);
+  });
 });
