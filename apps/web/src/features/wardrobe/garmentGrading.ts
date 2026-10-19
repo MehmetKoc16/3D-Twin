@@ -16,6 +16,7 @@ import {
   type Vec3,
 } from '@dt/avatar-core';
 import { GIRTH_MEASURES } from './chartModel';
+import { sleeveWeight, type SleeveArm } from './garmentCollide';
 
 /** Pure garment update helpers (no three.js): planes and grade rings. */
 
@@ -212,6 +213,16 @@ export interface ChartFitInput {
   tuckedHem?: boolean;
   /** Optional inner top surface (or lowers) for outer grading. */
   innerSurface?: { positions: ArrayLike<number>; index?: ArrayLike<number> };
+  /** A covered loose polo sleeve conforms to the jacket's own chart sleeve. */
+  containInnerSleeves?: boolean;
+}
+
+export function sleeveArms(joint: (name: string) => Vec3 | undefined): SleeveArm[] {
+  return ['l', 'r'].flatMap((side) => {
+    const shoulder = joint(`upperarm_${side}`);
+    const elbow = joint(`lowerarm_${side}`);
+    return shoulder && elbow ? [{ shoulder, elbow }] : [];
+  });
 }
 
 /**
@@ -227,6 +238,35 @@ export function fitToChart(input: ChartFitInput, rest: Float32Array, graded: Flo
       outer: true,
       innerSurface,
     });
+    if (input.containInnerSleeves) {
+      const independent = new Float32Array(graded);
+      const bound = new Float32Array(graded.length);
+      boundBodyPoints(binding, body, bound);
+      if (innerSurface)
+        gradeGarment(rest, binding, body, rings, independent, sections, { outer: true });
+      const arms = sleeveArms(input.joint);
+      for (let o = 0; o < graded.length; o += 3) {
+        const blend = sleeveWeight(bound, o, arms);
+        for (let k = 0; k < 3; k++) {
+          graded[o + k] = graded[o + k]! + blend * (independent[o + k]! - graded[o + k]!);
+        }
+        const dx = rest[o]! - bound[o]!;
+        const dy = rest[o + 1]! - bound[o + 1]!;
+        const dz = rest[o + 2]! - bound[o + 2]!;
+        const length = Math.hypot(dx, dy, dz);
+        if (blend > 0 && length > 1e-6) {
+          const clearance =
+            ((graded[o]! - bound[o]!) * dx +
+              (graded[o + 1]! - bound[o + 1]!) * dy +
+              (graded[o + 2]! - bound[o + 2]!) * dz) /
+            length;
+          const lift = (blend * Math.max(0, 0.006 - clearance)) / length;
+          graded[o] = graded[o]! + lift * dx;
+          graded[o + 1] = graded[o + 1]! + lift * dy;
+          graded[o + 2] = graded[o + 2]! + lift * dz;
+        }
+      }
+    }
   } else {
     gradeGarment(rest, binding, body, rings, graded, sections);
   }

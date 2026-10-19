@@ -29,9 +29,16 @@ import {
 } from '@dt/avatar-core';
 import { computeWeldedNormals } from '../avatar/meshMath';
 import { clipCoverageToHem, clipDeleteVerts, coveredBodyVertices } from './bodyHide';
-import { OUTER_PUSH_MARGIN_M, pushInside, pushOutside, type Surface } from './garmentCollide';
+import {
+  containInnerSleeves,
+  OUTER_PUSH_MARGIN_M,
+  pushInside,
+  pushOutside,
+  sleeveWeight,
+  type Surface,
+} from './garmentCollide';
 import { flareOverShoes } from './garmentFlare';
-import { boundBodyPoints, fitToChart, type BodyPlanes } from './garmentGrading';
+import { boundBodyPoints, fitToChart, sleeveArms, type BodyPlanes } from './garmentGrading';
 import type { TemplateRuntime } from './templateLoader';
 
 /** Largest recolour factor of the (grey) template texture, so near-black textures do not blow up. */
@@ -51,6 +58,7 @@ export interface GarmentUpdateContext {
   shoes?: Surface;
   /** Optional inner top surface worn under an outer garment (e.g. polo or t-shirt under a denim jacket). */
   innerTop?: Surface;
+  containInnerSleeves?: boolean;
   /** A tucked top worn with a bottom: the chart's hem length is not applied (the hem stays inside the trousers). */
   tuckedHem?: boolean;
   /** Absolute normal expansion, ordered above all inner garments by the rig. */
@@ -94,6 +102,7 @@ export class GarmentInstance {
   private readonly indexAttribute: BufferAttribute;
   private readonly rigid: PreparedGarmentRigidAttachments | null;
   private hiddenByOuter = false;
+  private containedSleeves: Uint8Array | null = null;
   private heat = false;
   /** How far the lowest vertex of the graded garment is below the floor (m, >= 0); the avatar is lifted by it. */
   soleLift = 0;
@@ -222,8 +231,32 @@ export class GarmentInstance {
     this.commit(ctx, tuckInto);
   }
 
+  /** Contain a loose inner sleeve before the jacket's layer-aware fit; each solve starts afresh. */
+  containSleeves(ctx: GarmentUpdateContext, jacket: Surface): void {
+    const joint = (name: string): Vec3 | undefined => {
+      const index = this.mesh.skeleton.bones.findIndex((bone) => bone.name === name);
+      if (index < 0 || index * 6 + 2 >= ctx.joints.length) return undefined;
+      return [ctx.joints[index * 6]!, ctx.joints[index * 6 + 1]!, ctx.joints[index * 6 + 2]!];
+    };
+    const arms = sleeveArms(joint);
+    // A sparse sleeve triangle can cross the jacket between its vertices even after radial
+    // containment. The long outer sleeve fully covers this short-sleeve region in every pose.
+    this.containedSleeves = Uint8Array.from({ length: this.runtime.vertexCount }, (_, v) => {
+      const o = v * 3;
+      const looseCuff = arms.some(
+        ({ shoulder, elbow }) =>
+          Math.sign(shoulder[0]) * this.graded[o]! > Math.abs(shoulder[0]) + 0.015 &&
+          this.graded[o + 1]! > elbow[1] - 0.08,
+      );
+      return sleeveWeight(this.bound, o, arms) > 0 || looseCuff ? 1 : 0;
+    });
+    containInnerSleeves(this.graded, this.bound, jacket, arms);
+    this.commit(ctx);
+  }
+
   /** First half of `update`: the graded and layered vertex positions (nothing is uploaded yet). */
   fit(ctx: GarmentUpdateContext): void {
+    this.containedSleeves = null;
     const { runtime, item, rest, graded } = this;
     const def = runtime.def;
     const restJoint = (index: number): Vec3 | undefined => {
@@ -268,6 +301,7 @@ export class GarmentInstance {
         joint,
         tuckedHem: ctx.tuckedHem ?? false,
         innerSurface: isOuter ? innerTop : undefined,
+        containInnerSleeves: ctx.containInnerSleeves,
       },
       rest,
       graded,
@@ -332,10 +366,18 @@ export class GarmentInstance {
     }
     if (ctx.lowers.length > 0) {
       const isOuter = garmentSlot(def) === 'outer';
+      const arms = ctx.containInnerSleeves ? sleeveArms(joint) : [];
+      const vertexWeights = ctx.containInnerSleeves
+        ? Float32Array.from(
+            { length: runtime.vertexCount },
+            (_, v) => 1 - sleeveWeight(this.bound, v * 3, arms),
+          )
+        : undefined;
       pushOutside(graded, runtime.vertexCount, ctx.lowers, {
         orientation: isOuter ? 'surface' : 'triangle',
         marginM: isOuter ? OUTER_PUSH_MARGIN_M : undefined,
         frontDepthOnly: isOuter,
+        vertexWeights,
       });
     }
   }
@@ -420,6 +462,7 @@ export class GarmentInstance {
     const bandM = options?.bandM ?? 0.02;
     const slack = options?.slack ?? 0;
     const covered = new Uint8Array(this.runtime.vertexCount);
+    if (surfaces.length > 0 && this.containedSleeves) covered.set(this.containedSleeves);
     if (extraMask) {
       const len = Math.min(covered.length, extraMask.length);
       for (let v = 0; v < len; v++) {
@@ -443,6 +486,12 @@ export class GarmentInstance {
       const b = source[t + 1]!;
       const c = source[t + 2]!;
       const triIdx = t / 3;
+      if (
+        surfaces.length > 0 &&
+        this.containedSleeves &&
+        (this.containedSleeves[a] || this.containedSleeves[b] || this.containedSleeves[c])
+      )
+        continue;
       if (extraTriangleMask && extraTriangleMask[triIdx]) continue;
       if (covered[a] === 1 && covered[b] === 1 && covered[c] === 1) continue;
       this.indexArray[kept++] = a;

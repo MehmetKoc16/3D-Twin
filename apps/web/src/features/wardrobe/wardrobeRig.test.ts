@@ -115,6 +115,79 @@ afterEach(() => {
 });
 
 describe('WardrobeRig outer slot', () => {
+  it.each(['mh-male-polo-shirt', 'mh-jacket-t01'])(
+    'contains sleeves only for the denim and polo pair (%s)',
+    async (topId) => {
+      const templates = definitions.slice(0, 2).map((def, i) => ({
+        ...def,
+        id: i === 0 ? topId : 'mh-denim-jacket',
+      }));
+      const runtimes = new Map(templates.map((def) => [def.id, runtime(def)]));
+      vi.mocked(loadTemplateRuntime).mockImplementation(async (def) => runtimes.get(def.id)!);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({ version: 1, measures: [] }),
+        })),
+      );
+      useWardrobeStore.setState({
+        templates,
+        catalogStatus: 'ready',
+        hydrated: true,
+        heatmap: false,
+        items: templates.map((def) => ({
+          id: def.id,
+          name: def.id,
+          templateId: def.id,
+          color: def.baseColor,
+          sizes: ['M'],
+          selectedSize: 'M',
+          chart: {},
+        })),
+        worn: { top: topId, outer: 'mh-denim-jacket' },
+      });
+      const avatar = assets();
+      const rig = new WardrobeRig(avatar);
+      const envelope: SolveEnvelope = {
+        params: { gender: 0.5, heightCm: 170, weightKg: 70, shoe: { system: 'EU', size: 42 } },
+        roundTripMs: 0,
+        result: {
+          positions: body,
+          joints: new Float32Array(24),
+          groundOffsetY: 0,
+          achievedCm: {},
+          residualsCm: {},
+          unreachable: [],
+          estimatedMassKg: 70,
+          solveMs: 0,
+        },
+      };
+      const contain = vi.spyOn(GarmentInstance.prototype, 'containSleeves');
+      try {
+        rig.onSolve(envelope);
+        await vi.waitFor(() =>
+          expect(
+            avatar.scene.children.filter((child) => child.name.startsWith('garment:')),
+          ).toHaveLength(2),
+        );
+        contain.mockClear();
+        rig.onSolve(envelope);
+        expect(contain).toHaveBeenCalledTimes(topId === 'mh-male-polo-shirt' ? 1 : 0);
+        const top = avatar.scene.getObjectByName(`garment:${topId}`) as SkinnedMesh;
+        useWardrobeStore.getState().takeOff('outer');
+        expect(top.geometry.drawRange.count).toBe(3);
+        expect(contain).toHaveBeenCalledTimes(topId === 'mh-male-polo-shirt' ? 1 : 0);
+      } finally {
+        rig.dispose();
+        avatar.mesh.geometry.dispose();
+        avatar.material.dispose();
+        avatar.skeleton.dispose();
+        for (const value of runtimes.values()) value.material.dispose();
+      }
+    },
+  );
+
   it.each([
     { fixedShape: false, tucked: false },
     { fixedShape: true, tucked: false },
@@ -465,12 +538,24 @@ describe('WardrobeRig outer slot', () => {
     const shoeIndices = Uint32Array.from([0, 1, 2, 3, 4, 5]);
 
     const testBody = Float32Array.from([
-      0, 0, 0, // 0: origin
-      0, 1.0, 0, // 1
-      0, 1.1, 0, // 2
-      0.2, 1.5, 0.1, // 3: hand_l
-      0.3, 1.5, 0.1, // 4: neck_01
-      0.2, 1.6, 0.1, // 5: head
+      0,
+      0,
+      0, // 0: origin
+      0,
+      1.0,
+      0, // 1
+      0,
+      1.1,
+      0, // 2
+      0.2,
+      1.5,
+      0.1, // 3: hand_l
+      0.3,
+      1.5,
+      0.1, // 4: neck_01
+      0.2,
+      1.6,
+      0.1, // 5: head
     ]);
     const testIndices = Uint32Array.from([0, 1, 2, 3, 4, 5]);
 
@@ -518,7 +603,9 @@ describe('WardrobeRig outer slot', () => {
           offsets: positions.slice(), // offset matches position
         },
         skinIndices: new Uint16Array(vertexCount * 4),
-        skinWeights: Float32Array.from({ length: vertexCount * 4 }, (_, i) => (i % 4 === 0 ? 1 : 0)),
+        skinWeights: Float32Array.from({ length: vertexCount * 4 }, (_, i) =>
+          i % 4 === 0 ? 1 : 0,
+        ),
         weld: buildWeldMap(positions),
         deleteVerts: new Uint32Array(0),
         rigidAttachments: null,
@@ -654,17 +741,11 @@ describe('WardrobeRig outer slot', () => {
     // Triangle 2 [6, 7, 8]: toe-box triangle below hem (y = 0.02) -> kept
     const shoePositions = Float32Array.from([
       // Triangle 0 (crossing, 2 above)
-      0.0, 0.12, 0.05,
-      0.02, 0.11, 0.05,
-      0.01, 0.06, 0.05,
+      0.0, 0.12, 0.05, 0.02, 0.11, 0.05, 0.01, 0.06, 0.05,
       // Triangle 1 (crossing, 1 above, centroid below)
-      0.0, 0.11, 0.05,
-      0.02, 0.06, 0.05,
-      -0.02, 0.06, 0.05,
+      0.0, 0.11, 0.05, 0.02, 0.06, 0.05, -0.02, 0.06, 0.05,
       // Triangle 2 (toe, below hem)
-      0.0, 0.02, 0.10,
-      0.02, 0.02, 0.12,
-      -0.02, 0.02, 0.12,
+      0.0, 0.02, 0.1, 0.02, 0.02, 0.12, -0.02, 0.02, 0.12,
     ]);
     const shoeIndices = Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -717,7 +798,9 @@ describe('WardrobeRig outer slot', () => {
           offsets: positions.slice(),
         },
         skinIndices: new Uint16Array(vertexCount * 4),
-        skinWeights: Float32Array.from({ length: vertexCount * 4 }, (_, i) => (i % 4 === 0 ? 1 : 0)),
+        skinWeights: Float32Array.from({ length: vertexCount * 4 }, (_, i) =>
+          i % 4 === 0 ? 1 : 0,
+        ),
         weld: buildWeldMap(positions),
         deleteVerts: new Uint32Array(0),
         rigidAttachments: null,

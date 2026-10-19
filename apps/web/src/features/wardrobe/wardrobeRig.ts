@@ -234,9 +234,7 @@ export class WardrobeRig {
       const instance = this.instances.get(slot);
       if (!instance) continue;
       const innerOffsets =
-        slot === 'outer' && this.instances.has('top')
-          ? [offsets.get('top') ?? 0]
-          : [];
+        slot === 'outer' && this.instances.has('top') ? [offsets.get('top') ?? 0] : [];
       offsets.set(slot, garmentNormalOffset(instance.template, innerOffsets));
     }
     const contextFor = (
@@ -253,6 +251,10 @@ export class WardrobeRig {
       shoes: category === 'bottom' ? this.instances.get('shoes')?.surface() : undefined,
       normalOffsetM: offsets.get(category),
       tuckedHem: tucked !== undefined && category === 'top',
+      containInnerSleeves:
+        category === 'outer' &&
+        instance.template.id === 'mh-denim-jacket' &&
+        this.instances.get('top')?.template.id === 'mh-male-polo-shirt',
     });
     const guarded = (category: GarmentSlot, instance: GarmentInstance, run: () => void): void => {
       try {
@@ -286,6 +288,16 @@ export class WardrobeRig {
       guarded('outer', outer, () => {
         const epoch = outer.coverageEpoch;
         outer.syncBind(this.assets.mesh.bindMatrix);
+        const inner = this.instances.get('top');
+        if (
+          outer.template.id === 'mh-denim-jacket' &&
+          inner?.template.id === 'mh-male-polo-shirt'
+        ) {
+          // Establish the chart sleeve first. A loose, open polo cuff must adapt to that sleeve,
+          // rather than forcing the jacket out and introducing a step where the cuff ends.
+          outer.fit({ ...contextFor('outer', outer), lowers: [], innerTop: undefined });
+          inner.containSleeves(contextFor('top', inner), outer.surface());
+        }
         outer.update(contextFor('outer', outer));
         if (outer.coverageEpoch !== epoch) coverageReady = true;
       });

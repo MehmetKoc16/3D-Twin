@@ -1,4 +1,5 @@
 /** Garment-over-garment layering: pushes the vertices of an outer garment out of an inner one (pure, no three.js). */
+import type { Vec3 } from '@dt/avatar-core';
 
 export interface Surface {
   /** Graded vertex positions of the inner garment (3 floats per vertex). */
@@ -26,6 +27,8 @@ export interface PushOptions {
   orientation?: 'triangle' | 'surface';
   /** Preserve the front opening with a local, smoothly blended +Z contact direction. */
   frontDepthOnly?: boolean;
+  /** Per-vertex contact strength; covered loose sleeves adapt to the jacket instead. */
+  vertexWeights?: ArrayLike<number>;
 }
 
 /**
@@ -35,6 +38,135 @@ export interface PushOptions {
  * lighter outfits clean.
  */
 export const OUTER_PUSH_MARGIN_M = 0.012;
+
+export interface SleeveArm {
+  shoulder: Vec3;
+  elbow: Vec3;
+}
+
+/** Smooth shoulder-to-sleeve membership in the solved body's rest frame. */
+export function sleeveWeight(
+  bound: ArrayLike<number>,
+  o: number,
+  arms: readonly SleeveArm[],
+): number {
+  const bx = bound[o]!;
+  const by = bound[o + 1]!;
+  const bz = bound[o + 2]!;
+  let blend = 0;
+  for (const { shoulder, elbow } of arms) {
+    const ax = elbow[0] - shoulder[0];
+    const ay = elbow[1] - shoulder[1];
+    const az = elbow[2] - shoulder[2];
+    const length = Math.hypot(ax, ay, az);
+    if (length < 1e-6) continue;
+    const along =
+      ((bx - shoulder[0]) * ax + (by - shoulder[1]) * ay + (bz - shoulder[2]) * az) / length;
+    const side = Math.sign(shoulder[0]);
+    if (side * bx <= Math.abs(shoulder[0]) - 0.08 || along < 0 || along > length + 0.08) continue;
+    const distance = Math.hypot(
+      bx - shoulder[0] - (along * ax) / length,
+      by - shoulder[1] - (along * ay) / length,
+      bz - shoulder[2] - (along * az) / length,
+    );
+    if (distance > 0.13) continue;
+    blend = Math.max(blend, smoothstep(along / 0.08));
+  }
+  return blend;
+}
+
+/**
+ * Compress an inner short sleeve into the chart-fitted jacket before fitting the jacket over it.
+ * Rays run perpendicular to the arm axis, with a floor outside the bound skin radius. The shoulder blend
+ * uses body coordinates, not the loose cuff's coordinates; torso fabric is left untouched.
+ */
+export function containInnerSleeves(
+  positions: Float32Array,
+  bound: ArrayLike<number>,
+  outer: Surface,
+  arms: readonly SleeveArm[],
+): number {
+  let moved = 0;
+  for (let v = 0; v < positions.length / 3; v++) {
+    const o = v * 3;
+    const blend = sleeveWeight(bound, o, arms);
+    if (blend === 0) continue;
+    const arm = arms.find((candidate) => sleeveWeight(bound, o, [candidate]) === blend);
+    if (!arm) continue;
+    const { shoulder, elbow } = arm;
+    const ax = elbow[0] - shoulder[0];
+    const ay = elbow[1] - shoulder[1];
+    const az = elbow[2] - shoulder[2];
+    const lengthSq = ax * ax + ay * ay + az * az;
+    const along =
+      ((positions[o]! - shoulder[0]) * ax +
+        (positions[o + 1]! - shoulder[1]) * ay +
+        (positions[o + 2]! - shoulder[2]) * az) /
+      lengthSq;
+    const bx = shoulder[0] + along * ax;
+    const by = shoulder[1] + along * ay;
+    const bz = shoulder[2] + along * az;
+    const skinAlong =
+      ((bound[o]! - shoulder[0]) * ax +
+        (bound[o + 1]! - shoulder[1]) * ay +
+        (bound[o + 2]! - shoulder[2]) * az) /
+      lengthSq;
+    const skinRadius = Math.hypot(
+      bound[o]! - shoulder[0] - skinAlong * ax,
+      bound[o + 1]! - shoulder[1] - skinAlong * ay,
+      bound[o + 2]! - shoulder[2] - skinAlong * az,
+    );
+    let dx = positions[o]! - bx;
+    let dy = positions[o + 1]! - by;
+    let dz = positions[o + 2]! - bz;
+    const clearance = Math.hypot(dx, dy, dz);
+    if (clearance <= skinRadius + 0.002) continue;
+    dx /= clearance;
+    dy /= clearance;
+    dz /= clearance;
+    let hit = Infinity;
+    const p = outer.positions;
+    for (let t = 0; t < outer.index.length; t += 3) {
+      const a = outer.index[t]! * 3;
+      const b = outer.index[t + 1]! * 3;
+      const c = outer.index[t + 2]! * 3;
+      const ex = p[b]! - p[a]!;
+      const ey = p[b + 1]! - p[a + 1]!;
+      const ez = p[b + 2]! - p[a + 2]!;
+      const fx = p[c]! - p[a]!;
+      const fy = p[c + 1]! - p[a + 1]!;
+      const fz = p[c + 2]! - p[a + 2]!;
+      const hx = dy * fz - dz * fy;
+      const hy = dz * fx - dx * fz;
+      const hz = dx * fy - dy * fx;
+      const det = ex * hx + ey * hy + ez * hz;
+      if (Math.abs(det) < 1e-12) continue;
+      const tx = bx - p[a]!;
+      const ty = by - p[a + 1]!;
+      const tz = bz - p[a + 2]!;
+      const u = (tx * hx + ty * hy + tz * hz) / det;
+      if (u < -1e-6 || u > 1 + 1e-6) continue;
+      const qx = ty * ez - tz * ey;
+      const qy = tz * ex - tx * ez;
+      const qz = tx * ey - ty * ex;
+      const w = (dx * qx + dy * qy + dz * qz) / det;
+      if (w < -1e-6 || u + w > 1 + 1e-6) continue;
+      const distance = (fx * qx + fy * qy + fz * qz) / det;
+      if (distance > 0 && distance < hit) hit = distance;
+    }
+    // In the sleeve the jacket is authoritative; only a small fabric gap is needed. Near the
+    // shoulder retain the larger clearance used by the torso's grade/contact passes.
+    const padding = 0.003 + (1 - blend) * OUTER_PUSH_MARGIN_M;
+    const target = Math.max(skinRadius + 0.002, hit - padding);
+    if (target >= clearance) continue;
+    const next = clearance + blend * (target - clearance);
+    positions[o] = bx + next * dx;
+    positions[o + 1] = by + next * dy;
+    positions[o + 2] = bz + next * dz;
+    moved++;
+  }
+  return moved;
+}
 
 /** Barycentric slack of the footprint test (fraction of a triangle). */
 const SLACK = 0.2;
@@ -59,10 +191,7 @@ export function orientSurfaceNormals(
   bound: ArrayLike<number>,
 ): Float32Array {
   const triangleCount = Math.floor(index.length / 3);
-  const vertexCount = Math.min(
-    Math.floor(positions.length / 3),
-    Math.floor(bound.length / 3),
-  );
+  const vertexCount = Math.min(Math.floor(positions.length / 3), Math.floor(bound.length / 3));
   const normals = new Float32Array(triangleCount * 3);
   if (triangleCount === 0 || vertexCount === 0) return normals;
 
@@ -121,9 +250,7 @@ export function orientSurfaceNormals(
     const dz = positions[v * 3 + 2]! - bound[v * 3 + 2]!;
     const dist = Math.hypot(dx, dy, dz);
     const dot =
-      vertexNormals[v * 3]! * dx +
-      vertexNormals[v * 3 + 1]! * dy +
-      vertexNormals[v * 3 + 2]! * dz;
+      vertexNormals[v * 3]! * dx + vertexNormals[v * 3 + 1]! * dy + vertexNormals[v * 3 + 2]! * dz;
     // Weighted by clearance so tight/noisy vertices count little.
     const vote = dot * dist;
     vertexVotes[v] = vote;
@@ -234,10 +361,7 @@ export function triangleSurfaceNormals(
   bound: ArrayLike<number>,
 ): Float32Array {
   const triangleCount = Math.floor(index.length / 3);
-  const vertexCount = Math.min(
-    Math.floor(positions.length / 3),
-    Math.floor(bound.length / 3),
-  );
+  const vertexCount = Math.min(Math.floor(positions.length / 3), Math.floor(bound.length / 3));
   const normals = new Float32Array(triangleCount * 3);
   for (let t = 0; t < triangleCount; t++) {
     const i0 = index[t * 3]!;
@@ -360,6 +484,7 @@ export function pushOutside(
     for (const { surface, normals, grid } of prepared) {
       const { positions: sp, index } = surface;
       for (let v = 0; v < vertexCount; v++) {
+        if (options.vertexWeights?.[v] === 0) continue;
         const px = positions[v * 3]!;
         const py = positions[v * 3 + 1]!;
         const pz = positions[v * 3 + 2]!;
@@ -404,7 +529,8 @@ export function pushOutside(
           // Solve the same normal clearance along the blended direction. Limit amplification
           // to 25%; grazing/side contacts retain the normal direction instead of dividing by nz.
           const scale = need * Math.min(1.25, 1 / (1 - blend + blend * nz));
-          const distance = blend > 0 ? scale * Math.hypot(directionX, directionY, directionZ) : need;
+          const distance =
+            blend > 0 ? scale * Math.hypot(directionX, directionY, directionZ) : need;
           if (distance > best[v]!) {
             best[v] = distance;
             shiftX[v] = directionX * scale;
@@ -417,9 +543,10 @@ export function pushOutside(
     let movedInPass = 0;
     for (let v = 0; v < vertexCount; v++) {
       if (best[v]! <= MIN_PUSH) continue;
-      positions[v * 3] = positions[v * 3]! + shiftX[v]!;
-      positions[v * 3 + 1] = positions[v * 3 + 1]! + shiftY[v]!;
-      positions[v * 3 + 2] = positions[v * 3 + 2]! + shiftZ[v]!;
+      const weight = options.vertexWeights?.[v] ?? 1;
+      positions[v * 3] = positions[v * 3]! + weight * shiftX[v]!;
+      positions[v * 3 + 1] = positions[v * 3 + 1]! + weight * shiftY[v]!;
+      positions[v * 3 + 2] = positions[v * 3 + 2]! + weight * shiftZ[v]!;
       everMoved[v] = 1;
       movedInPass++;
     }
