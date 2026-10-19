@@ -78,3 +78,6 @@ blob-report/
 # ---- Local agent state ----
 .claude/settings.local.json
 .codex/
+
+# render harness screenshots
+tools/render/out/
