@@ -92,7 +92,7 @@ const PFX = process.env.PFX || '';
     await focus('Tam vücut'); await snap(`k${n}-apose-front.png`); await orbit(-60); await snap(`k${n}-apose-34.png`);
     if (process.env.UPPER === '1') { await focus('Üst vücut'); await snap(`k${n}-upper-front.png`); await orbit(-50); await snap(`k${n}-upper-34.png`); }
     if (process.env.POSES) { for (const p of process.env.POSES.split(',')) { await page.getByRole('button', { name: p, exact: true }).click(); await page.waitForTimeout(2500); await focus('Tam vücut'); await snap(`k${n}-${p.replace(/\s/g,'_')}-front.png`); await orbit(-60); await snap(`k${n}-${p.replace(/\s/g,'_')}-34.png`); } }
-    if (process.env.FEET === '1') { await focus('Ayaklar'); await snap(`k${n}-feet-34.png`); await orbit(60); await snap(`k${n}-feet-front.png`); }
+    if (process.env.FEET === '1') { await focus('Ayaklar'); await snap(`k${n}-feet-34.png`); await orbit(60); await snap(`k${n}-feet-front.png`); await orbit(120); await snap(`k${n}-feet-sideA.png`); await orbit(-240); await snap(`k${n}-feet-sideB.png`); }
   }
   console.log(errors.join('\n') || 'no errors');
   await browser.close();

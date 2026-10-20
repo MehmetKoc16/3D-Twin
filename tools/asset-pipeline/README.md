@@ -413,6 +413,30 @@ Focused regression command (cwd `tools/asset-pipeline`; the scratch path is rela
 .venv/Scripts/python.exe -m pytest -q -p no:cacheprovider --basetemp .cache/pt-codex tests/test_shoe_align.py
 ```
 
+### Shoe lining show-through (`lining_cull`)
+
+After fitting, parts of a shoe's dark inner lining can lie a few mm outside the outer canvas and show as dark
+patches (seen on both heels of `sf-converse-style`). `garmentimport/lining_cull.py` hides a dark-texel triangle only
+when a parallel light surface lies directly behind it: a proximity pass (8 mm radius), then inward rays on what is
+left (10 mm max gap, 1 of 4 rays), never inside the bottom 35 mm of each shoe (rigid sole, keeps the black stripes).
+The defaults are the parameters verified in the app on 2026-10-20. From `tools/asset-pipeline`, on the fitted
+(not yet culled) pair:
+
+```powershell
+.venv/Scripts/python.exe -m garmentimport.lining_cull ../../apps/web/public/assets/garments/sf-converse-style.glb `
+  .cache/lining-cull/sf-converse-style.glb --report .cache/lining-cull/sf-converse-style.report.json
+```
+
+Every parameter is a flag (`--dark-lum 130 --dark-sat 40 --radius-mm 8 --min-parallel 0.6 --inner-margin-mm 0.2
+--min-covered 4 --max-gap-mm 10 --ray-min-parallel 0.5 --min-hits 1 --ray-offset-mm 0.05 --sole-mm 35`). The report
+counts triangles, dark, culled by each pass, triangles protected by the sole guard, and gap statistics in mm.
+
+What it does: rewrites only the index buffer (culled triangle -> degenerate `(a, a, a)`); vertex count, attributes,
+JSON chunk and file length are unchanged, so `.bind.bin` and `.rigid.json` stay valid. What it does not do: move
+geometry (the lining is still outside the canvas, only hidden), edit textures, handle more than one mesh / primitive /
+material, or decide what ships. Assumes +Y up and a pair mirrored at x = 0. Copying the output over the shipped
+asset is the lead's step after visual review in A-pose and walk.
+
 
 ## Body parts (Wave 3d)
 
