@@ -82,7 +82,9 @@ candidates that are not in `index.json` are not shipped assets and are credited 
   licensed **CC BY 4.0** (<https://creativecommons.org/licenses/by/4.0/>). Modified: the star logo patches removed
   from the colour, roughness and normal textures, one shoe aligned to the body's foot and mirrored into a pair, sole
   attached rigidly, texture baked to 1024 px, inner-lining triangles showing through the canvas hidden, converted to
-  the wardrobe glTF format. Not affiliated with Converse.
+  the wardrobe glTF format. Changes: flat logo-removal disc replaced with real canvas weave in base colour,
+  metallic-roughness and normal maps, using a feathered donor from the same UV island; mesh and bindings preserved.
+  Not affiliated with Converse.
 - **"Clunky White Dad Sneaker Shoe Scan"** (`sf-dad-sneaker`) by **lzou**
   ([Sketchfab](https://sketchfab.com/3d-models/clunky-white-dad-sneaker-shoe-scan-5630902088d14774aabb7d0bc9a2d672)),
   licensed **CC BY 4.0** (<https://creativecommons.org/licenses/by/4.0/>). Modified: rescaled from centimetres,

@@ -16,7 +16,7 @@ import type { SolveEnvelope } from '../../workers/avatarClient';
 import { useWardrobeStore } from '../../store/wardrobeStore';
 import { GarmentInstance } from './garmentInstance';
 import { loadTemplateRuntime, type TemplateRuntime } from './templateLoader';
-import { WardrobeRig } from './wardrobeRig';
+import { WardrobeRig, hasLongSleeves } from './wardrobeRig';
 
 vi.mock('./templateLoader', () => ({ loadTemplateRuntime: vi.fn() }));
 
@@ -291,6 +291,105 @@ describe('WardrobeRig outer slot', () => {
       });
       expect(outerCallsNoTop.length).toBeGreaterThan(0);
       expect(outerCallsNoTop[outerCallsNoTop.length - 1]?.[0].containInnerSleeves).toBe(false);
+    } finally {
+      rig.dispose();
+      avatar.mesh.geometry.dispose();
+      avatar.material.dispose();
+      avatar.skeleton.dispose();
+      for (const value of runtimes.values()) value.material.dispose();
+    }
+  });
+
+  it('identifies garment kinds with long sleeves (hasLongSleeves)', () => {
+    expect(hasLongSleeves('longsleeve')).toBe(true);
+    expect(hasLongSleeves('sweatshirt')).toBe(true);
+    expect(hasLongSleeves('tshirt')).toBe(false);
+    expect(hasLongSleeves('pants')).toBe(false);
+    expect(hasLongSleeves('sneakers')).toBe(false);
+  });
+
+  it('sets containInnerSleeves false for an outer garment of kind tshirt over a top', async () => {
+    const topDef: GarmentTemplateDef = {
+      id: 'any-custom-top',
+      category: 'top',
+      kind: 'tshirt',
+      layer: 2,
+      label: { tr: 'top', en: 'top' },
+      mesh: 'test.glb',
+      license: 'CC0-1.0',
+      nativeMeasures: {},
+      defaultEase: {},
+      baseColor: '#888888',
+    };
+    const outerDef: GarmentTemplateDef = {
+      id: 'any-custom-outer',
+      category: 'top',
+      kind: 'tshirt',
+      layer: 3,
+      slot: 'outer',
+      label: { tr: 'outer', en: 'outer' },
+      mesh: 'test.glb',
+      license: 'CC0-1.0',
+      nativeMeasures: {},
+      defaultEase: {},
+      baseColor: '#888888',
+    };
+    const templates = [topDef, outerDef];
+    const runtimes = new Map(templates.map((def) => [def.id, runtime(def)]));
+    vi.mocked(loadTemplateRuntime).mockImplementation(async (def) => runtimes.get(def.id)!);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ version: 1, measures: [] }) })),
+    );
+    useWardrobeStore.setState({
+      templates,
+      catalogStatus: 'ready',
+      hydrated: true,
+      heatmap: false,
+      items: templates.map((def) => ({
+        id: def.id,
+        name: def.id,
+        templateId: def.id,
+        color: def.baseColor,
+        sizes: ['M'],
+        selectedSize: 'M',
+        chart: {},
+      })),
+      worn: { top: topDef.id, outer: outerDef.id },
+    });
+    const avatar = assets();
+    const rig = new WardrobeRig(avatar);
+    const envelope: SolveEnvelope = {
+      params: { gender: 0.5, heightCm: 170, weightKg: 70, shoe: { system: 'EU', size: 42 } },
+      roundTripMs: 0,
+      result: {
+        positions: body,
+        joints: new Float32Array(24),
+        groundOffsetY: 0,
+        achievedCm: {},
+        residualsCm: {},
+        unreachable: [],
+        estimatedMassKg: 70,
+        solveMs: 0,
+      },
+    };
+    const fit = vi.spyOn(GarmentInstance.prototype, 'fit');
+    try {
+      rig.onSolve(envelope);
+      await vi.waitFor(() =>
+        expect(
+          avatar.scene.children.filter((child) => child.name.startsWith('garment:')),
+        ).toHaveLength(2),
+      );
+      fit.mockClear();
+      rig.onSolve(envelope);
+
+      const outerCalls = fit.mock.calls.filter((_, idx) => {
+        const inst = fit.mock.contexts[idx];
+        return inst instanceof GarmentInstance && inst.template.id === outerDef.id;
+      });
+      expect(outerCalls.length).toBeGreaterThan(0);
+      expect(outerCalls[outerCalls.length - 1]?.[0].containInnerSleeves).toBe(false);
     } finally {
       rig.dispose();
       avatar.mesh.geometry.dispose();

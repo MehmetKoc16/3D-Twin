@@ -3,6 +3,7 @@ import {
   createGarmentSections,
   garmentSlot,
   garmentNormalOffset,
+  type GarmentKind,
   type GarmentSlot,
   type GarmentSections,
   type GarmentTemplateDef,
@@ -25,6 +26,12 @@ const SLOTS: readonly GarmentSlot[] = ['top', 'outer', 'bottom', 'shoes'];
 const FIT_ORDER: readonly GarmentSlot[] = ['shoes', 'bottom', 'top'];
 /** A tucked top is inner to the trousers: it is fitted before them and they are pushed out of it. */
 const FIT_ORDER_TUCKED: readonly GarmentSlot[] = ['shoes', 'top', 'bottom'];
+export const LONG_SLEEVE_KINDS: readonly GarmentKind[] = ['longsleeve', 'sweatshirt'];
+
+/** Returns true for upper garment kinds that have long sleeves. */
+export function hasLongSleeves(kind: GarmentKind): boolean {
+  return LONG_SLEEVE_KINDS.includes(kind);
+}
 
 interface LastSolve {
   body: Float32Array;
@@ -251,7 +258,10 @@ export class WardrobeRig {
       shoes: category === 'bottom' ? this.instances.get('shoes')?.surface() : undefined,
       normalOffsetM: offsets.get(category),
       tuckedHem: tucked !== undefined && category === 'top',
-      containInnerSleeves: category === 'outer' && this.instances.has('top'),
+      containInnerSleeves:
+        category === 'outer' &&
+        this.instances.has('top') &&
+        hasLongSleeves(instance.template.kind),
     });
     const guarded = (category: GarmentSlot, instance: GarmentInstance, run: () => void): void => {
       try {

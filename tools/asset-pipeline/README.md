@@ -438,6 +438,31 @@ material, or decide what ships. Assumes +Y up and a pair mirrored at x = 0. Copy
 asset is the lead's step after visual review in A-pose and walk.
 
 
+### Canvas texture restoration (`canvas_patch`)
+
+For a shipped garment, repair the shipped atlas rather than re-importing the mesh: bindings depend on vertex
+order. `garmentimport.canvas_patch.restore_canvas` reflects a seam-free donor rectangle into an elliptical mask
+with a feathered edge. Verify that the entire donor rectangle belongs to the target UV island first; use the
+same coordinates for base colour, metallic-roughness and tangent normals (`normal=True` normalizes blended
+normals). This copies actual weave rather than generating flat colour or noise.
+
+`replace_embedded_pngs(src, dst, images)` replaces PNGs and repacks bufferViews with four-byte alignment, dropping
+orphaned old image bytes and gaps. BufferView offsets and buffer length are updated; mesh descriptors, accessors
+and every non-image bufferView payload remain identical. Verify accessor bytes and vertex count
+before shipping; review both ankle panels because the standard shoe side views show only one panel per shoe.
+CPU shoe previews do not render normal maps, so inspect the normal atlas separately as well.
+
+The 2026-10-21 Converse repair maps source centre `(2994, 610)` to shipped atlas `(896.686, 58.890)` using the
+red material's UV bounds and the atlas gutter transform. Its seam-free donor is `[926, 25, 939, 94)` on the same
+UV island; the feathered mask radii are `(26.030, 27.754)` pixels, including a two-pixel rebake margin.
+Evidence and before/after renders are under `.cache/canvas-review/`.
+
+From the repository root, the sandbox-readable interpreter and writable pytest temporary directory are:
+
+```powershell
+& ./tools/asset-pipeline/.cache/py.bat -m pytest tools/asset-pipeline/tests -q -p no:cacheprovider --basetemp tools/asset-pipeline/.cache/pytest-canvas
+```
+
 ## Body parts (Wave 3d)
 
 `build.py` also writes `apps/web/public/assets/parts/` (`index.json` = `{ version: 1, parts: BodyPartDef[], defaults:
