@@ -3,6 +3,9 @@ import type { Vec3 } from '@dt/avatar-core';
 import {
   orientSurfaceNormals,
   OUTER_PUSH_MARGIN_M,
+  OUTLIER_FACTOR,
+  OUTLIER_FLOOR_M,
+  OUTLIER_SLACK_M,
   pushInside,
   pushOutside,
   shoulderBandWeight,
@@ -243,6 +246,191 @@ describe('pushOutside', () => {
     expect(outer[2]!).toBeCloseTo(OUTER_PUSH_MARGIN_M, 6);
     expect(outer[2]!).toBeGreaterThanOrEqual(0.012);
   });
+
+  it('does not push a vertex whose projection lies 1 cm beyond the edge of a downward-facing hem triangle', () => {
+    // Why: prevents hem/cuff boundary spikes (e.g. vertex 887) where barycentric SLACK
+    // would extrapolate contact onto downward-facing boundary triangles beyond MAX_PROJECTION_OVERHANG_M.
+    const surface: Surface = {
+      positions: [0, 1.0, 0, 0.05, 1.0, 0, 0, 1.0, 0.05],
+      index: [0, 1, 2],
+      // Body is above/inside the hem (+Y), so (position - bound) points downward (-Y):
+      bound: [0, 1.01, 0, 0.05, 1.01, 0, 0, 1.01, 0.05],
+    };
+    // Vertex sits 5 mm above the hem (d = -0.005 m, within band), but 1 cm beyond the z = 0 edge:
+    // Projection onto triangle plane is (0.02, 1.0, -0.01), which overhangs the edge z = 0 by 10 mm.
+    // In barycentric coordinates, w = -0.2 is within SLACK = 0.2, but overhang 10 mm exceeds MAX_PROJECTION_OVERHANG_M (4 mm).
+    const p = Float32Array.from([0.02, 1.005, -0.01]);
+    const before = Array.from(p);
+    expect(pushOutside(p, 1, [surface])).toBe(0);
+    expect(Array.from(p)).toEqual(before);
+  });
+
+  it('pushes a vertex projecting 2 mm across an edge between two triangles', () => {
+    // Why: ensures inter-triangle coverage across mesh edges is maintained when
+    // overhang is within MAX_PROJECTION_OVERHANG_M (4 mm).
+    const positions = [
+      0, 0, 0,
+      0.05, 0, 0,
+      0.05, 0.1, 0,
+      0.1, 0, 0,
+    ];
+    const surface: Surface = {
+      positions,
+      index: [0, 1, 2, 1, 3, 2],
+      bound: positions.map((c, i) => (i % 3 === 2 ? -0.01 : c)),
+    };
+    // Vertex is at x = 0.052 (2 mm across the shared edge x = 0.05), inside the fabric at z = -0.002:
+    const p = Float32Array.from([0.052, 0.05, -0.002]);
+    expect(pushOutside(p, 1, [surface])).toBe(1);
+    expect(p[2]).toBeCloseTo(0.006, 6);
+    expect(p[0]).toBeCloseTo(0.052, 6);
+  });
+
+  it('allows displacement beyond margin + 12 mm when a vertex legitimately needs larger clearance', () => {
+    // WHY: The total cap was removed because real garments (such as untucked sweaters over trousers)
+    // legitimately require more than margin + 12 mm displacement. A vertex 2.5 cm inside the surface
+    // must reach the margin (31 mm push) rather than being clamped to margin + 12 mm (18 mm).
+    const surface = innerSheet();
+    // Default margin (0.006 m): needs 0.006 - (-0.025) = 0.031 m push (> 18 mm).
+    const p1 = upper(-0.025);
+    expect(pushOutside(p1, 1, [surface])).toBe(1);
+    const disp1 = p1[2]! - (-0.025);
+    expect(disp1).toBeCloseTo(0.031, 6);
+    expect(p1[2]!).toBeCloseTo(0.006, 6);
+
+    // Outer margin (OUTER_PUSH_MARGIN_M = 0.012 m): needs 0.012 - (-0.025) = 0.037 m push (> 24 mm).
+    const p2 = upper(-0.025);
+    expect(pushOutside(p2, 1, [surface], { marginM: OUTER_PUSH_MARGIN_M })).toBe(1);
+    const disp2 = p2[2]! - (-0.025);
+    expect(disp2).toBeCloseTo(0.037, 6);
+    expect(p2[2]!).toBeCloseTo(OUTER_PUSH_MARGIN_M, 6);
+  });
+
+  describe('outlier limiting with topology', () => {
+    function makePatch(
+      centerZ: number,
+      surroundZ: number,
+    ): { positions: Float32Array; index: number[] } {
+      // 3x3 grid of vertices over [0.3, 0.7] x [0.3, 0.7]
+      const positions: number[] = [];
+      for (let r = 0; r < 3; r++) {
+        const y = 0.3 + r * 0.2;
+        for (let c = 0; c < 3; c++) {
+          const x = 0.3 + c * 0.2;
+          const isCenter = r === 1 && c === 1; // vertex 4
+          positions.push(x, y, isCenter ? centerZ : surroundZ);
+        }
+      }
+      // 4 quad cells = 8 triangles
+      const index: number[] = [
+        0, 1, 4, 0, 4, 3,
+        1, 2, 5, 1, 5, 4,
+        3, 4, 7, 3, 7, 6,
+        4, 5, 8, 4, 8, 7,
+      ];
+      return { positions: Float32Array.from(positions), index };
+    }
+
+    it('limits isolated outlier vertex push to 1.5 * medianNeighbour + 3 mm (10.5 mm) while neighbours move 5 mm', () => {
+      // WHY: A stray collision at an inner garment edge/opening should not spike out from the garment.
+      // Clamping to max(medianNeighbour * 1.5 + 0.003, 0.004) limits the isolated vertex to 10.5 mm
+      // while allowing all surrounding neighbours to reach their required 5 mm clearance.
+      const { positions, index } = makePatch(-0.028, 0.007);
+      const initialZ = positions.slice();
+      const count = 9;
+      const movedCount = pushOutside(positions, count, [innerSheet()], {
+        orientation: 'surface',
+        marginM: OUTER_PUSH_MARGIN_M,
+        topology: { index },
+        passes: 1,
+      });
+      expect(movedCount).toBe(9);
+
+      // Center vertex (index 4) needed 40 mm, but is clamped to at most 1.5 * 5 mm + 3 mm = 10.5 mm:
+      const isolatedDelta = positions[4 * 3 + 2]! - initialZ[4 * 3 + 2]!;
+      const expectedLimit = Math.max(0.005 * OUTLIER_FACTOR + OUTLIER_SLACK_M, OUTLIER_FLOOR_M);
+      expect(isolatedDelta).toBeLessThanOrEqual(expectedLimit + 1e-6);
+      expect(isolatedDelta).toBeCloseTo(expectedLimit, 5);
+
+      // All surrounding 8 vertices move by their needed 5 mm to margin:
+      for (let v = 0; v < count; v++) {
+        if (v === 4) continue;
+        const delta = positions[v * 3 + 2]! - initialZ[v * 3 + 2]!;
+        expect(delta).toBeCloseTo(0.005, 5);
+        expect(positions[v * 3 + 2]!).toBeCloseTo(OUTER_PUSH_MARGIN_M, 5);
+      }
+    });
+
+    it('allows consistent large pushes when the entire patch needs 20 mm', () => {
+      // WHY: Legitimate bulk clearance adjustments (e.g. jacket sitting 20 mm outside a thick inner top)
+      // must not be restricted when adjacent vertices agree on the large shift.
+      // surroundZ = centerZ = -0.008 -> need = 0.012 - (-0.008) = 0.020 m (20 mm).
+      const { positions, index } = makePatch(-0.008, -0.008);
+      const initialZ = positions.slice();
+      const count = 9;
+      const movedCount = pushOutside(positions, count, [innerSheet()], {
+        orientation: 'surface',
+        marginM: OUTER_PUSH_MARGIN_M,
+        topology: { index },
+      });
+      expect(movedCount).toBe(9);
+
+      // Every vertex should move by the full 20 mm because its neighbours also shift by 20 mm:
+      for (let v = 0; v < count; v++) {
+        const delta = positions[v * 3 + 2]! - initialZ[v * 3 + 2]!;
+        expect(delta).toBeCloseTo(0.020, 5);
+        expect(positions[v * 3 + 2]!).toBeCloseTo(OUTER_PUSH_MARGIN_M, 5);
+      }
+    });
+
+    it('preserves unconstrained outlier push when topology is omitted', () => {
+      // WHY: Backward compatibility: when topology is not provided, pushOutside must behave as before,
+      // allowing the isolated vertex to move the full 40 mm to the margin.
+      const { positions } = makePatch(-0.028, 0.007);
+      const count = 9;
+      pushOutside(positions, count, [innerSheet()], {
+        orientation: 'surface',
+        marginM: OUTER_PUSH_MARGIN_M,
+        passes: 1,
+      });
+
+      // Without topology, isolated vertex moves the full 40 mm:
+      const isolatedDelta = positions[4 * 3 + 2]! - (-0.028);
+      expect(isolatedDelta).toBeCloseTo(0.040, 5);
+      expect(positions[4 * 3 + 2]!).toBeCloseTo(OUTER_PUSH_MARGIN_M, 5);
+
+      // Surrounding vertices still move 5 mm:
+      for (let v = 0; v < count; v++) {
+        if (v === 4) continue;
+        const delta = positions[v * 3 + 2]! - 0.007;
+        expect(delta).toBeCloseTo(0.005, 5);
+      }
+    });
+
+    it('harmonizes shift length and limits across welded duplicate vertices', () => {
+      // WHY: Garment meshes duplicate vertices at UV seams. Welded copies must share the group's
+      // maximum shift and limit so the UV seam does not tear open.
+      // Vertex 4 and vertex 9 are coincident at (0.5, 0.5, -0.028) in the same weld group.
+      const { positions: basePos, index: baseIndex } = makePatch(-0.028, 0.007);
+      // Duplicate center vertex 4 as vertex 9:
+      const positions = Float32Array.from([...basePos, 0.5, 0.5, -0.028]);
+      // Duplicate one triangle [4, 5, 8] with [9, 5, 8]
+      const index = [...baseIndex, 9, 5, 8];
+      const groupOf = new Uint32Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 4]); // 4 and 9 share group 4
+      const count = 10;
+      pushOutside(positions, count, [innerSheet()], {
+        orientation: 'surface',
+        marginM: OUTER_PUSH_MARGIN_M,
+        topology: { index, weld: { groupOf, groupCount: 9 } },
+        passes: 1,
+      });
+
+      // Both vertex 4 and vertex 9 must receive the exact same clamped push:
+      expect(positions[4 * 3 + 2]!).toBeCloseTo(positions[9 * 3 + 2]!, 6);
+      const expectedLimit = Math.max(0.005 * OUTLIER_FACTOR + OUTLIER_SLACK_M, OUTLIER_FLOOR_M);
+      expect(positions[4 * 3 + 2]! - (-0.028)).toBeCloseTo(expectedLimit, 5);
+    });
+  });
 });
 
 describe('triangleSurfaceNormals', () => {
@@ -290,6 +478,16 @@ describe('pushInside', () => {
     expect(p[2]).toBeCloseTo(-0.006, 6);
     expect(p[5]).toBeCloseTo(-0.006, 6);
     expect(p[8]).toBeCloseTo(-0.05, 6); // already well behind
+  });
+
+  it('allows pushInside to tuck vertices that sit more than margin + 12 mm in front without capping', () => {
+    // WHY: pushInside flips inner surfaces to tuck outer hems inside; vertices sitting well in front
+    // of the waistband must be moved to the margin behind it without an artificial displacement cap.
+    const p = upper(0.025);
+    expect(pushInside(p, 1, [innerSheet()])).toBe(1);
+    expect(p[2]!).toBeCloseTo(-0.006, 6);
+    const disp = 0.025 - p[2]!;
+    expect(disp).toBeCloseTo(0.031, 6);
   });
 });
 

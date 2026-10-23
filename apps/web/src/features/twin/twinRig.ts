@@ -25,6 +25,7 @@ import { TwinHair } from './twinHair';
 import type { HairRendererLike } from '../../vendor/threejs-hair-shader/hair-shader.js';
 import {
   compactTwinIndex,
+  filterMappingNearGarments,
   hiddenTwinVertices,
   unreferencedVertices,
   validateMapping,
@@ -40,6 +41,8 @@ function sameValues(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
 
 /** Twin vertices this close to a worn garment's surface (either side) and under its footprint are hidden as well. */
 export const FOOTPRINT_BAND_M = 0.03;
+
+export { MAPPING_NEAR_GARMENT_M } from './twinMapping';
 
 /** Largest rest-head difference (m) between the twin's skeleton and the avatar's before the two files are declared foreign. */
 export const MAX_HEAD_RESIDUAL_M = 0.005;
@@ -222,9 +225,10 @@ export class TwinRig {
 
   /**
    * Twin triangles to hide = those whose three vertices are hidden by (a) the mapping: the nearest body vertices lost
-   * all their triangles (delete lists + the wardrobe's footprint pass on the body), or (b) the garment footprint on the
-   * twin itself: the vertex lies under a worn garment within `FOOTPRINT_BAND_M` (the scan's own clothes sit a little
-   * outside the fitted body, where the body-based pass would leave them poking through the new fabric).
+   * all their triangles (delete lists + the wardrobe's footprint pass on the body), restricted to vertices within a
+   * wide footprint (`MAPPING_NEAR_GARMENT_M`) of worn garments so exposed limbs stay visible, or (b) the garment
+   * footprint on the twin itself: the vertex lies under a worn garment within `FOOTPRINT_BAND_M` (the scan's own clothes
+   * sit a little outside the fitted body, where the body-based pass would leave them poking through the new fabric).
    */
   private refreshHidden(): void {
     const index = this.bodyIndex;
@@ -244,6 +248,9 @@ export class TwinRig {
       unreferencedVertices(values, this.bodyVertexCount, this.unreferenced);
       hiddenTwinVertices(this.mapping, this.unreferenced, hidden);
       any = true;
+    }
+    if (this.alignment && surfaces.length > 0) {
+      filterMappingNearGarments(hidden, this.rest, this.model.vertexCount, surfaces);
     }
     if (this.alignment) {
       const positions = this.rest;

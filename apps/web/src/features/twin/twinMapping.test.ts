@@ -3,7 +3,9 @@ import { filterBodyIndex, hiddenVertexMask } from '../wardrobe/bodyHide';
 import { TwinFormatError } from './twinDef';
 import {
   compactTwinIndex,
+  filterMappingNearGarments,
   hiddenTwinVertices,
+  MAPPING_NEAR_GARMENT_M,
   parseMapping,
   unreferencedVertices,
   validateMapping,
@@ -82,5 +84,72 @@ describe('hiding twin triangles under garments', () => {
     expect(scratch.every((v) => v === 0)).toBe(true);
     const out = new Uint8Array(mapping.length);
     expect(hiddenTwinVertices(mapping, scratch, out)).toBe(out);
+  });
+});
+
+describe('filterMappingNearGarments', () => {
+  // A garment patch in the XY plane: 10 cm x 10 cm from [-0.05, -0.05] to [0.05, 0.05] at z = 0.
+  // prettier-ignore
+  const patchPositions = Float32Array.from([
+    -0.05, -0.05, 0,
+     0.05, -0.05, 0,
+     0.05,  0.05, 0,
+    -0.05,  0.05, 0,
+  ]);
+  const patchIndex = Uint32Array.from([0, 1, 2, 0, 2, 3]);
+  const surface = { positions: patchPositions, index: patchIndex };
+
+  it('keeps a vertex 2 cm under a garment patch hidden, but leaves a vertex 10 cm beyond it visible', () => {
+    // WHY: Twin forearm skin just beyond the cuff was incorrectly hidden because it mapped to MH vertices
+    // under the sleeve. Restricting mapping to a wide footprint (slack 0) keeps vertices under the garment
+    // hidden while exposing forearm skin beyond the cuff opening.
+    // Vertex 0: under the patch center at z = 0.02 (2 cm under the garment surface).
+    // Vertex 1: at x = 0.15 (10 cm beyond the patch edge x = 0.05, simulating forearm skin beyond a cuff).
+    // Vertex 2: at z = 0.10 (10 cm away perpendicular to the patch, beyond the 6 cm band).
+    // prettier-ignore
+    const twinPositions = Float32Array.from([
+      0, 0, 0.02,
+      0.15, 0, 0,
+      0, 0, 0.10,
+    ]);
+    const mappingHidden = Uint8Array.from([1, 1, 1]);
+    const filtered = filterMappingNearGarments(mappingHidden, twinPositions, 3, [surface]);
+    expect(filtered[0]).toBe(1); // 2 cm under the garment: stays hidden
+    expect(filtered[1]).toBe(0); // 10 cm beyond the garment patch: becomes visible
+    expect(filtered[2]).toBe(0); // 10 cm perpendicular distance: becomes visible
+  });
+
+  it('keeps today mapping behaviour when no garment surface is present', () => {
+    // WHY: Before garment surfaces are loaded or when all clothes are taken off, mapping must not be cleared.
+    const twinPositions = Float32Array.from([0, 0, 0.02, 0.15, 0, 0]);
+    const mappingHidden = Uint8Array.from([1, 1]);
+    const filtered = filterMappingNearGarments(mappingHidden, twinPositions, 2, []);
+    expect([...filtered]).toEqual([1, 1]);
+  });
+
+  it('returns all zeros without computing footprints if no vertex is mapping-hidden', () => {
+    // WHY: Avoids expensive geometric footprint checks when no vertices were hidden by mapping.
+    const twinPositions = Float32Array.from([0, 0, 0.02, 0.15, 0, 0]);
+    const mappingHidden = Uint8Array.from([0, 0]);
+    const filtered = filterMappingNearGarments(mappingHidden, twinPositions, 2, [surface]);
+    expect([...filtered]).toEqual([0, 0]);
+  });
+
+  it('supports writing into a separate output buffer', () => {
+    // WHY: Allows callers to preserve input mapping buffer if needed.
+    const twinPositions = Float32Array.from([0, 0, 0.02, 0.15, 0, 0]);
+    const mappingHidden = Uint8Array.from([1, 1]);
+    const out = new Uint8Array(2);
+    const result = filterMappingNearGarments(
+      mappingHidden,
+      twinPositions,
+      2,
+      [surface],
+      MAPPING_NEAR_GARMENT_M,
+      out,
+    );
+    expect(result).toBe(out);
+    expect([...out]).toEqual([1, 0]);
+    expect([...mappingHidden]).toEqual([1, 1]);
   });
 });

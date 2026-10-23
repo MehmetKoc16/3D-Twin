@@ -378,6 +378,7 @@ export class GarmentInstance {
         marginM: isOuter ? OUTER_PUSH_MARGIN_M : undefined,
         frontDepthOnly: isOuter,
         vertexWeights,
+        topology: isOuter ? { index: runtime.index, weld: runtime.weld } : undefined,
       });
     }
   }

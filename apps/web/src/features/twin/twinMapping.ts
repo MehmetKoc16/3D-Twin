@@ -1,4 +1,14 @@
+import { coveredBodyVertices } from '../wardrobe/bodyHide';
 import { TwinFormatError } from './twinDef';
+
+/** A worn garment surface for footprint testing. */
+export interface GarmentSurface {
+  positions: ArrayLike<number>;
+  index: ArrayLike<number>;
+}
+
+/** Maximum distance (m) from a worn garment surface to keep mapping-hidden twin vertices, keeping loose torso/sleeves hidden while exposing skin beyond cuffs. */
+export const MAPPING_NEAR_GARMENT_M = 0.06;
 
 /**
  * Hiding twin triangles under worn garments (pure, no three.js).
@@ -82,4 +92,49 @@ export function compactTwinIndex(
     target[kept++] = c;
   }
   return kept;
+}
+
+/**
+ * Keeps mapping-hidden twin vertices only if they also fall within a wide footprint (`bandM`, slack 0)
+ * of at least one worn garment surface.
+ * When there are no garment surfaces, today's mapping behaviour is preserved.
+ */
+export function filterMappingNearGarments(
+  mappingHidden: Uint8Array,
+  positions: ArrayLike<number>,
+  vertexCount: number,
+  surfaces: readonly GarmentSurface[],
+  bandM = MAPPING_NEAR_GARMENT_M,
+  out: Uint8Array = mappingHidden,
+): Uint8Array {
+  if (surfaces.length === 0) {
+    if (out !== mappingHidden) out.set(mappingHidden);
+    return out;
+  }
+  let anyHidden = false;
+  for (let v = 0; v < vertexCount; v++) {
+    if (mappingHidden[v]) {
+      anyHidden = true;
+      break;
+    }
+  }
+  if (!anyHidden) {
+    if (out !== mappingHidden) out.fill(0);
+    return out;
+  }
+  const nearGarment = new Uint8Array(vertexCount);
+  for (let s = 0; s < surfaces.length; s++) {
+    const surface = surfaces[s]!;
+    const covered = coveredBodyVertices(positions, vertexCount, surface.positions, surface.index, {
+      bandM,
+      slack: 0,
+    });
+    for (let v = 0; v < vertexCount; v++) {
+      if (covered[v]) nearGarment[v] = 1;
+    }
+  }
+  for (let v = 0; v < vertexCount; v++) {
+    out[v] = mappingHidden[v]! & nearGarment[v]!;
+  }
+  return out;
 }

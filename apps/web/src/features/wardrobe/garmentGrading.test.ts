@@ -75,6 +75,35 @@ describe('buildLengthGrades', () => {
     expect(specs[1]!.side).toBe(1);
     expect(specs[2]!.side).toBe(-1);
   });
+
+  it('caps sleeve lengthening 1 cm past the wrist joint but leaves the top hem uncapped', () => {
+    // WHY: a lengthened cuff running past the wrist sits over the narrower hand and the hand skin pokes through it
+    // (denim jacket on a female body). Hems of tops have no such limit and must keep their plain stretch.
+    const top: GarmentTemplateDef = {
+      ...template,
+      kind: 'longsleeve',
+      nativeMeasures: { ...template.nativeMeasures, length: 45 },
+    };
+    const sized: StoreItemDef = {
+      ...item,
+      chart: { ...item.chart, length: [47, 48, 49], sleeve: [54, 55, 56] },
+    };
+    const specs = buildLengthGrades(
+      sized,
+      top,
+      { height: 165.9, armLength: 54 },
+      { planeY: { waist: 1 } },
+      [0, 1.1, 0, 0, 0.9, 0, 0, 0.8, 0],
+      (name) =>
+        name.startsWith('upperarm')
+          ? [name.endsWith('_l') ? 0.2 : -0.2, 1.4, 0]
+          : [name.endsWith('_l') ? 0.7 : -0.7, 1.0, 0],
+    );
+    expect(specs).toHaveLength(3);
+    expect(specs[0]!.maxBeyondHemM).toBeUndefined();
+    expect(specs[1]!.maxBeyondHemM).toBeCloseTo(0.01, 6);
+    expect(specs[2]!.maxBeyondHemM).toBeCloseTo(0.01, 6);
+  });
 });
 
 describe('buildLengthGrades hem rules', () => {

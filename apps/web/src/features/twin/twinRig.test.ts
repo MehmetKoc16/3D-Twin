@@ -222,4 +222,32 @@ describe('TwinRig', () => {
       () => new TwinRig(fakeAssets(), fakeModel(), Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 99])),
     ).toThrow(/outside the body/);
   });
+
+  it('keeps mapping-hidden twin vertices visible when they lie outside the worn garment footprint', () => {
+    // WHY: Forearm skin beyond garment cuffs must remain visible even when mapped to body vertices
+    // that are unreferenced under a sleeve. Only vertices within MAPPING_NEAR_GARMENT_M are hidden.
+    const assets = fakeAssets();
+    const rig = new TwinRig(assets, fakeModel(), mapping);
+    rig.onSolve(envelope(true));
+    // Body vertices 0..7 are hidden by wardrobe delete list:
+    const mask = hiddenVertexMask([Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7])], 10);
+    // Garment mesh covering only the left quad (x <= 0.15), well away from right-hand vertices (x >= 0.2):
+    const garment = new BufferGeometry();
+    garment.setAttribute(
+      'position',
+      new BufferAttribute(
+        Float32Array.from([-0.05, 0.95, 0.004, 0.15, 0.95, 0.004, 0.05, 1.15, 0.004]),
+        3,
+      ),
+    );
+    garment.setIndex(new BufferAttribute(Uint32Array.from([0, 1, 2]), 1));
+    const mesh = new SkinnedMesh(garment, new MeshBasicMaterial());
+    mesh.name = 'garment:test';
+    assets.scene.add(mesh);
+    assets.mesh.geometry.setIndex(new BufferAttribute(filterBodyIndex(bodyIndex, mask), 1));
+    // Without garment near-pass, only 2 triangles would be drawn (drawn count = 2).
+    // With near-pass, twin vertices far from this garment patch stay visible.
+    expect(rig.mesh.geometry.drawRange.count / 3).toBeGreaterThan(2);
+    rig.dispose();
+  });
 });

@@ -9,7 +9,8 @@ import type { GarmentBinding } from './binding';
  * The chart difference is limited to ±15 cm; when `floorY` is set, downward displacement is
  * further limited so no affected vertex crosses the floor. Choose `anchor` well above the hem: the whole change is
  * squeezed into the anchor-to-hem span, so a short span over-stretches (and jags) the rows near the hem.
- * This is a longitudinal stretch model,
+ * When `maxBeyondHemM` is set, lengthening is further limited so no affected vertex ends up projecting more than
+ * that distance past the hem point along anchor -> hem (see the field). This is a longitudinal stretch model,
  * not a cloth simulation or a seam-aware pattern resize.
  */
 export interface LengthGradeSpec {
@@ -20,6 +21,12 @@ export interface LengthGradeSpec {
   side?: -1 | 1;
   minAbsX?: number;
   floorY?: number;
+  /**
+   * Metres. Limits a positive length change (lengthening) so that no affected vertex's projection along the
+   * anchor -> hem chord ends more than this distance beyond the hem point. Vertices that already pass that limit
+   * allow no lengthening at all (they are not pulled back). Shortening is never limited. Undefined: no limit.
+   */
+  maxBeyondHemM?: number;
 }
 
 export function gradeGarmentLength(
@@ -41,7 +48,8 @@ export function gradeGarmentLength(
     !Number.isFinite(length) ||
     length < 1e-6 ||
     !Number.isFinite(spec.chartCm) ||
-    !Number.isFinite(spec.referenceCm)
+    !Number.isFinite(spec.referenceCm) ||
+    (spec.maxBeyondHemM !== undefined && !Number.isFinite(spec.maxBeyondHemM))
   )
     throw new Error('garment length: invalid spec');
   const ux = ax / length,
@@ -68,6 +76,11 @@ export function gradeGarmentLength(
     fractions[v] = fraction;
     if (spec.floorY !== undefined && delta > 0 && uy < 0 && fraction > 0) {
       delta = Math.min(delta, Math.max(0, (positions[o + 1]! - spec.floorY) / (-uy * fraction)));
+    }
+    if (spec.maxBeyondHemM !== undefined && delta > 0 && fraction > 0) {
+      // The vertex moves by delta * fraction along the chord; keep its end within maxBeyondHemM past the hem.
+      const room = length + spec.maxBeyondHemM - projection * length;
+      delta = Math.min(delta, Math.max(0, room / fraction));
     }
   }
   for (let v = 0; v < count; v++) {

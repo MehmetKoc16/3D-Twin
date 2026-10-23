@@ -93,6 +93,9 @@ export function bodyCmFromSolve(achievedCm: Partial<Record<MeasureId, number>>):
   return bodyMeasuresForGarment(achievedCm);
 }
 
+/** A lengthened cuff past the wrist joint lies over the narrower hand, where the hand skin pokes through it. */
+const SLEEVE_MAX_PAST_WRIST_M = 0.01;
+
 export interface LengthGradeOptions {
   /**
    * The top is tucked into a worn bottom: its hem is hidden inside the trousers, so the chart's garment length (which
@@ -166,6 +169,7 @@ export function buildLengthGrades(
             hem: wrist,
             side,
             minAbsX: Math.abs(shoulder[0]) * 0.8,
+            maxBeyondHemM: SLEEVE_MAX_PAST_WRIST_M,
           });
         }
       }

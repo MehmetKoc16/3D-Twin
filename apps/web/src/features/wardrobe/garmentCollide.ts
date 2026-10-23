@@ -1,5 +1,6 @@
 /** Garment-over-garment layering: pushes the vertices of an outer garment out of an inner one (pure, no three.js). */
 import type { Vec3 } from '@dt/avatar-core';
+import type { WeldMap } from '../avatar/meshMath';
 
 export interface Surface {
   /** Graded vertex positions of the inner garment (3 floats per vertex). */
@@ -7,6 +8,13 @@ export interface Surface {
   index: ArrayLike<number>;
   /** The body point each vertex is bound to (3 floats per vertex): `position - bound` points away from the body. */
   bound: ArrayLike<number>;
+}
+
+export interface PushTopology {
+  /** The pushed garment's triangle index (3 vertex indices per triangle). */
+  index: ArrayLike<number>;
+  /** Optional weld map grouping coincident UV-seam vertices. */
+  weld?: WeldMap | { groupOf: ArrayLike<number>; groupCount?: number };
 }
 
 export interface PushOptions {
@@ -29,6 +37,8 @@ export interface PushOptions {
   frontDepthOnly?: boolean;
   /** Per-vertex contact strength; covered loose sleeves adapt to the jacket instead. */
   vertexWeights?: ArrayLike<number>;
+  /** Mesh connectivity and optional weld groups used to limit outlier vertex pushes to neighbour medians. */
+  topology?: PushTopology;
 }
 
 /**
@@ -208,6 +218,108 @@ export function containInnerSleeves(
 const SLACK = 0.2;
 /** A vertex is only moved when it needs more than this (metres): float noise at exactly the margin is not a push. */
 const MIN_PUSH = 1e-4;
+
+/** Maximum distance a vertex projection may overhang past a triangle edge (metres): prevents open hem/collar spikes. */
+export const MAX_PROJECTION_OVERHANG_M = 0.004;
+
+/** Multiplier on the 1-ring median shift length: allows smooth curvature while catching spikes. */
+export const OUTLIER_FACTOR = 1.5;
+/** Additive slack above neighbour median shift (m): accommodates normal garment thickness variation. */
+export const OUTLIER_SLACK_M = 0.003;
+/** Absolute shift floor (m): lets isolated contacts make initial progress without neighbour support. */
+export const OUTLIER_FLOOR_M = 0.004;
+
+function computeMedian(values: number[]): number {
+  if (values.length === 0) return 0;
+  values.sort((a, b) => a - b);
+  const mid = Math.floor(values.length / 2);
+  return values.length % 2 === 1 ? values[mid]! : (values[mid - 1]! + values[mid]!) * 0.5;
+}
+
+/**
+ * Distance in metres from an in-plane projection (u, w) to the closest point on the triangle.
+ * Clamps the projection to the triangle using Christer Ericson's Real-Time Collision Detection algorithm.
+ */
+export function projectionOverhang(
+  u: number,
+  w: number,
+  p1: number,
+  p2: number,
+  d11: number,
+  d12: number,
+  d22: number,
+  e1x: number,
+  e1y: number,
+  e1z: number,
+  e2x: number,
+  e2y: number,
+  e2z: number,
+): number {
+  if (u >= 0 && w >= 0 && u + w <= 1) return 0;
+
+  const d1 = p1;
+  const d2 = p2;
+  if (d1 <= 0 && d2 <= 0) {
+    const dx = u * e1x + w * e2x;
+    const dy = u * e1y + w * e2y;
+    const dz = u * e1z + w * e2z;
+    return Math.hypot(dx, dy, dz);
+  }
+
+  const d3 = p1 - d11;
+  const d4 = p2 - d12;
+  if (d3 >= 0 && d4 <= d3) {
+    const du = u - 1;
+    const dx = du * e1x + w * e2x;
+    const dy = du * e1y + w * e2y;
+    const dz = du * e1z + w * e2z;
+    return Math.hypot(dx, dy, dz);
+  }
+
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+    const v = d1 / (d1 - d3);
+    const du = u - v;
+    const dx = du * e1x + w * e2x;
+    const dy = du * e1y + w * e2y;
+    const dz = du * e1z + w * e2z;
+    return Math.hypot(dx, dy, dz);
+  }
+
+  const d5 = p1 - d12;
+  const d6 = p2 - d22;
+  if (d6 >= 0 && d5 <= d6) {
+    const dw = w - 1;
+    const dx = u * e1x + dw * e2x;
+    const dy = u * e1y + dw * e2y;
+    const dz = u * e1z + dw * e2z;
+    return Math.hypot(dx, dy, dz);
+  }
+
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+    const t = d2 / (d2 - d6);
+    const dw = w - t;
+    const dx = u * e1x + dw * e2x;
+    const dy = u * e1y + dw * e2y;
+    const dz = u * e1z + dw * e2z;
+    return Math.hypot(dx, dy, dz);
+  }
+
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) {
+    const denom = d4 - d3 + (d5 - d6);
+    const t = denom > 0 ? (d4 - d3) / denom : 0;
+    const du = u - (1 - t);
+    const dw = w - t;
+    const dx = du * e1x + dw * e2x;
+    const dy = du * e1y + dw * e2y;
+    const dz = du * e1z + dw * e2z;
+    return Math.hypot(dx, dy, dz);
+  }
+
+  return 0;
+}
 
 function smoothstep(value: number): number {
   const t = Math.max(0, Math.min(1, value));
@@ -515,8 +627,45 @@ export function pushOutside(
     prepared.push({ surface, normals, grid });
   }
 
+  let neighbors: number[][] | null = null;
+  const topology = options.topology;
+  const weld = topology?.weld;
+  let groupCount = weld?.groupCount ?? 0;
+  if (topology) {
+    const { index: triIndex } = topology;
+    const neighborSets: Set<number>[] = Array.from({ length: vertexCount }, () => new Set());
+    const triCount = Math.floor(triIndex.length / 3);
+    for (let t = 0; t < triCount; t++) {
+      const i0 = triIndex[t * 3]!;
+      const i1 = triIndex[t * 3 + 1]!;
+      const i2 = triIndex[t * 3 + 2]!;
+      if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount) continue;
+      neighborSets[i0]!.add(i1);
+      neighborSets[i0]!.add(i2);
+      neighborSets[i1]!.add(i0);
+      neighborSets[i1]!.add(i2);
+      neighborSets[i2]!.add(i0);
+      neighborSets[i2]!.add(i1);
+    }
+    neighbors = neighborSets.map((s) => Array.from(s));
+    if (weld && groupCount <= 0) {
+      for (let v = 0; v < vertexCount; v++) {
+        const g = weld.groupOf[v]!;
+        if (g >= groupCount) groupCount = g + 1;
+      }
+    }
+  }
+  const groupBestV = topology && weld && groupCount > 0 ? new Int32Array(groupCount) : null;
+  const groupMaxLimit = topology && weld && groupCount > 0 ? new Float32Array(groupCount) : null;
+  const shiftLen = neighbors !== null ? new Float32Array(vertexCount) : null;
+  const limits = neighbors !== null ? new Float32Array(vertexCount) : null;
+  const neighborShifts: number[] = [];
+
   for (let pass = 0; pass < passes; pass++) {
     best.fill(0);
+    shiftX.fill(0);
+    shiftY.fill(0);
+    shiftZ.fill(0);
     for (const { surface, normals, grid } of prepared) {
       const { positions: sp, index } = surface;
       for (let v = 0; v < vertexCount; v++) {
@@ -557,6 +706,11 @@ export function pushOutside(
           const u = (d22 * p1 - d12 * p2) / det;
           const w = (d11 * p2 - d12 * p1) / det;
           if (u < -SLACK || w < -SLACK || u + w > 1 + SLACK) continue;
+          if (
+            projectionOverhang(u, w, p1, p2, d11, d12, d22, e1x, e1y, e1z, e2x, e2y, e2z) >
+            MAX_PROJECTION_OVERHANG_M
+          )
+            continue;
           const need = margin - d;
           const blend = (openingWeights?.[v] ?? 0) * smoothstep((nz - 0.5) / 0.2);
           const directionX = (1 - blend) * nx;
@@ -576,13 +730,96 @@ export function pushOutside(
         }
       }
     }
+
+    if (neighbors !== null && shiftLen !== null && limits !== null) {
+      // 1. Initialise shift length for each vertex.
+      for (let v = 0; v < vertexCount; v++) {
+        shiftLen[v] = best[v]! > MIN_PUSH ? best[v]! : 0;
+      }
+
+      // 2. Welded copies share their group's maximum push and direction.
+      if (weld && groupBestV !== null && groupCount > 0) {
+        groupBestV.fill(-1);
+        for (let v = 0; v < vertexCount; v++) {
+          const g = weld.groupOf[v]!;
+          if (g < groupCount) {
+            const bestV = groupBestV[g]!;
+            if (bestV === -1 || best[v]! > best[bestV]!) {
+              groupBestV[g] = v;
+            }
+          }
+        }
+        for (let v = 0; v < vertexCount; v++) {
+          const g = weld.groupOf[v]!;
+          if (g < groupCount) {
+            const src = groupBestV[g]!;
+            if (src >= 0 && src !== v && best[src]! > best[v]!) {
+              best[v] = best[src]!;
+              shiftX[v] = shiftX[src]!;
+              shiftY[v] = shiftY[src]!;
+              shiftZ[v] = shiftZ[src]!;
+            }
+            shiftLen[v] = best[v]! > MIN_PUSH ? best[v]! : 0;
+          }
+        }
+      }
+
+      // 3. For every vertex compute the median shift length of its 1-ring neighbours.
+      for (let v = 0; v < vertexCount; v++) {
+        const nbrs = neighbors[v]!;
+        if (nbrs.length === 0) {
+          limits[v] = OUTLIER_FLOOR_M;
+          continue;
+        }
+        neighborShifts.length = nbrs.length;
+        for (let i = 0; i < nbrs.length; i++) {
+          neighborShifts[i] = shiftLen[nbrs[i]!]!;
+        }
+        const medianNeighbour = computeMedian(neighborShifts);
+        limits[v] = Math.max(
+          medianNeighbour * OUTLIER_FACTOR + OUTLIER_SLACK_M,
+          OUTLIER_FLOOR_M,
+        );
+      }
+
+      // 4. Welded copies share their group's maximum limit.
+      if (weld && groupMaxLimit !== null && groupCount > 0) {
+        groupMaxLimit.fill(0);
+        for (let v = 0; v < vertexCount; v++) {
+          const g = weld.groupOf[v]!;
+          if (g < groupCount && limits[v]! > groupMaxLimit[g]!) {
+            groupMaxLimit[g] = limits[v]!;
+          }
+        }
+        for (let v = 0; v < vertexCount; v++) {
+          const g = weld.groupOf[v]!;
+          if (g < groupCount) {
+            limits[v] = groupMaxLimit[g]!;
+          }
+        }
+      }
+
+      // 5. Limit outliers, keeping their direction.
+      for (let v = 0; v < vertexCount; v++) {
+        if (best[v]! > limits[v]!) {
+          const scale = limits[v]! / best[v]!;
+          shiftX[v] = shiftX[v]! * scale;
+          shiftY[v] = shiftY[v]! * scale;
+          shiftZ[v] = shiftZ[v]! * scale;
+          best[v] = limits[v]!;
+        }
+      }
+    }
     let movedInPass = 0;
     for (let v = 0; v < vertexCount; v++) {
       if (best[v]! <= MIN_PUSH) continue;
       const weight = options.vertexWeights?.[v] ?? 1;
-      positions[v * 3] = positions[v * 3]! + weight * shiftX[v]!;
-      positions[v * 3 + 1] = positions[v * 3 + 1]! + weight * shiftY[v]!;
-      positions[v * 3 + 2] = positions[v * 3 + 2]! + weight * shiftZ[v]!;
+      const sx = weight * shiftX[v]!;
+      const sy = weight * shiftY[v]!;
+      const sz = weight * shiftZ[v]!;
+      positions[v * 3] = positions[v * 3]! + sx;
+      positions[v * 3 + 1] = positions[v * 3 + 1]! + sy;
+      positions[v * 3 + 2] = positions[v * 3 + 2]! + sz;
       everMoved[v] = 1;
       movedInPass++;
     }
